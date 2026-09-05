@@ -137,7 +137,6 @@ struct ExerciseRow: View {
                 HStack(spacing: 6) {
                     ForEach(exercise.images, id: \.self) { ExerciseImage(url: $0) }
                 }
-                .frame(height: 86)
                 .padding(.bottom, 4)
                 HStack(spacing: 6) {
                     Text("START").frame(maxWidth: .infinity)
@@ -189,20 +188,25 @@ struct ExerciseRow: View {
 
 struct ExerciseImage: View {
     let url: URL
+    var height: CGFloat = 86
     var body: some View {
-        AsyncImage(url: url) { phase in
-            switch phase {
-            case .success(let img):
-                img.resizable().scaledToFill()
-            case .failure:
-                Image(systemName: "figure.strengthtraining.traditional")
-                    .font(.system(size: 26)).foregroundStyle(Theme.muted)
-            default:
-                ProgressView().tint(Theme.muted)
+        Color.clear
+            .frame(height: height)
+            .frame(maxWidth: .infinity)
+            .background(Theme.border)
+            .overlay {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let img):
+                        img.resizable().scaledToFill()
+                    case .failure:
+                        Image(systemName: "figure.strengthtraining.traditional")
+                            .font(.system(size: 26)).foregroundStyle(Theme.muted)
+                    default:
+                        ProgressView().tint(Theme.muted)
+                    }
+                }
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.border)
-        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
     }
 }
