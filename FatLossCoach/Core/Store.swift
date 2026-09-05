@@ -244,6 +244,63 @@ final class Store {
         if day == nil { showToast("\(exercise): \(Fmt.num(kg)) kg × \(reps) ✓") }
     }
 
+    // MARK: Programme phases
+
+    struct PhaseProgress {
+        var started: Bool
+        var week: Int          // 1-based, clamped to totalWeeks
+        var totalWeeks: Int
+        var fraction: Double   // 0...1 within the phase
+        var daysLeft: Int
+        var isComplete: Bool { started && fraction >= 1 }
+    }
+
+    var currentPhase: Phase { Plan.phase(data.program.phase) }
+
+    var phaseProgress: PhaseProgress {
+        let ph = currentPhase
+        guard let sd = data.program.startDate, let start = DateKey.date(sd) else {
+            return PhaseProgress(started: false, week: 0, totalWeeks: ph.weeks, fraction: 0, daysLeft: ph.weeks * 7)
+        }
+        let elapsed = max(0, Calendar.current.dateComponents([.day], from: start, to: DateKey.daysAgo(0)).day ?? 0)
+        let total = ph.weeks * 7
+        return PhaseProgress(started: true,
+                             week: min(elapsed / 7 + 1, ph.weeks),
+                             totalWeeks: ph.weeks,
+                             fraction: min(Double(elapsed) / Double(total), 1),
+                             daysLeft: max(0, total - elapsed))
+    }
+
+    /// Completion of each phase for the 3-segment programme bar.
+    func phaseFill(_ n: Int) -> Double {
+        if n < data.program.phase { return 1 }
+        if n == data.program.phase { return phaseProgress.fraction }
+        return 0
+    }
+
+    func startCurrentPhase() {
+        data.program.startDate = today
+        showToast("Phase \(currentPhase.number) started — let's go 💪")
+    }
+
+    func setPhase(_ n: Int, startToday: Bool) {
+        guard Plan.phases.contains(where: { $0.number == n }) else { return }
+        data.program.phase = n
+        data.program.startDate = startToday ? today : nil
+        showToast("Now on Phase \(n): \(Plan.phase(n).name)")
+    }
+
+    func advancePhase() {
+        let next = min(data.program.phase + 1, Plan.phases.count)
+        guard next != data.program.phase else { return }
+        setPhase(next, startToday: true)
+    }
+
+    /// Habit subtitle for the workout habit follows the current phase's training days.
+    func habitTime(_ h: Habit) -> String {
+        h.key == "workout" ? currentPhase.trainingDays.joined(separator: "/") : h.time
+    }
+
     // MARK: Workout session
 
     private func sessionKey(_ day: String) -> String { "\(today)-\(day)" }

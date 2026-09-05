@@ -77,6 +77,18 @@ struct Goals: Codable, Hashable {
     }
 }
 
+struct ProgramState: Codable, Hashable {
+    var phase: Int = 1
+    var startDate: String?      // DateKey of the day this phase was started; nil = not started
+
+    init() {}
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        phase = c.value(.phase, default: 1)
+        startDate = c.value(.startDate, default: nil)
+    }
+}
+
 /// Everything the app persists. One JSON file on disk, mirrored to Firestore when signed in.
 struct AppData: Codable, Hashable {
     var weightLogs: [MeasurementEntry] = []                 // was "weight-logs" (+ "cur-weight")
@@ -89,6 +101,7 @@ struct AppData: Codable, Hashable {
     var health: [String: HealthDay] = [:]                   // was "health-sync"
     var exerciseDone: [String: Set<Int>] = [:]              // was "ex-YYYY-MM-DD-Mon"
     var goals = Goals()
+    var program = ProgramState()
     var updatedAt: Date = Date()
 
     init() {}
@@ -105,6 +118,7 @@ struct AppData: Codable, Hashable {
         health       = c.value(.health,       default: [:])
         exerciseDone = c.value(.exerciseDone, default: [:])
         goals        = c.value(.goals,        default: Goals())
+        program      = c.value(.program,      default: ProgramState())
         updatedAt    = c.value(.updatedAt,    default: Date())
     }
 
@@ -139,6 +153,8 @@ struct AppData: Codable, Hashable {
             for l in newer { byDate[l.date] = l }
             return byDate.values.sorted { $0.date < $1.date }
         }
+        // Programme: the further-along phase wins (never silently move someone backwards).
+        if older.program.phase > out.program.phase { out.program = older.program }
         out.updatedAt = max(updatedAt, other.updatedAt)
         return out
     }

@@ -40,6 +40,18 @@ struct WorkoutDay: Identifiable, Hashable {
     var isTraining: Bool { !exercises.isEmpty }
 }
 
+struct Phase: Identifiable, Hashable {
+    let number: Int          // 1...3
+    let name: String         // "Foundation"
+    let tagline: String      // shown in the Workout header
+    let weeks: Int           // planned length
+    let goal: String         // what this phase is for
+    let tip: String          // progression rule for this phase
+    let workouts: [WorkoutDay]
+    var id: Int { number }
+    var trainingDays: [String] { workouts.filter(\.isTraining).map(\.day) }
+}
+
 struct BreathingSlot: Identifiable {
     let icon: String
     let time: String
@@ -76,7 +88,72 @@ enum Plan {
     /// Supplements shown in the 7-day adherence card.
     static let trackedSupplements = ["vd3", "o3", "mg"]
 
-    static let workouts: [WorkoutDay] = [
+    // MARK: Programme phases
+
+    static let phases: [Phase] = [
+        Phase(number: 1, name: "Foundation", tagline: "Build the habit", weeks: 4,
+              goal: "Two short full-body sessions a week (home or gym) plus a daily walk. The goal is consistency, not intensity.",
+              tip: "Form over weight. Stop 2 reps short of failure. Add 1–2 reps per session before you add any load.",
+              workouts: [
+            WorkoutDay(day: "Mon", label: "Full Body A", tag: "Legs · Push · Core", exercises: foundation),
+            WorkoutDay(day: "Tue", label: "Walk", tag: "30–45 min brisk", exercises: []),
+            WorkoutDay(day: "Wed", label: "Walk", tag: "30–45 min brisk", exercises: []),
+            WorkoutDay(day: "Thu", label: "Full Body B", tag: "Legs · Pull · Core", exercises: foundation),
+            WorkoutDay(day: "Fri", label: "Walk", tag: "30–45 min brisk", exercises: []),
+            WorkoutDay(day: "Sat", label: "Active Recovery", tag: "Walk or stretch", exercises: []),
+            WorkoutDay(day: "Sun", label: "Rest", tag: "Full rest day", exercises: []),
+        ]),
+        Phase(number: 2, name: "Build", tagline: "Learn the gym", weeks: 4,
+              goal: "Three machine-first gym sessions. Learn each movement with light loads and build work capacity.",
+              tip: "Pick a weight you can lift for the top of the range with 2 reps in reserve. Hit the top for 2 sessions → add 2.5 kg.",
+              workouts: [
+            WorkoutDay(day: "Mon", label: "Upper A", tag: "Chest · Back · Shoulders", exercises: [
+                Exercise("Machine Chest Press",    "3×10–12", "Chest, Triceps",        "Machine_Bench_Press"),
+                Exercise("Lat Pulldown",           "3×10–12", "Lats, Biceps",          "Wide-Grip_Lat_Pulldown"),
+                Exercise("Machine Shoulder Press", "3×10–12", "Shoulders",             "Machine_Shoulder_Military_Press"),
+                Exercise("Seated Cable Row",       "3×10–12", "Mid Back",              "Seated_Cable_Rows"),
+                Exercise("Plank",                  "3×30s",   "Core",                  "Plank"),
+            ]),
+            WorkoutDay(day: "Tue", label: "Walk", tag: "30–45 min brisk", exercises: []),
+            WorkoutDay(day: "Wed", label: "Lower", tag: "Legs · Glutes · Core", exercises: [
+                Exercise("Leg Press (machine)",    "3×12–15", "Quads, Glutes",         "Leg_Press"),
+                Exercise("Seated Leg Curl",        "3×12–15", "Hamstrings",            "Seated_Leg_Curl"),
+                Exercise("Leg Extension",          "3×12–15", "Quads",                 "Leg_Extensions"),
+                Exercise("Goblet Squat",           "3×10–12", "Quads, Glutes",         "Goblet_Squat"),
+                Exercise("Standing Calf Raises",   "3×15",    "Calves",                "Standing_Calf_Raises"),
+                Exercise("Dead Bug",               "3×10/side", "Core",                "Dead_Bug"),
+            ]),
+            WorkoutDay(day: "Thu", label: "Walk", tag: "30–45 min brisk", exercises: []),
+            WorkoutDay(day: "Fri", label: "Upper B", tag: "Push · Pull · Arms", exercises: [
+                Exercise("Push-Ups",               "3×8–12",  "Chest, Triceps",        "Pushups"),
+                Exercise("Seated Cable Row",       "3×10–12", "Mid Back",              "Seated_Cable_Rows"),
+                Exercise("Face Pulls",             "3×15",    "Rear Delt, Upper Back", "Face_Pull"),
+                Exercise("DB Bicep Curls",         "3×10–12", "Biceps",                "Dumbbell_Bicep_Curl"),
+                Exercise("Tricep Pushdowns",       "3×12–15", "Triceps",               "Triceps_Pushdown"),
+                Exercise("Side Plank",             "3×20s/side", "Obliques",           "Side_Bridge"),
+            ]),
+            WorkoutDay(day: "Sat", label: "Active Recovery", tag: "Walk 30–45 min", exercises: []),
+            WorkoutDay(day: "Sun", label: "Rest", tag: "Full rest day", exercises: []),
+        ]),
+        Phase(number: 3, name: "Full Gym", tagline: "Progressive overload", weeks: 8,
+              goal: "Push / Pull / Legs with free weights. Chase small weekly progress on every lift.",
+              tip: "When you complete all reps at the top of your range for 2 sessions in a row, add weight next time. Upper body: +2.5 kg · Lower body: +5 kg",
+              workouts: fullGym),
+    ]
+
+    private static let foundation: [Exercise] = [
+        Exercise("Bodyweight Squat",   "3×10–15",   "Quads, Glutes",      "Bodyweight_Squat"),
+        Exercise("Incline Push-Up",    "3×8–12",    "Chest, Triceps",     "Incline_Push-Up"),
+        Exercise("Glute Bridge",       "3×12–15",   "Glutes, Hamstrings", "Butt_Lift_Bridge"),
+        Exercise("DB Bent-Over Row",   "3×10–12",   "Back, Biceps",       "Bent_Over_Two-Dumbbell_Row"),
+        Exercise("Dead Bug",           "3×8/side",  "Core",               "Dead_Bug"),
+        Exercise("Plank",              "3×20–30s",  "Core",               "Plank"),
+    ]
+
+    static func phase(_ n: Int) -> Phase { phases.first { $0.number == n } ?? phases[0] }
+
+    /// Phase 3 programme (the original web app schedule).
+    private static let fullGym: [WorkoutDay] = [
         WorkoutDay(day: "Mon", label: "Push Day", tag: "Chest · Shoulders · Triceps", exercises: [
             Exercise("Goblet Squat",        "3×12–15",  "Quads, Glutes",  "Goblet_Squat"),
             Exercise("DB Bench Press",      "3×10–12",  "Chest, Triceps", "Dumbbell_Bench_Press"),
@@ -107,7 +184,6 @@ enum Plan {
         WorkoutDay(day: "Sun", label: "Rest", tag: "Full rest day", exercises: []),
     ]
 
-    static func workout(for day: String) -> WorkoutDay? { workouts.first { $0.day == day } }
 
     /// "Mon" ... "Sun" for today, independent of the device locale.
     static var todayAbbrev: String {

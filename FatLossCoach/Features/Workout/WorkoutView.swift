@@ -6,15 +6,12 @@ struct WorkoutView: View {
 
     var body: some View {
         let today = Plan.todayAbbrev
-        Screen(subtitle: "Phase 3 — Full Gym", title: "Workout 🏋️") {
-            Text("🏋️ Phase 3: Full Gym Active")
-                .font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
-                .padding(.vertical, 7).padding(.horizontal, 16)
-                .background(Theme.primary).clipShape(Capsule())
-                .frame(maxWidth: .infinity, alignment: .leading)
+        let phase = store.currentPhase
+        Screen(subtitle: "Phase \(phase.number) — \(phase.name)", title: "Workout 🏋️") {
+            PhaseCard()
 
             VStack(spacing: 10) {
-                ForEach(Plan.workouts) { d in
+                ForEach(phase.workouts) { d in
                     DayCard(day: d, isToday: d.day == today) {
                         if d.isTraining { selected = d }
                     }
@@ -22,8 +19,8 @@ struct WorkoutView: View {
             }
 
             Card {
-                SectionTitle("Progressive Overload")
-                Text("When you complete all reps at the top of your range for 2 sessions in a row, add weight next time. Upper body: +2.5 kg · Lower body: +5 kg")
+                SectionTitle("Progression rule — Phase \(phase.number)")
+                Text(phase.tip)
                     .font(.system(size: 13)).foregroundStyle(Theme.muted).lineSpacing(4)
             }
         }
@@ -33,7 +30,128 @@ struct WorkoutView: View {
         .onAppear {
             // Debug: launch with `-openDay Mon` to open a session directly.
             if selected == nil, let d = UserDefaults.standard.string(forKey: "openDay") {
-                selected = Plan.workout(for: d)
+                selected = store.currentPhase.workouts.first { $0.day == d }
+            }
+        }
+    }
+}
+
+/// "Where am I" — 3-segment programme bar, current-phase week counter, start / advance controls.
+struct PhaseCard: View {
+    @Environment(Store.self) private var store
+    @State private var confirmPhase: Int?
+
+    var body: some View {
+        let phase = store.currentPhase
+        let prog = store.phaseProgress
+        Card {
+            HStack(alignment: .firstTextBaseline) {
+                SectionTitle("🏁 Programme · Phase \(phase.number) of \(Plan.phases.count)")
+                Spacer()
+                Menu {
+                    ForEach(Plan.phases) { ph in
+                        Button {
+                            confirmPhase = ph.number
+                        } label: {
+                            Label("Phase \(ph.number): \(ph.name)", systemImage: ph.number == phase.number ? "checkmark" : "circle")
+                        }
+                    }
+                    Divider()
+                    Button("Restart current phase today") { store.setPhase(phase.number, startToday: true) }
+                } label: {
+                    Label("Change", systemImage: "slider.horizontal.3")
+                        .font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.primary)
+                }
+                .padding(.bottom, 10)
+            }
+
+            PhaseTrack()
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(phase.name).font(.system(size: 20, weight: .heavy)).foregroundStyle(Theme.text)
+                    Text(phase.tagline).font(.system(size: 13)).foregroundStyle(Theme.muted)
+                    Spacer()
+                    Text(prog.started ? "Week \(prog.week) of \(prog.totalWeeks)" : "Not started")
+                        .font(.system(size: 12, weight: .heavy))
+                        .foregroundStyle(prog.started ? Theme.primary : Theme.orange)
+                        .padding(.vertical, 3).padding(.horizontal, 9)
+                        .background((prog.started ? Theme.primary : Theme.orange).opacity(0.12))
+                        .clipShape(Capsule())
+                }
+                ProgressBar(value: prog.fraction, height: 10, fill: AnyShapeStyle(Theme.primary))
+                    .padding(.top, 2)
+                HStack {
+                    Text(prog.started
+                         ? (prog.isComplete ? "Phase complete 🎉" : "\(prog.daysLeft) days left in this phase")
+                         : "\(phase.weeks) weeks · \(phase.trainingDays.count)× training per week")
+                    Spacer()
+                    if let sd = store.data.program.startDate, let d = DateKey.date(sd) {
+                        Text("Started \(d.formatted(.dateTime.day().month(.abbreviated)))")
+                    }
+                }
+                .font(.system(size: 11)).foregroundStyle(Theme.muted)
+            }
+            .padding(.top, 12)
+
+            Text(phase.goal)
+                .font(.system(size: 13)).foregroundStyle(Theme.text).lineSpacing(3)
+                .padding(.top, 10)
+
+            if !prog.started {
+                Button("▶︎ Start Phase \(phase.number) today") { store.startCurrentPhase() }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .padding(.top, 12)
+            } else if prog.isComplete, phase.number < Plan.phases.count {
+                Button("Advance to Phase \(phase.number + 1): \(Plan.phase(phase.number + 1).name) →") { store.advancePhase() }
+                    .buttonStyle(PrimaryButtonStyle(color: Theme.orange))
+                    .padding(.top, 12)
+            }
+        }
+        .confirmationDialog(
+            confirmPhase.map { "Switch to Phase \($0): \(Plan.phase($0).name)?" } ?? "",
+            isPresented: Binding(get: { confirmPhase != nil }, set: { if !$0 { confirmPhase = nil } }),
+            titleVisibility: .visible
+        ) {
+            if let n = confirmPhase {
+                Button("Switch and start today") { store.setPhase(n, startToday: true) }
+                Button("Switch, start later") { store.setPhase(n, startToday: false) }
+                Button("Cancel", role: .cancel) {}
+            }
+        }
+    }
+}
+
+/// Three segments, one per phase; filled to each phase's completion.
+struct PhaseTrack: View {
+    @Environment(Store.self) private var store
+    var compact = false
+
+    var body: some View {
+        let current = store.currentPhase.number
+        VStack(spacing: 6) {
+            HStack(spacing: 4) {
+                ForEach(Plan.phases) { ph in
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Theme.border)
+                            Capsule().fill(ph.number < current ? Theme.primaryLight : Theme.primary)
+                                .frame(width: geo.size.width * store.phaseFill(ph.number))
+                        }
+                        .overlay(Capsule().stroke(ph.number == current ? Theme.primary : Color.clear, lineWidth: 1.5))
+                    }
+                    .frame(height: compact ? 8 : 12)
+                }
+            }
+            if !compact {
+                HStack(spacing: 4) {
+                    ForEach(Plan.phases) { ph in
+                        Text("\(ph.number) · \(ph.name)")
+                            .font(.system(size: 10, weight: ph.number == current ? .heavy : .semibold))
+                            .foregroundStyle(ph.number == current ? Theme.primary : Theme.muted)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
             }
         }
     }

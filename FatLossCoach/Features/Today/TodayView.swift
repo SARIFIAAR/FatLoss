@@ -15,6 +15,7 @@ struct TodayView: View {
 
     var body: some View {
         Screen(subtitle: dateLine, title: greeting) {
+            PhaseStrip()
             TargetsCard()
             WatchCard()
             RecoveryCard()
@@ -40,6 +41,35 @@ struct TodayView: View {
 }
 
 // MARK: - Cards
+
+/// Compact "where am I in the programme" strip.
+struct PhaseStrip: View {
+    @Environment(Store.self) private var store
+    var body: some View {
+        let phase = store.currentPhase
+        let prog = store.phaseProgress
+        Card(padding: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("🏁 Phase \(phase.number) · \(phase.name)")
+                    .font(.system(size: 14, weight: .heavy)).foregroundStyle(Theme.text)
+                Spacer()
+                Text(prog.started ? "Week \(prog.week) of \(prog.totalWeeks)" : "Not started")
+                    .font(.system(size: 12, weight: .heavy))
+                    .foregroundStyle(prog.started ? Theme.primary : Theme.orange)
+            }
+            PhaseTrack(compact: true).padding(.top, 8)
+            if !prog.started {
+                Button("▶︎ Start Phase \(phase.number) today") { store.startCurrentPhase() }
+                    .buttonStyle(PrimaryButtonStyle(compact: true))
+                    .padding(.top, 10)
+            } else if prog.isComplete, phase.number < Plan.phases.count {
+                Button("Advance to Phase \(phase.number + 1) →") { store.advancePhase() }
+                    .buttonStyle(PrimaryButtonStyle(color: Theme.orange, compact: true))
+                    .padding(.top, 10)
+            }
+        }
+    }
+}
 
 struct TargetsCard: View {
     @Environment(Store.self) private var store
@@ -190,7 +220,7 @@ struct HabitsCard: View {
                                 .foregroundStyle(done ? Theme.muted : Theme.text)
                                 .strikethrough(done, color: Theme.muted)
                             Spacer()
-                            Text(h.time).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                            Text(store.habitTime(h)).font(.system(size: 12)).foregroundStyle(Theme.muted)
                         }
                         .padding(.vertical, 10)
                         .contentShape(Rectangle())
