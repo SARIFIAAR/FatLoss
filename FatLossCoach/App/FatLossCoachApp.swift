@@ -18,7 +18,12 @@ struct FatLossCoachApp: App {
                 .environment(health)
                 .environment(cloud)
                 .onOpenURL { store.handle(url: $0) }
-                .task { cloud.attach(store: store) }
+                .task {
+                    cloud.attach(store: store)
+                    // Debug: `-debugLogWeight 101.5` performs a write on launch (crash repro / automation).
+                    let w = UserDefaults.standard.double(forKey: "debugLogWeight")
+                    if w > 0 { store.logWeight(w) }
+                }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {

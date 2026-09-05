@@ -5,14 +5,17 @@ import Observation
 /// in Application Support (debounced) and notifies `CloudSync` on every change.
 @Observable
 final class Store {
+    /// NOTE: never mutate `data` inside this observer — that re-enters the setter and recurses.
     var data: AppData {
         didSet {
             guard data != oldValue else { return }
-            if !isApplyingRemote { data.updatedAt = Date() }
+            if !isApplyingRemote { lastModified = Date() }
             scheduleSave()
             if !isApplyingRemote { onChange?() }
         }
     }
+    /// Kept outside `data` so writes don't observe themselves. Stamped into `updatedAt` on save/export/push.
+    var lastModified: Date
     var toast: String?
 
     /// Set by CloudSync while merging a remote snapshot so we don't echo it back.
@@ -28,12 +31,17 @@ final class Store {
         let dir = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         self.fileURL = fileURL ?? dir.appendingPathComponent("fatloss-data.json")
-        if let raw = try? Data(contentsOf: self.fileURL),
-           let decoded = try? Self.decoder.decode(AppData.self, from: raw) {
-            data = decoded
-        } else {
-            data = AppData()
-        }
+        let loaded = (try? Data(contentsOf: self.fileURL))
+            .flatMap { try? Self.decoder.decode(AppData.self, from: $0) } ?? AppData()
+        data = loaded
+        lastModified = loaded.updatedAt
+    }
+
+    /// `data` with the current modification time stamped in — what gets persisted and synced.
+    func snapshot() -> AppData {
+        var d = data
+        d.updatedAt = lastModified
+        return d
     }
 
     // MARK: Persistence
@@ -61,7 +69,7 @@ final class Store {
 
     func save() {
         do {
-            let raw = try Self.encoder.encode(data)
+            let raw = try Self.encoder.encode(snapshot())
             try raw.write(to: fileURL, options: .atomic)
         } catch {
             print("Store.save failed: \(error)")
@@ -72,7 +80,7 @@ final class Store {
         let e = JSONEncoder()
         e.dateEncodingStrategy = .iso8601
         e.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return (try? e.encode(data)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        return (try? e.encode(snapshot())).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
     }
 
     // MARK: Dates

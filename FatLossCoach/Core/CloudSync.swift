@@ -80,10 +80,12 @@ final class CloudSync {
               let raw = json.data(using: .utf8),
               let remote = try? Store.decoder.decode(AppData.self, from: raw) else { return }
 
-        let merged = store.data.merged(with: remote)
-        if merged != store.data {
+        let local = store.snapshot()
+        let merged = local.merged(with: remote)
+        if merged != local {
             store.isApplyingRemote = true
             store.data = merged
+            store.lastModified = merged.updatedAt
             store.isApplyingRemote = false
         }
         if merged != remote { schedulePush() }
@@ -97,7 +99,7 @@ final class CloudSync {
         pushTask = Task { [weak self] in
             if !immediate { try? await Task.sleep(for: .seconds(2)) }
             guard !Task.isCancelled, let self, let store = self.store else { return }
-            await self.push(uid: uid, data: store.data)
+            await self.push(uid: uid, data: store.snapshot())
         }
     }
 
