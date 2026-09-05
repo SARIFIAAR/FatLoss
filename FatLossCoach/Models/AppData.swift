@@ -77,6 +77,32 @@ struct Goals: Codable, Hashable {
     }
 }
 
+struct FoodItem: Codable, Hashable, Identifiable {
+    var name: String
+    var portion: String
+    var grams: Double
+    var kcal: Double
+    var protein: Double
+    var carbs: Double
+    var fat: Double
+    var id: String { name + portion }
+}
+
+/// A logged meal (from the photo scanner or entered manually).
+struct MealEntry: Codable, Hashable, Identifiable {
+    var id: String = UUID().uuidString
+    var date: String                 // DateKey
+    var time: Date = Date()
+    var name: String
+    var kcal: Double
+    var protein: Double
+    var carbs: Double
+    var fat: Double
+    var items: [FoodItem] = []
+    var confidence: String? = nil    // low / medium / high
+    var notes: String? = nil
+}
+
 struct ProgramState: Codable, Hashable {
     var phase: Int = 1
     var startDate: String?      // DateKey of the day this phase was started; nil = not started
@@ -100,6 +126,7 @@ struct AppData: Codable, Hashable {
     var water: [String: Int] = [:]                          // was "water-YYYY-MM-DD"
     var health: [String: HealthDay] = [:]                   // was "health-sync"
     var exerciseDone: [String: Set<Int>] = [:]              // was "ex-YYYY-MM-DD-Mon"
+    var meals: [String: [MealEntry]] = [:]                  // date -> meals eaten
     var goals = Goals()
     var program = ProgramState()
     var updatedAt: Date = Date()
@@ -117,6 +144,7 @@ struct AppData: Codable, Hashable {
         water        = c.value(.water,        default: [:])
         health       = c.value(.health,       default: [:])
         exerciseDone = c.value(.exerciseDone, default: [:])
+        meals        = c.value(.meals,        default: [:])
         goals        = c.value(.goals,        default: Goals())
         program      = c.value(.program,      default: ProgramState())
         updatedAt    = c.value(.updatedAt,    default: Date())
@@ -124,7 +152,7 @@ struct AppData: Codable, Hashable {
 
     var isEmpty: Bool {
         weightLogs.isEmpty && waistLogs.isEmpty && recovery.isEmpty && overload.isEmpty
-            && habits.isEmpty && supplements.isEmpty && water.isEmpty && health.isEmpty
+            && habits.isEmpty && supplements.isEmpty && water.isEmpty && health.isEmpty && meals.isEmpty
     }
 
     /// Union merge used by cloud sync. For scalar conflicts the newer snapshot wins.
@@ -152,6 +180,12 @@ struct AppData: Codable, Hashable {
             for l in old { byDate[l.date] = l }
             for l in newer { byDate[l.date] = l }
             return byDate.values.sorted { $0.date < $1.date }
+        }
+        out.meals.merge(older.meals) { newer, old in
+            var byID: [String: MealEntry] = [:]
+            for m in old { byID[m.id] = m }
+            for m in newer { byID[m.id] = m }
+            return byID.values.sorted { $0.time < $1.time }
         }
         // Programme: the further-along phase wins (never silently move someone backwards).
         if older.program.phase > out.program.phase { out.program = older.program }

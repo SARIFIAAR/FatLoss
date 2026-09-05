@@ -244,6 +244,32 @@ final class Store {
         if day == nil { showToast("\(exercise): \(Fmt.num(kg)) kg × \(reps) ✓") }
     }
 
+    // MARK: Meals
+
+    struct MacroTotals { var kcal = 0.0, protein = 0.0, carbs = 0.0, fat = 0.0 }
+
+    var mealsToday: [MealEntry] { (data.meals[today] ?? []).sorted { $0.time < $1.time } }
+
+    func totals(on day: String? = nil) -> MacroTotals {
+        (data.meals[day ?? today] ?? []).reduce(into: MacroTotals()) {
+            $0.kcal += $1.kcal; $0.protein += $1.protein; $0.carbs += $1.carbs; $0.fat += $1.fat
+        }
+    }
+
+    func addMeal(_ meal: MealEntry) {
+        var list = data.meals[meal.date] ?? []
+        list.removeAll { $0.id == meal.id }
+        list.append(meal)
+        data.meals[meal.date] = list
+        showToast("\(meal.name) logged · \(Int(meal.kcal.rounded())) kcal 🍽️")
+    }
+
+    func deleteMeal(_ meal: MealEntry) {
+        var list = data.meals[meal.date] ?? []
+        list.removeAll { $0.id == meal.id }
+        if list.isEmpty { data.meals.removeValue(forKey: meal.date) } else { data.meals[meal.date] = list }
+    }
+
     // MARK: Programme phases
 
     struct PhaseProgress {

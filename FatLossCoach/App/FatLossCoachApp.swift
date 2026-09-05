@@ -5,6 +5,7 @@ struct FatLossCoachApp: App {
     @State private var store = Store()
     @State private var health = HealthKitManager()
     @State private var cloud = CloudSync()
+    @State private var scanner = MealScanner()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -17,6 +18,7 @@ struct FatLossCoachApp: App {
                 .environment(store)
                 .environment(health)
                 .environment(cloud)
+                .environment(scanner)
                 .onOpenURL { store.handle(url: $0) }
                 .task {
                     cloud.attach(store: store)

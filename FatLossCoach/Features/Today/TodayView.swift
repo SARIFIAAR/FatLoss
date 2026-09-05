@@ -75,13 +75,20 @@ struct TargetsCard: View {
     @Environment(Store.self) private var store
     var body: some View {
         let g = store.data.goals
+        let t = store.totals()
+        let eaten = t.kcal > 0
         Card {
-            SectionTitle("Daily Targets")
+            SectionTitle(eaten ? "Today · eaten / target" : "Daily Targets")
             HStack(spacing: 8) {
-                MacroStat(value: "\(g.kcal)", label: "kcal", color: Theme.primary)
-                MacroStat(value: "\(g.protein)g", label: "protein", color: Theme.primary)
-                MacroStat(value: "\(g.carbs)g", label: "carbs", color: Theme.orange)
-                MacroStat(value: "\(g.fat)g", label: "fat", color: Theme.blue)
+                MacroStat(value: eaten ? "\(Int(t.kcal.rounded()))/\(g.kcal)" : "\(g.kcal)", label: "kcal", color: Theme.primary)
+                MacroStat(value: eaten ? "\(Int(t.protein.rounded()))/\(g.protein)g" : "\(g.protein)g", label: "protein", color: Theme.primary)
+                MacroStat(value: eaten ? "\(Int(t.carbs.rounded()))/\(g.carbs)g" : "\(g.carbs)g", label: "carbs", color: Theme.orange)
+                MacroStat(value: eaten ? "\(Int(t.fat.rounded()))/\(g.fat)g" : "\(g.fat)g", label: "fat", color: Theme.blue)
+            }
+            if eaten {
+                ProgressBar(value: t.kcal / Double(g.kcal), height: 8,
+                            fill: AnyShapeStyle(t.kcal > Double(g.kcal) ? Theme.red : Theme.primaryLight))
+                    .padding(.top, 10)
             }
         }
     }
@@ -94,6 +101,7 @@ struct MacroStat: View {
     var body: some View {
         VStack(spacing: 2) {
             Text(value).font(.system(size: 20, weight: .heavy)).foregroundStyle(color)
+                .minimumScaleFactor(0.6).lineLimit(1)
             Text(label).font(.system(size: 11)).foregroundStyle(Theme.muted)
         }
         .frame(maxWidth: .infinity)

@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 struct NutritionView: View {
     @Environment(Store.self) private var store
@@ -8,6 +9,8 @@ struct NutritionView: View {
         let ml = store.waterToday
         let pct = min(Double(ml) / Double(g.waterGoal), 1)
         Screen(subtitle: "Fuel your fat loss", title: "Nutrition 🥗") {
+            MealScanCard()
+            TodayMealsCard()
             TimelineView(.periodic(from: .now, by: 60)) { ctx in
                 if Calendar.current.component(.hour, from: ctx.date) >= Plan.kitchenClosesHour {
                     HStack(spacing: 10) {
@@ -64,13 +67,19 @@ struct NutritionView: View {
             }
 
             Card {
-                SectionTitle("Daily Macro Targets")
+                let t = store.totals()
+                SectionTitle("Today vs Targets")
                 VStack(spacing: 10) {
-                    MacroBar(name: "🥩 Protein", value: "\(g.protein)g", fraction: 0.65, color: Theme.primary)
-                    MacroBar(name: "🍚 Carbs", value: "\(g.carbs)g", fraction: 0.55, color: Theme.orange)
-                    MacroBar(name: "🥑 Fat", value: "\(g.fat)g", fraction: 0.42, color: Theme.blue)
+                    MacroBar(name: "🔥 Calories", value: "\(Int(t.kcal.rounded())) / \(g.kcal) kcal",
+                             fraction: t.kcal / Double(g.kcal), color: t.kcal > Double(g.kcal) ? Theme.red : Theme.primaryLight)
+                    MacroBar(name: "🥩 Protein", value: "\(Int(t.protein.rounded())) / \(g.protein) g",
+                             fraction: t.protein / Double(g.protein), color: Theme.primary)
+                    MacroBar(name: "🍚 Carbs", value: "\(Int(t.carbs.rounded())) / \(g.carbs) g",
+                             fraction: t.carbs / Double(g.carbs), color: Theme.orange)
+                    MacroBar(name: "🥑 Fat", value: "\(Int(t.fat.rounded())) / \(g.fat) g",
+                             fraction: t.fat / Double(g.fat), color: Theme.blue)
                 }
-                Text("Total: \(g.kcal.formatted()) kcal · \(g.deficit) kcal deficit daily")
+                Text("\(max(0, g.kcal - Int(t.kcal.rounded()))) kcal left today · target \(g.kcal.formatted()) kcal (−\(g.deficit) deficit)")
                     .font(.system(size: 12)).foregroundStyle(Theme.muted)
                     .padding(.top, 10)
             }
@@ -108,6 +117,229 @@ struct MacroBar: View {
             }
             .font(.system(size: 13))
             ProgressBar(value: fraction, height: 10, fill: AnyShapeStyle(color))
+        }
+    }
+}
+
+// MARK: - Meal photo scanner
+
+struct MealScanCard: View {
+    @Environment(Store.self) private var store
+    @Environment(MealScanner.self) private var scanner
+    @Environment(CloudSync.self) private var cloud
+    @State private var showCamera = false
+    @State private var pickerItem: PhotosPickerItem?
+    @State private var pending: PendingMeal?
+    @State private var error: String?
+
+    struct PendingMeal: Identifiable {
+        let id = UUID()
+        let image: UIImage
+        var analysis: MealScanner.Analysis
+    }
+
+    var body: some View {
+        Card {
+            SectionTitle("📷 Scan a meal")
+            Text("Photograph your plate and get calories, protein, carbs and fat estimated for you, then log it against today's targets.")
+                .font(.system(size: 13)).foregroundStyle(Theme.muted).lineSpacing(3)
+                .padding(.bottom, 10)
+            if !cloud.isSignedIn {
+                Text("Sign in with Apple in the Profile tab to enable meal scanning.")
+                    .font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.orange)
+                    .padding(.bottom, 8)
+            }
+            HStack(spacing: 10) {
+                Button {
+                    showCamera = true
+                } label: {
+                    Label(scanner.isAnalyzing ? "Analyzing…" : "Camera", systemImage: "camera.fill")
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(scanner.isAnalyzing || !cloud.isSignedIn || !UIImagePickerController.isSourceTypeAvailable(.camera))
+
+                PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
+                    Label("Library", systemImage: "photo.on.rectangle")
+                        .font(.system(size: 16, weight: .bold)).foregroundStyle(Theme.primary)
+                        .frame(maxWidth: .infinity).padding(.vertical, 14)
+                        .background(Theme.bg)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.accent, lineWidth: 2))
+                }
+                .disabled(scanner.isAnalyzing || !cloud.isSignedIn)
+            }
+            if scanner.isAnalyzing {
+                HStack(spacing: 8) {
+                    ProgressView().tint(Theme.primary)
+                    Text("Looking at your plate…").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                }
+                .padding(.top, 10)
+            }
+            if let error {
+                Text(error).font(.system(size: 12)).foregroundStyle(Theme.red).padding(.top, 8)
+            }
+        }
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraPicker { image in
+                showCamera = false
+                if let image { Task { await analyze(image) } }
+            }
+            .ignoresSafeArea()
+        }
+        .onChange(of: pickerItem) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self), let img = UIImage(data: data) {
+                    await analyze(img)
+                }
+                pickerItem = nil
+            }
+        }
+        .sheet(item: $pending) { p in
+            MealResultSheet(image: p.image, analysis: p.analysis) { entry in
+                store.addMeal(entry)
+                pending = nil
+            }
+        }
+    }
+
+    private func analyze(_ image: UIImage) async {
+        error = nil
+        do {
+            let a = try await scanner.analyze(image)
+            pending = PendingMeal(image: image, analysis: a)
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+}
+
+/// UIImagePickerController camera wrapper (PhotosPicker covers the library).
+struct CameraPicker: UIViewControllerRepresentable {
+    let onImage: (UIImage?) -> Void
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let vc = UIImagePickerController()
+        vc.sourceType = .camera
+        vc.cameraCaptureMode = .photo
+        vc.delegate = context.coordinator
+        return vc
+    }
+    func updateUIViewController(_ vc: UIImagePickerController, context: Context) {}
+    func makeCoordinator() -> Coordinator { Coordinator(onImage: onImage) }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let onImage: (UIImage?) -> Void
+        init(onImage: @escaping (UIImage?) -> Void) { self.onImage = onImage }
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            onImage(info[.originalImage] as? UIImage)
+        }
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { onImage(nil) }
+    }
+}
+
+struct MealResultSheet: View {
+    let image: UIImage
+    let analysis: MealScanner.Analysis
+    let onAdd: (MealEntry) -> Void
+    @Environment(Store.self) private var store
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Image(uiImage: image)
+                        .resizable().scaledToFill()
+                        .frame(height: 180).frame(maxWidth: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(analysis.meal_name).font(.system(size: 20, weight: .heavy)).foregroundStyle(Theme.text)
+                        Spacer()
+                        Text("\(analysis.confidence.capitalized) confidence")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(analysis.confidence == "high" ? Theme.primary : Theme.orange)
+                            .padding(.vertical, 3).padding(.horizontal, 8)
+                            .background((analysis.confidence == "high" ? Theme.primary : Theme.orange).opacity(0.12))
+                            .clipShape(Capsule())
+                    }
+
+                    HStack(spacing: 8) {
+                        MacroStat(value: "\(Int(analysis.total_kcal.rounded()))", label: "kcal", color: Theme.primary)
+                        MacroStat(value: "\(Int(analysis.total_protein_g.rounded()))g", label: "protein", color: Theme.primary)
+                        MacroStat(value: "\(Int(analysis.total_carbs_g.rounded()))g", label: "carbs", color: Theme.orange)
+                        MacroStat(value: "\(Int(analysis.total_fat_g.rounded()))g", label: "fat", color: Theme.blue)
+                    }
+                    .padding(.vertical, 12)
+                    .background(Theme.bg)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                    VStack(spacing: 0) {
+                        ForEach(Array(analysis.items.enumerated()), id: \.offset) { i, it in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(it.name).font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
+                                    Text("\(it.portion) · P \(Int(it.protein_g.rounded())) · C \(Int(it.carbs_g.rounded())) · F \(Int(it.fat_g.rounded()))")
+                                        .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                                }
+                                Spacer()
+                                Text("\(Int(it.kcal.rounded())) kcal").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.primary)
+                            }
+                            .padding(.vertical, 9)
+                            if i < analysis.items.count - 1 { Divider().overlay(Theme.border) }
+                        }
+                    }
+
+                    if !analysis.notes.isEmpty {
+                        Text("ℹ️ \(analysis.notes)").font(.system(size: 12)).foregroundStyle(Theme.muted).lineSpacing(3)
+                    }
+
+                    Button("Add to today's log") { onAdd(analysis.mealEntry(date: store.today)) }
+                        .buttonStyle(PrimaryButtonStyle())
+                        .padding(.top, 6)
+                    Button("Discard") { dismiss() }
+                        .buttonStyle(SecondaryButtonStyle())
+                }
+                .padding(20)
+            }
+            .background(Theme.card)
+            .navigationTitle("Meal estimate")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDragIndicator(.visible)
+    }
+}
+
+struct TodayMealsCard: View {
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        let meals = store.mealsToday
+        if !meals.isEmpty {
+            Card {
+                SectionTitle("🍽️ Eaten today")
+                VStack(spacing: 0) {
+                    ForEach(Array(meals.enumerated()), id: \.element.id) { i, m in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(m.name).font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
+                                Text("\(m.time.formatted(date: .omitted, time: .shortened)) · P \(Int(m.protein.rounded())) · C \(Int(m.carbs.rounded())) · F \(Int(m.fat.rounded()))")
+                                    .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                            }
+                            Spacer()
+                            Text("\(Int(m.kcal.rounded())) kcal").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.primary)
+                            Button(role: .destructive) { store.deleteMeal(m) } label: {
+                                Image(systemName: "trash").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.leading, 6)
+                        }
+                        .padding(.vertical, 9)
+                        if i < meals.count - 1 { Divider().overlay(Theme.border) }
+                    }
+                }
+            }
         }
     }
 }

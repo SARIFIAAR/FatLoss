@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		FC00000000000000000000A1 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = FC00000000000000000000B1 /* FirebaseAuth */; };
 		FC00000000000000000000A2 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = FC00000000000000000000B2 /* FirebaseFirestore */; };
+		FC00000000000000000000A3 /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = FC00000000000000000000B3 /* FirebaseFunctions */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -30,6 +31,7 @@
 			files = (
 				FC00000000000000000000A1 /* FirebaseAuth in Frameworks */,
 				FC00000000000000000000A2 /* FirebaseFirestore in Frameworks */,
+				FC00000000000000000000A3 /* FirebaseFunctions in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -74,6 +76,7 @@
 			packageProductDependencies = (
 				FC00000000000000000000B1 /* FirebaseAuth */,
 				FC00000000000000000000B2 /* FirebaseFirestore */,
+				FC00000000000000000000B3 /* FirebaseFunctions */,
 			);
 			productName = FatLossCoach;
 			productReference = FC0000000000000000000004 /* FatLossCoach.app */;
@@ -263,7 +266,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = FatLossCoach/FatLossCoach.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = 9F2G8CQ45J;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -292,7 +295,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = FatLossCoach/FatLossCoach.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = 9F2G8CQ45J;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -358,6 +361,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = FC00000000000000000000C1 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseFirestore;
+		};
+		FC00000000000000000000B3 /* FirebaseFunctions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FC00000000000000000000C1 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFunctions;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

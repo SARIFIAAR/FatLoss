@@ -37,6 +37,10 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Take a photo of your meal to estimate its calories and macros.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Choose a meal photo to estimate its calories and macros.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Fat Loss Coach reads your steps, resting heart rate, HRV, respiratory rate and sleep to calculate your daily readiness score and progress charts.</string>
 	<key>NSHealthUpdateUsageDescription</key>
