@@ -1,0 +1,19 @@
+# Xcode
+build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.moved-aside
+.DS_Store
+
+# Swift Package Manager
+.swiftpm/
+/Packages/
+.build/
+
+# Firebase client config (re-download: firebase apps:sdkconfig IOS <appId> --project fat-loss-6516d)
+FatLossCoach/GoogleService-Info.plist
+
+# Secrets
+*.p8
