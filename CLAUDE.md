@@ -149,7 +149,7 @@ blocked for Claude by the permission classifier — the user runs it.
 
 **Firestore rules**: `firebase deploy --only firestore:rules --project fat-loss-6516d`.
 
-## Feature status (build 6)
+## Feature status (build 7)
 
 - Today: phase strip, eaten/target macros, Apple Watch steps + kcal burned (active + resting) + RHR with a
   burned/eaten/deficit line, readiness score (HRV 40 · sleep 30
@@ -167,25 +167,15 @@ blocked for Claude by the permission classifier — the user runs it.
   water/walk reminders,
   Shortcuts URL template, import from web app, JSON export, version/build footer.
 
-## Where things stand (2026-09-06, evening)
+## Where things stand (2026-09-06, night)
 
-**Shipped.** Build 1.0.0 (6) is on TestFlight and valid. The analyzer is **live** at
-`https://fatloss-analyzer.fly.dev` (deployed twice today; `/health` OK; the user scanned a banana from
-build 6 successfully). Firestore rules (schema 2, subcollections) are deployed.
-
-**In the working tree, not yet built/shipped (build 7 candidates):**
-- Apple Watch energy: `activeEnergyBurned` + `basalEnergyBurned` read in `HealthKitManager`, stored in
-  `HealthDay`, shown in Today (kcal burned box + deficit line), Nutrition (deficit so far, 7-day average) and
-  Progress (`EnergyChartView`). Existing users get a one-time Health permission sheet for the two new types.
-- `CloudMirror` + richer profile doc (see backend data model above).
-- `MealScanner.Context` sent with each scan.
-- Reminders (Profile → 🔔 Reminders card): `ReminderManager` plans non-repeating local notifications for the
-  next 3 days (≤ 60 requests, iOS cap is 64) and re-plans on foreground, after Health sync, after any water
-  change (`Store.onWaterChange`) and on settings change, so bodies carry real progress and reminders stop
-  once the water/step goal is met. Water notifications have "Log 250 ml / 500 ml" actions handled by the
-  `UNUserNotificationCenterDelegate` (the manager is the delegate; banners show in-foreground too).
-  No push server, no Info.plist keys needed. Permission is requested when a toggle is switched on.
-- CLAUDE.md/README updated. Nothing committed yet.
+**Shipped.** Build 1.0.0 (7) uploaded to TestFlight 2026-09-06 (delivery UUID
+`c805a13d-0cb2-4f4e-8f99-b32be85d89c8`) — check processing with `node scripts/asc_builds.mjs`. It contains:
+Apple Watch energy + deficit (Today / Nutrition / Progress `EnergyChartView`), `CloudMirror` per-user rows +
+richer profile doc (schema 2), `MealScanner.Context`, and water/walk reminders. Existing users get a one-time
+Health permission sheet for the two energy types. Build 6 is still valid on TestFlight. `main` is pushed and
+clean (`a0187a8` features, `4c37f14` bump). The analyzer is live at `https://fatloss-analyzer.fly.dev`
+(`/health` OK; the user's banana scan worked from build 6).
 
 **Waiting on the user (server secrets, Claude cannot set them):**
 ```
@@ -201,6 +191,6 @@ The Anthropic key used today was pasted into the chat transcript; the user shoul
 - The user is on Phase 1 and has not pressed "Start programme" yet; the phase strip shows week 0.
 - `build/archive*.log` and `build/build*.log` are git-ignored scratch; safe to delete when disk is tight.
 
-**Likely next work.** Build 7 to TestFlight with the Watch-energy + mirror changes (bump
-`CURRENT_PROJECT_VERSION` to 7), invite testers (each signs in with Apple in Profile → own profile), Sonnet
-vs Opus cost decision (`MODEL` secret).
+**Likely next work.** Set the two Fly secrets and check the dashboard; invite testers (each signs in with
+Apple in Profile → own profile); a personal-baseline stress score (HRV/RHR/resp/sleep z-scores vs a 28-day
+median, discussed 2026-09-06, not built); Sonnet vs Opus cost decision (`MODEL` secret).
