@@ -3,6 +3,14 @@
 Native SwiftUI port of the single-file "My Fitness Coach" web app, built for a personal fat-loss
 programme (106 kg → 93 kg). iOS 17+, iPhone. Currently on TestFlight as build 1.0.0 (6).
 
+## Status (6 September 2026)
+
+- All five tabs, HealthKit sync, cloud backup, web-app import and the three-phase programme are built
+  and on TestFlight (build 6, processed and valid).
+- The meal-photo analyzer backend (`server/`) is written but **not yet deployed** to Fly.io, so the
+  scanner shows a network error until step 3 of Setup is done.
+- Remaining housekeeping: delete the stray `com.metatec.myfitnesscoach` app from the Firebase project.
+
 ## What it does
 
 | Tab | Features |
@@ -64,5 +72,7 @@ Shortcuts can still push metrics:
 | 2 | Fixed the write crash (observer re-entrancy in the store) |
 | 3 | Three-phase programme with progress tracking |
 | 4 | Meal photo scanner, real eaten-vs-target macros, version footer |
-| 5 | Camera per meal slot, stacked calories chart, breathing / supplement habit links |
+| 5 | Camera per meal slot, stacked calories chart, breathing / supplement habit links (archived, not uploaded) |
 | 6 | Analyzer moved from Cloud Functions to Fly.io (no Google billing) |
+
+Builds 1–4 and 6 are on TestFlight. `node scripts/asc_builds.mjs` lists them with their processing state.

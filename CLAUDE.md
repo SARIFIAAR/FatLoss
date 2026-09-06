@@ -45,6 +45,7 @@ scripts/make_icon.swift  regenerates the 1024 px icon
 firestore.rules          users/{uid} owner-only; everything else denied
 build/                   git-ignored: DerivedData, xcarchive, export/, logs
 scripts/export_upload.sh export IPA from build/FatLossCoach.xcarchive + altool upload (run by the user)
+scripts/asc_builds.mjs   lists TestFlight builds + processing state via the ASC API (node, no deps)
 ```
 
 ## Data model (mirrors the old localStorage keys)
@@ -113,7 +114,7 @@ xcodebuild -project FatLossCoach.xcodeproj -scheme FatLossCoach -configuration R
   -authenticationKeyID F32V65ACX6 -authenticationKeyIssuerID 60384b84-0407-4489-bb63-c2c1b708e376 archive
 ```
 then the user runs `! sh ~/Developer/FatLossCoach/scripts/export_upload.sh` (export + altool upload).
-Check processing with the App Store Connect API (`/v1/builds?filter[app]=6809046427`).
+Check processing with `node scripts/asc_builds.mjs` (ASC API, `/v1/builds?filter[app]=6809046427`).
 
 **Analyzer (Fly.io)** — from `server/`: `flyctl deploy`. Secrets: `ANTHROPIC_API_KEY` (required),
 `MODEL` (optional, default `claude-opus-5`; `claude-sonnet-5` is the cheaper choice discussed with the
@@ -136,5 +137,31 @@ tokens are verified against Google's `securetoken` JWKS, so no service account i
   meal plan with eaten vs planned kcal, 9 PM kitchen-closed banner.
 - Profile: goals editor, cloud sync (Sign in with Apple), Apple Health connect/sync + manual entry,
   Shortcuts URL template, import from web app, JSON export, version/build footer.
-- Pending on the user: `flyctl auth login`, create app + set `ANTHROPIC_API_KEY`, then deploy; enable
-  nothing else. Apple sign-in provider is already enabled in Firebase Auth.
+
+## Where things stand (2026-09-06)
+
+**Shipped.** Build 1.0.0 (6) uploaded to TestFlight 2026-09-06 14:55 GST (delivery UUID
+`5510d85e-8aa4-4a5a-8184-245c5e3db621`) and is `VALID`. Builds 1, 2, 3, 4 and 6 exist on TestFlight;
+build 5 was archived locally but superseded by 6 before upload. `main` is pushed and clean.
+Firestore rules are deployed; the Apple sign-in provider is enabled in Firebase Auth.
+
+**Not working yet.** The meal analyzer is **not deployed**: `fatloss-analyzer.fly.dev` does not resolve
+and `flyctl` on this Mac is not logged in. In build 6 the Nutrition scanner therefore fails with a
+network error until the user does, from `server/`:
+```
+flyctl auth login
+flyctl apps create fatloss-analyzer
+flyctl secrets set ANTHROPIC_API_KEY=sk-ant-...   # optionally MODEL=claude-sonnet-5
+flyctl deploy
+curl https://fatloss-analyzer.fly.dev/health       # should return the active model
+```
+Nothing else needs enabling. Do not move the analyzer back to Cloud Functions (Blaze is blocked).
+
+**Housekeeping still open.**
+- A stray Firebase iOS app (bundle `com.metatec.myfitnesscoach`) still exists in project
+  `fat-loss-6516d`; delete it in the console.
+- The user is on Phase 1 and has not pressed "Start programme" yet; the phase strip shows week 0.
+- `build/archive*.log` and `build/build*.log` are git-ignored scratch; safe to delete when disk is tight.
+
+**Likely next work.** Sonnet vs Opus cost decision for the analyzer (`MODEL` secret), then feedback from
+using build 6 on the phone (HealthKit permissions, scanner accuracy, phase progression).
