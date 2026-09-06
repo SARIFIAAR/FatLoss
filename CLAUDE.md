@@ -43,7 +43,8 @@ FatLossCoach/
 server/                  Node 22 analyzer for Fly.io (server.js, Dockerfile, fly.toml)
 scripts/make_icon.swift  regenerates the 1024 px icon
 firestore.rules          users/{uid} owner-only; everything else denied
-build/                   git-ignored: DerivedData, xcarchive, export/, export_upload.sh, logs
+build/                   git-ignored: DerivedData, xcarchive, export/, logs
+scripts/export_upload.sh export IPA from build/FatLossCoach.xcarchive + altool upload (run by the user)
 ```
 
 ## Data model (mirrors the old localStorage keys)
