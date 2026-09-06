@@ -1,0 +1,13 @@
+{
+  "name": "fatloss-analyzer",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "22" },
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.124.0",
+    "jose": "^6.0.0",
+    "zod": "^4.5.0"
+  }
+}

@@ -2,9 +2,9 @@ import Foundation
 import Observation
 import UIKit
 import FirebaseAuth
-import FirebaseFunctions
 
-/// Sends a meal photo to the `analyzeMeal` Cloud Function (Claude vision) and returns items + macros.
+/// Sends a meal photo to the analyzer service on Fly.io (Claude vision) and returns items + macros.
+/// The request carries the user's Firebase ID token; the server verifies it before calling the model.
 @Observable
 final class MealScanner {
     struct Analysis: Decodable {
@@ -50,28 +50,39 @@ final class MealScanner {
 
     var isAnalyzing = false
 
-    private var functions: Functions { Functions.functions(region: "europe-west1") }
+    static let endpoint = URL(string: "https://fatloss-analyzer.fly.dev/analyze")!
 
     var isAvailable: Bool { Auth.auth().currentUser != nil }
 
     func analyze(_ image: UIImage, hint: String? = nil) async throws -> Analysis {
-        guard Auth.auth().currentUser != nil else { throw ScanError.notSignedIn }
+        guard let user = Auth.auth().currentUser else { throw ScanError.notSignedIn }
         guard let jpeg = Self.downscaledJPEG(image) else { throw ScanError.badImage }
         isAnalyzing = true
         defer { isAnalyzing = false }
 
+        let token = try await user.getIDToken()
         var payload: [String: Any] = ["image": jpeg.base64EncodedString(), "mediaType": "image/jpeg"]
         if let hint, !hint.isEmpty { payload["hint"] = hint }
 
-        let result: HTTPSCallableResult
+        var request = URLRequest(url: Self.endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 90
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let data: Data
+        let response: URLResponse
         do {
-            result = try await functions.httpsCallable("analyzeMeal").call(payload)
+            (data, response) = try await URLSession.shared.data(for: request)
         } catch {
-            let ns = error as NSError
-            let msg = (ns.userInfo[FunctionsErrorDetailsKey] as? String) ?? ns.localizedDescription
-            throw ScanError.server(msg)
+            throw ScanError.server("No connection — check your internet and try again.")
         }
-        let data = try JSONSerialization.data(withJSONObject: result.data)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200 else {
+            let msg = (try? JSONDecoder().decode([String: String].self, from: data))?["error"]
+            throw ScanError.server(msg ?? "Analyzer error (\(status)).")
+        }
         let analysis = try JSONDecoder().decode(Analysis.self, from: data)
         guard analysis.is_food, !analysis.items.isEmpty else { throw ScanError.notFood }
         return analysis
