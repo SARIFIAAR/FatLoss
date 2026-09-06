@@ -1,41 +1,56 @@
 # Fat Loss Coach (iOS)
 
 Native SwiftUI port of the single-file "My Fitness Coach" web app, built for a personal fat-loss
-programme (106 kg → 93 kg). iOS 17+, iPhone. Currently on TestFlight as build 1.0.0 (6).
+programme (106 kg → 93 kg). iOS 17+, iPhone. Currently on TestFlight as build 1.0.0 (7).
 
 ## Status (6 September 2026)
 
 - All five tabs, HealthKit sync, cloud backup, web-app import and the three-phase programme are built
-  and on TestFlight (build 7 uploaded 6 September 2026).
+  and on TestFlight. **Build 7 uploaded 6 September 2026 and is VALID** (builds 1–4, 6 and 7 are there).
 - The meal-photo analyzer backend (`server/`) is **live on Fly.io** (`fatloss-analyzer.fly.dev`) and the
-  scanner works from build 6.
-- Build 7 adds water and walk reminders (local notifications), Apple Watch calories burned
-  (active + resting) with a daily deficit, and a
-  per-user backend mirror (`users/{uid}/days`, `users/{uid}/meals`) plus a coach dashboard at
-  `/admin` on the Fly app (needs the `ADMIN_KEY` and `FIREBASE_SERVICE_ACCOUNT` secrets).
-- Remaining housekeeping: delete the stray `com.metatec.myfitnesscoach` app from the Firebase project.
+  scanner works from build 6 onward.
+- Build 7 adds: Apple Watch calories burned (active + resting) with a daily **deficit** on Today, Nutrition
+  and a new Energy Balance chart; water and walk **reminders** (local notifications with "Log 250/500 ml"
+  actions); a per-user **backend mirror** (`users/{uid}/days`, `users/{uid}/meals`, profile/goals/stats);
+  a coach **dashboard** at `/admin` on the Fly app (per-user trends, meals/scans/days tables, CSV export);
+  and the scanner now sends the user's targets as context, so the dietitian prompt is no longer
+  hard-coded to one person.
+- **Waiting on the owner:** the Fly secrets `ADMIN_KEY` and `FIREBASE_SERVICE_ACCOUNT` are not set yet
+  (`/health` reports `firestore:false, admin:false`), so `/admin` is locked and scans are not logged
+  server-side. Also rotate the Anthropic key and delete the stray `com.metatec.myfitnesscoach` app
+  from the Firebase project.
 
 ## What it does
 
 | Tab | Features |
 |---|---|
-| **Today** | Programme phase strip · daily targets (eaten vs target once meals are logged) · Apple Watch steps and resting HR · readiness score from HRV, sleep and resting HR · 7 habits (supplements, breathing and water tick themselves) · water · supplements · tickable breathing schedule · log weight / waist |
-| **Progress** | Weight goal bar · waist and weight charts with goal line · daily calories stacked by protein / carbs / fat · weekly steps vs goal · HRV (30 nights) · sleep total / deep / REM (14 nights) · 28-day habit heat-map · supplement adherence |
+| **Today** | Programme phase strip · daily targets (eaten vs target once meals are logged) · Apple Watch steps, resting HR and kcal burned with a burned / eaten / deficit line · readiness score from HRV, sleep and resting HR · 7 habits (supplements, breathing and water tick themselves) · water · supplements · tickable breathing schedule · log weight / waist |
+| **Progress** | Weight goal bar · waist and weight charts with goal line · daily calories stacked by protein / carbs / fat · 7-day energy balance (eaten vs burned, per-day deficit, average) · weekly steps vs goal · HRV (30 nights) · sleep total / deep / REM (14 nights) · 28-day habit heat-map · supplement adherence |
 | **Workout** | Three-phase programme with a progress bar and week counter: **Phase 1 Foundation** (4 weeks, 2× full body + walks), **Phase 2 Build** (4 weeks, machine-first 3×), **Phase 3 Full Gym** (8 weeks, Push / Pull / Legs). Exercise photos, per-exercise progressive-overload log, start / advance / change phase |
-| **Nutrition** | Photograph a meal → calories, protein, carbs, fat per item (Claude vision) · camera button on each meal-plan slot · eaten-today list · water tracker · 9 PM kitchen-closed banner |
-| **Profile** | Goals · cloud backup with Sign in with Apple · Apple Health connect and sync · manual entry fallback · Shortcuts URL scheme · import from the web app · JSON export |
+| **Nutrition** | Photograph a meal → calories, protein, carbs, fat per item (Claude vision) · camera button on each meal-plan slot · eaten-today list · kcal burned and deficit so far plus 7-day average deficit · water tracker · 9 PM kitchen-closed banner |
+| **Profile** | Goals · cloud backup with Sign in with Apple · Apple Health connect and sync · manual entry fallback · water / walk reminders · Shortcuts URL scheme · import from the web app · JSON export |
 
 ## Architecture
 
 - **Data**: one `AppData` struct (Codable) saved as JSON in Application Support, mirrored to Firestore
   at `users/{uid}` when signed in. Field names map 1:1 to the old localStorage keys, and the importer
   reads a `JSON.stringify(localStorage)` dump (the web app got a "Copy my data" button for this).
-- **Health**: HealthKit reads steps, resting HR, HRV, respiratory rate and sleep stages, with a
-  30-day backfill and a re-sync on every foreground.
-- **Meal scanner**: the phone downsizes the photo to 1024 px and POSTs it with its Firebase ID token to
-  a small Node service on Fly.io (`server/`), which verifies the token and asks Claude for a structured
-  estimate. The Anthropic key lives only on the server.
-- **Cloud**: Firebase Auth (Apple) + Firestore on the free plan, owner-only rules in `firestore.rules`.
+- **Backend mirror**: when signed in, `CloudMirror` also writes one flat row per day to
+  `users/{uid}/days/{date}` (weight, recovery, steps, kcal burned / eaten, deficit, habits, lifts …) and
+  one per scanned meal to `users/{uid}/meals/{id}`, plus profile / goals / stats on the user doc. Rows are
+  hash-diffed so only changed days are written. Every person who signs in with Apple gets their own tree.
+- **Health**: HealthKit reads steps, resting HR, HRV, respiratory rate, sleep stages and active + resting
+  energy, with a 30-day backfill and a re-sync on every foreground.
+- **Meal scanner**: the phone downsizes the photo to 1024 px and POSTs it with its Firebase ID token and
+  the user's targets to a small Node service on Fly.io (`server/`), which verifies the token and asks
+  Claude for a structured estimate. The Anthropic key lives only on the server.
+- **Coach dashboard**: `server/admin.html` at `/admin`, unlocked by the `ADMIN_KEY` header, reads the
+  `users/*` rows and the server-side `scans/` log through a tiny REST Firestore client (service account,
+  no firebase-admin).
+- **Reminders**: `ReminderManager` schedules local notifications for water (interval within set hours)
+  and walks; the water notification has log actions that write straight into the store.
+- **Cloud**: Firebase Auth (Apple) + Firestore on the free plan, owner-only rules in `firestore.rules`
+  (`users/{uid}` and its `days` / `meals`; `scans` is server-only).
 
 See `CLAUDE.md` for identifiers, conventions, gotchas and the exact build / ship commands.
 
@@ -45,8 +60,12 @@ See `CLAUDE.md` for identifiers, conventions, gotchas and the exact build / ship
    `firebase apps:sdkconfig IOS 1:836772213794:ios:91156d2fa72e12d2a6867b --project fat-loss-6516d --out FatLossCoach/GoogleService-Info.plist`
 2. Open `FatLossCoach.xcodeproj` in Xcode 26 and run on an iPhone (team 9F2G8CQ45J). Swift packages
    (Firebase) resolve on first build.
-3. Analyzer, once: `cd server && flyctl auth login && flyctl apps create fatloss-analyzer && flyctl secrets set ANTHROPIC_API_KEY=... && flyctl deploy`
+3. Analyzer, once: `cd server && flyctl auth login && flyctl apps create fatloss-analyzer && flyctl secrets set ANTHROPIC_API_KEY=... && flyctl deploy --ha=false`
    (optional `MODEL=claude-sonnet-5` secret for a cheaper model).
+4. Dashboard + scan logging (optional):
+   `flyctl -a fatloss-analyzer secrets set ADMIN_KEY="$(openssl rand -hex 24)" FIREBASE_SERVICE_ACCOUNT="$(cat service-account.json)"`
+   then open `https://fatloss-analyzer.fly.dev/admin` and paste the key. `GET /health` shows which of
+   the two are configured.
 
 ## Migrating from the web app
 
@@ -78,5 +97,6 @@ Shortcuts can still push metrics:
 | 4 | Meal photo scanner, real eaten-vs-target macros, version footer |
 | 5 | Camera per meal slot, stacked calories chart, breathing / supplement habit links (archived, not uploaded) |
 | 6 | Analyzer moved from Cloud Functions to Fly.io (no Google billing) |
+| 7 | Apple Watch energy + daily deficit, Energy Balance chart, water / walk reminders, per-user backend mirror (schema 2), `/admin` coach dashboard, scanner context |
 
-Builds 1–4 and 6 are on TestFlight. `node scripts/asc_builds.mjs` lists them with their processing state.
+Builds 1–4, 6 and 7 are on TestFlight. `node scripts/asc_builds.mjs` lists them with their processing state.

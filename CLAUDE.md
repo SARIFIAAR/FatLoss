@@ -170,7 +170,7 @@ blocked for Claude by the permission classifier — the user runs it.
 ## Where things stand (2026-09-06, night)
 
 **Shipped.** Build 1.0.0 (7) uploaded to TestFlight 2026-09-06 (delivery UUID
-`c805a13d-0cb2-4f4e-8f99-b32be85d89c8`) — check processing with `node scripts/asc_builds.mjs`. It contains:
+`c805a13d-0cb2-4f4e-8f99-b32be85d89c8`) and **processed VALID** (`node scripts/asc_builds.mjs`). It contains:
 Apple Watch energy + deficit (Today / Nutrition / Progress `EnergyChartView`), `CloudMirror` per-user rows +
 richer profile doc (schema 2), `MealScanner.Context`, and water/walk reminders. Existing users get a one-time
 Health permission sheet for the two energy types. Build 6 is still valid on TestFlight. `main` is pushed and
@@ -182,7 +182,8 @@ clean (`a0187a8` features, `4c37f14` bump). The analyzer is live at `https://fat
 flyctl -a fatloss-analyzer secrets set ADMIN_KEY="$(openssl rand -hex 24)"
 flyctl -a fatloss-analyzer secrets set FIREBASE_SERVICE_ACCOUNT="$(cat ~/Downloads/fat-loss-6516d-*.json)"
 ```
-Until then `/admin` says the key/service account is not configured and scans are not logged server-side.
+Checked 2026-09-06 night: `/health` still returns `{"firestore":false,"admin":false}`, so `/admin` says the
+key/service account is not configured and scans are not logged server-side.
 The Anthropic key used today was pasted into the chat transcript; the user should rotate it.
 
 **Housekeeping still open.**
@@ -190,6 +191,7 @@ The Anthropic key used today was pasted into the chat transcript; the user shoul
   `fat-loss-6516d`; delete it in the console.
 - The user is on Phase 1 and has not pressed "Start programme" yet; the phase strip shows week 0.
 - `build/archive*.log` and `build/build*.log` are git-ignored scratch; safe to delete when disk is tight.
+- README "Status" and "Build history" and this section must be updated together whenever a build ships.
 
 **Likely next work.** Set the two Fly secrets and check the dashboard; invite testers (each signs in with
 Apple in Profile → own profile); a personal-baseline stress score (HRV/RHR/resp/sleep z-scores vs a 28-day
