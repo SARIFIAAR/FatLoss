@@ -46,6 +46,26 @@ struct ExerciseLog: Codable, Identifiable, Hashable {
 struct HealthDay: Codable, Hashable {
     var steps: Int = 0
     var restingHR: Double?
+    var activeKcal: Double?      // Apple Watch "Move" energy (active calories)
+    var basalKcal: Double?       // resting / basal energy for the same day
+
+    /// Total energy burned so far that day (nil until the Watch has reported anything).
+    var burnedKcal: Double? {
+        let total = (activeKcal ?? 0) + (basalKcal ?? 0)
+        return total > 0 ? total : nil
+    }
+
+    init(steps: Int = 0, restingHR: Double? = nil, activeKcal: Double? = nil, basalKcal: Double? = nil) {
+        self.steps = steps; self.restingHR = restingHR; self.activeKcal = activeKcal; self.basalKcal = basalKcal
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        steps      = c.value(.steps,      default: 0)
+        restingHR  = c.value(.restingHR,  default: nil)
+        activeKcal = c.value(.activeKcal, default: nil)
+        basalKcal  = c.value(.basalKcal,  default: nil)
+    }
 }
 
 struct Goals: Codable, Hashable {
@@ -116,6 +136,27 @@ struct ProgramState: Codable, Hashable {
     }
 }
 
+/// Local-notification preferences (water + walk nudges). Synced like everything else.
+struct ReminderSettings: Codable, Hashable {
+    var waterOn = false
+    var waterEveryMinutes = 120        // 60 / 90 / 120 / 180
+    var startHour = 9                  // first reminder of the day
+    var endHour = 21                   // no reminders after this hour
+    var walkOn = false
+    var walkHours: [Int] = [16, 19]    // steps check-ins (skipped once the step goal is reached)
+
+    init() {}
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        waterOn           = c.value(.waterOn,           default: false)
+        waterEveryMinutes = c.value(.waterEveryMinutes, default: 120)
+        startHour         = c.value(.startHour,         default: 9)
+        endHour           = c.value(.endHour,           default: 21)
+        walkOn            = c.value(.walkOn,            default: false)
+        walkHours         = c.value(.walkHours,         default: [16, 19])
+    }
+}
+
 /// Everything the app persists. One JSON file on disk, mirrored to Firestore when signed in.
 struct AppData: Codable, Hashable {
     var weightLogs: [MeasurementEntry] = []                 // was "weight-logs" (+ "cur-weight")
@@ -131,6 +172,7 @@ struct AppData: Codable, Hashable {
     var breathing: [String: Set<String>] = [:]              // date -> breathing slots done
     var goals = Goals()
     var program = ProgramState()
+    var reminders = ReminderSettings()
     var updatedAt: Date = Date()
 
     init() {}
@@ -150,6 +192,7 @@ struct AppData: Codable, Hashable {
         breathing    = c.value(.breathing,    default: [:])
         goals        = c.value(.goals,        default: Goals())
         program      = c.value(.program,      default: ProgramState())
+        reminders    = c.value(.reminders,    default: ReminderSettings())
         updatedAt    = c.value(.updatedAt,    default: Date())
     }
 
@@ -173,7 +216,14 @@ struct AppData: Codable, Hashable {
         out.weightLogs = mergeLogs(out.weightLogs, older.weightLogs)
         out.waistLogs = mergeLogs(out.waistLogs, older.waistLogs)
         out.recovery.merge(older.recovery) { newer, _ in newer }
-        out.health.merge(older.health) { newer, _ in newer }
+        out.health.merge(older.health) { newer, old in
+            var h = newer
+            h.steps = max(newer.steps, old.steps)
+            h.activeKcal = [newer.activeKcal, old.activeKcal].compactMap { $0 }.max()
+            h.basalKcal = [newer.basalKcal, old.basalKcal].compactMap { $0 }.max()
+            h.restingHR = newer.restingHR ?? old.restingHR
+            return h
+        }
         out.water.merge(older.water) { newer, old in max(newer, old) }
         out.habits.merge(older.habits) { $0.union($1) }
         out.supplements.merge(older.supplements) { $0.union($1) }

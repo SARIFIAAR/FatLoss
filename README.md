@@ -7,8 +7,12 @@ programme (106 kg → 93 kg). iOS 17+, iPhone. Currently on TestFlight as build 
 
 - All five tabs, HealthKit sync, cloud backup, web-app import and the three-phase programme are built
   and on TestFlight (build 6, processed and valid).
-- The meal-photo analyzer backend (`server/`) is written but **not yet deployed** to Fly.io, so the
-  scanner shows a network error until step 3 of Setup is done.
+- The meal-photo analyzer backend (`server/`) is **live on Fly.io** (`fatloss-analyzer.fly.dev`) and the
+  scanner works from build 6.
+- In progress for build 7: water and walk reminders (local notifications), Apple Watch calories burned
+  (active + resting) with a daily deficit, and a
+  per-user backend mirror (`users/{uid}/days`, `users/{uid}/meals`) plus a coach dashboard at
+  `/admin` on the Fly app (needs the `ADMIN_KEY` and `FIREBASE_SERVICE_ACCOUNT` secrets).
 - Remaining housekeeping: delete the stray `com.metatec.myfitnesscoach` app from the Firebase project.
 
 ## What it does

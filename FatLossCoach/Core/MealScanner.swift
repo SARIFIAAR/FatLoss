@@ -54,7 +54,16 @@ final class MealScanner {
 
     var isAvailable: Bool { Auth.auth().currentUser != nil }
 
-    func analyze(_ image: UIImage, hint: String? = nil) async throws -> Analysis {
+    /// Sent with each scan so the dietitian prompt uses this user's numbers (not a hard-coded profile).
+    struct Context: Encodable {
+        var kcalTarget: Int
+        var proteinTarget: Int
+        var currentWeightKg: Double?
+        var goalWeightKg: Double
+        var slot: String?
+    }
+
+    func analyze(_ image: UIImage, hint: String? = nil, context: Context? = nil) async throws -> Analysis {
         guard let user = Auth.auth().currentUser else { throw ScanError.notSignedIn }
         guard let jpeg = Self.downscaledJPEG(image) else { throw ScanError.badImage }
         isAnalyzing = true
@@ -63,6 +72,8 @@ final class MealScanner {
         let token = try await user.getIDToken()
         var payload: [String: Any] = ["image": jpeg.base64EncodedString(), "mediaType": "image/jpeg"]
         if let hint, !hint.isEmpty { payload["hint"] = hint }
+        if let context, let ctx = try? JSONEncoder().encode(context),
+           let obj = try? JSONSerialization.jsonObject(with: ctx) { payload["context"] = obj }
 
         var request = URLRequest(url: Self.endpoint)
         request.httpMethod = "POST"

@@ -12,6 +12,7 @@ struct ProfileView: View {
             GoalsCard()
             CloudCard()
             HealthCard()
+            RemindersCard()
             medsCard
             AutomationCard()
             ImportExportCard()
@@ -233,6 +234,106 @@ struct HealthCard: View {
         .background(Color.adaptive(light: 0xF0F4FF, dark: 0x141C2E))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.blue, lineWidth: 1.5))
+    }
+}
+
+// MARK: - Reminders (local notifications)
+
+struct RemindersCard: View {
+    @Environment(Store.self) private var store
+    @Environment(ReminderManager.self) private var reminders
+
+    private let intervals = [60, 90, 120, 180]
+    private let hours = Array(6...23)
+
+    var body: some View {
+        Card {
+            SectionTitle("🔔 Reminders")
+            if reminders.permission == .denied {
+                Text("Notifications are off for Fat Loss Coach in iOS Settings.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.red)
+                Button("Open Settings") { reminders.openSystemSettings() }
+                    .buttonStyle(PillButtonStyle(outlined: true)).padding(.bottom, 8)
+            }
+
+            Toggle(isOn: binding(\.waterOn)) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("💧 Drink water").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
+                    Text("Every \(intervalLabel(store.data.reminders.waterEveryMinutes)) between \(hourLabel(store.data.reminders.startHour)) and \(hourLabel(store.data.reminders.endHour)); stops once you hit \(store.data.goals.waterGoal.formatted()) ml. Tap a reminder to log a glass.")
+                        .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                }
+            }
+            .tint(Theme.primary)
+            if store.data.reminders.waterOn {
+                HStack(spacing: 8) {
+                    picker("Every", selection: binding(\.waterEveryMinutes), options: intervals) { intervalLabel($0) }
+                    picker("From", selection: binding(\.startHour), options: hours) { hourLabel($0) }
+                    picker("Until", selection: binding(\.endHour), options: hours) { hourLabel($0) }
+                }
+                .padding(.top, 6)
+            }
+
+            Divider().padding(.vertical, 10)
+
+            Toggle(isOn: binding(\.walkOn)) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("🚶 Go for a walk").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
+                    Text("Step check-ins with how far you are from \(store.data.goals.stepsGoal.formatted()) steps; skipped once you're there.")
+                        .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                }
+            }
+            .tint(Theme.primary)
+            if store.data.reminders.walkOn {
+                HStack(spacing: 8) {
+                    picker("1st nudge", selection: walkHour(0), options: hours) { hourLabel($0) }
+                    picker("2nd nudge", selection: walkHour(1), options: [0] + hours) { $0 == 0 ? "none" : hourLabel($0) }
+                }
+                .padding(.top, 6)
+            }
+        }
+    }
+
+    // MARK: helpers
+
+    private func binding<T>(_ key: WritableKeyPath<ReminderSettings, T>) -> Binding<T> {
+        Binding(get: { store.data.reminders[keyPath: key] },
+                set: { v in
+                    store.data.reminders[keyPath: key] = v
+                    if (v as? Bool) == true { Task { await reminders.requestPermission(); reminders.schedulePlan() } }
+                    else { reminders.schedulePlan() }
+                })
+    }
+
+    private func walkHour(_ index: Int) -> Binding<Int> {
+        Binding(get: { store.data.reminders.walkHours.count > index ? store.data.reminders.walkHours[index] : 0 },
+                set: { v in
+                    var h = store.data.reminders.walkHours
+                    if index < h.count { h[index] = v } else { h.append(v) }
+                    store.data.reminders.walkHours = Array(Set(h.filter { $0 > 0 })).sorted()
+                    reminders.schedulePlan()
+                })
+    }
+
+    @ViewBuilder
+    private func picker<T: Hashable>(_ label: String, selection: Binding<T>, options: [T], text: @escaping (T) -> String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.muted)
+            Picker(label, selection: selection) {
+                ForEach(options, id: \.self) { Text(text($0)).tag($0) }
+            }
+            .pickerStyle(.menu).tint(Theme.primary)
+            .labelsHidden()
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(Theme.bg).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+    }
+
+    private func intervalLabel(_ m: Int) -> String { m % 60 == 0 ? "\(m / 60) h" : "\(m / 60)½ h" }
+    private func hourLabel(_ h: Int) -> String {
+        let d = Calendar.current.date(bySettingHour: h, minute: 0, second: 0, of: Date()) ?? Date()
+        return d.formatted(.dateTime.hour(.defaultDigits(amPM: .abbreviated)))   // "9 AM", "21" in 24-h locales
     }
 }
 

@@ -20,6 +20,10 @@ struct ProgressTabView: View {
                 CaloriesChartView(points: store.macroKcalSeries(days: 7), target: Double(g.kcal))
             }
             Card {
+                SectionTitle("Energy Balance — Last 7 Days")
+                EnergyChartView(points: store.energySeries(days: 7), goalDeficit: Double(g.deficit))
+            }
+            Card {
                 SectionTitle("Weekly Steps")
                 StepsChartView(points: store.stepsSeries(days: 7), goal: Double(g.stepsGoal))
             }
@@ -244,6 +248,73 @@ struct StepsChartView: View {
             }
         }
         .frame(height: 170)
+    }
+}
+
+/// Eaten (logged meals) vs burned (Apple Watch active + basal) per day, with the resulting deficit.
+struct EnergyChartView: View {
+    let points: [Store.EnergyDay]
+    let goalDeficit: Double
+
+    struct Bar: Identifiable {
+        let date: Date; let kind: String; let kcal: Double
+        var id: String { "\(date.timeIntervalSince1970)-\(kind)" }
+    }
+
+    var body: some View {
+        let hasBurn = points.contains { $0.burned != nil }
+        let hasFood = points.contains { $0.eaten > 0 }
+        if !hasBurn || !hasFood {
+            EmptyChart(text: hasBurn ? "Scan meals to compare with what you burn"
+                                     : "Connect Apple Health (Profile) to see calories burned")
+        } else {
+            let bars = points.flatMap { p -> [Bar] in
+                [Bar(date: p.date, kind: "Eaten", kcal: p.eaten), Bar(date: p.date, kind: "Burned", kcal: p.burned ?? 0)]
+            }
+            let top = (bars.map(\.kcal).max() ?? 0) * 1.15
+            let deficits = points.compactMap(\.deficit)
+            let avg = deficits.isEmpty ? nil : deficits.reduce(0, +) / Double(deficits.count)
+            VStack(alignment: .leading, spacing: 6) {
+                Chart {
+                    ForEach(bars) { b in
+                        BarMark(x: .value("Day", b.date, unit: .day), y: .value("kcal", b.kcal))
+                            .foregroundStyle(by: .value("Kind", b.kind))
+                            .position(by: .value("Kind", b.kind))
+                            .cornerRadius(3)
+                    }
+                    ForEach(points.filter { $0.deficit != nil }) { p in
+                        PointMark(x: .value("Day", p.date, unit: .day), y: .value("kcal", p.burned ?? 0))
+                            .symbolSize(0)
+                            .annotation(position: .top, spacing: 2) {
+                                let d = p.deficit ?? 0
+                                Text(d >= 0 ? "−\(Int(d))" : "+\(Int(-d))")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(d >= goalDeficit ? Theme.primary : d >= 0 ? Theme.blue : Theme.red)
+                            }
+                    }
+                }
+                .chartForegroundStyleScale(["Eaten": Theme.primary, "Burned": Theme.orange])
+                .chartYScale(domain: 0...max(top, 1000))
+                .chartXAxis {
+                    AxisMarks(values: .stride(by: .day)) {
+                        AxisValueLabel(format: .dateTime.weekday(.abbreviated), centered: true)
+                            .font(.system(size: 10)).foregroundStyle(Theme.muted)
+                    }
+                }
+                .chartYAxis {
+                    AxisMarks(position: .leading, values: .automatic(desiredCount: 5)) {
+                        AxisGridLine().foregroundStyle(Theme.border.opacity(0.6))
+                        AxisValueLabel().font(.system(size: 10)).foregroundStyle(Theme.muted)
+                    }
+                }
+                .chartLegend(position: .bottom, alignment: .leading, spacing: 8)
+                .frame(height: 200)
+                if let avg {
+                    Text("Average \(avg >= 0 ? "deficit" : "surplus") \(Int(abs(avg))) kcal/day over \(deficits.count) day\(deficits.count == 1 ? "" : "s") · goal \(Int(goalDeficit)) · burned = Watch active + resting energy")
+                        .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                }
+            }
+        }
     }
 }
 

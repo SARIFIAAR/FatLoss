@@ -6,6 +6,7 @@ struct FatLossCoachApp: App {
     @State private var health = HealthKitManager()
     @State private var cloud = CloudSync()
     @State private var scanner = MealScanner()
+    @State private var reminders = ReminderManager()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -19,9 +20,12 @@ struct FatLossCoachApp: App {
                 .environment(health)
                 .environment(cloud)
                 .environment(scanner)
+                .environment(reminders)
                 .onOpenURL { store.handle(url: $0) }
                 .task {
                     cloud.attach(store: store)
+                    reminders.attach(store: store)
+                    reminders.schedulePlan()
                     // Debug: `-debugLogWeight 101.5` performs a write on launch (crash repro / automation).
                     let w = UserDefaults.standard.double(forKey: "debugLogWeight")
                     if w > 0 { store.logWeight(w) }
@@ -32,8 +36,11 @@ struct FatLossCoachApp: App {
             case .background:
                 store.save()
             case .active:
+                reminders.refreshPermission()
                 if health.hasConnected {
-                    Task { await health.sync(store: store, days: 7) }
+                    Task { await health.sync(store: store, days: 7); reminders.schedulePlan() }
+                } else {
+                    reminders.schedulePlan()
                 }
             default:
                 break

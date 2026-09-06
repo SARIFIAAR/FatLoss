@@ -81,6 +81,22 @@ struct NutritionView: View {
                 Text("\(max(0, g.kcal - Int(t.kcal.rounded()))) kcal left today · target \(g.kcal.formatted()) kcal (−\(g.deficit) deficit)")
                     .font(.system(size: 12)).foregroundStyle(Theme.muted)
                     .padding(.top, 10)
+                let e = store.energy()
+                if let burned = e.burned {
+                    let net = burned - t.kcal
+                    HStack(spacing: 6) {
+                        Text("⌚ Burned \(Int(burned)) kcal").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.orange)
+                        Text("·").foregroundStyle(Theme.muted)
+                        Text(t.kcal > 0 ? "\(net >= 0 ? "Deficit" : "Surplus") \(Int(abs(net))) kcal so far" : "log meals to see the deficit")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(t.kcal == 0 ? Theme.muted : net >= Double(g.deficit) ? Theme.primary : net >= 0 ? Theme.blue : Theme.red)
+                    }
+                    .padding(.top, 4)
+                    if let avg = store.averageDeficit(days: 7) {
+                        Text("7-day average \(avg >= 0 ? "deficit" : "surplus") \(Int(abs(avg))) kcal/day · goal \(g.deficit)")
+                            .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    }
+                }
             }
         }
         .fullScreenCover(isPresented: $flow.showCamera) {
@@ -111,7 +127,10 @@ struct NutritionView: View {
         flow.error = nil
         do {
             let hint = Plan.meal(flow.slot).map { "This is my \($0.name.dropFirst(2))." }
-            let a = try await scanner.analyze(image, hint: hint)
+            let g = store.data.goals
+            let ctx = MealScanner.Context(kcalTarget: g.kcal, proteinTarget: g.protein, currentWeightKg: store.currentWeight,
+                                          goalWeightKg: g.goalWeight, slot: flow.slot)
+            let a = try await scanner.analyze(image, hint: hint, context: ctx)
             flow.pending = ScanFlow.PendingMeal(image: image, analysis: a, slot: flow.slot)
         } catch {
             flow.error = error.localizedDescription

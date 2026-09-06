@@ -19,7 +19,8 @@ final class HealthKitManager {
 
     private var readTypes: Set<HKObjectType> {
         var set = Set<HKObjectType>()
-        let ids: [HKQuantityTypeIdentifier] = [.stepCount, .restingHeartRate, .heartRateVariabilitySDNN, .respiratoryRate]
+        let ids: [HKQuantityTypeIdentifier] = [.stepCount, .restingHeartRate, .heartRateVariabilitySDNN, .respiratoryRate,
+                                               .activeEnergyBurned, .basalEnergyBurned]
         for id in ids { if let t = HKObjectType.quantityType(forIdentifier: id) { set.insert(t) } }
         if let sleep = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) { set.insert(sleep) }
         return set
@@ -45,14 +46,21 @@ final class HealthKitManager {
         lastError = nil
         defer { isSyncing = false }
         do {
+            // No-op when everything is already decided; shows the sheet only for types added in an update
+            // (e.g. active/basal energy, added in 1.0.1) so existing users get the new data too.
+            try? await hk.requestAuthorization(toShare: Set<HKSampleType>(), read: readTypes)
             let perMinute = HKUnit.count().unitDivided(by: .minute())
             let steps = try await dailyStats(.stepCount, .cumulativeSum, unit: .count(), days: days)
+            let active = try await dailyStats(.activeEnergyBurned, .cumulativeSum, unit: .kilocalorie(), days: days)
+            let basal  = try await dailyStats(.basalEnergyBurned, .cumulativeSum, unit: .kilocalorie(), days: days)
             let rhr   = try await dailyStats(.restingHeartRate, .discreteAverage, unit: perMinute, days: days)
             let hrv   = try await dailyStats(.heartRateVariabilitySDNN, .discreteAverage, unit: .secondUnit(with: .milli), days: days)
             let resp  = try await dailyStats(.respiratoryRate, .discreteAverage, unit: perMinute, days: days)
             let sleep = try await sleepByNight(days: days)
 
             for (d, v) in steps { store.setHealth(steps: Int(v.rounded()), on: DateKey.key(d)) }
+            for (d, v) in active where v > 0 { store.setHealth(activeKcal: v.rounded(), on: DateKey.key(d)) }
+            for (d, v) in basal  where v > 0 { store.setHealth(basalKcal: v.rounded(), on: DateKey.key(d)) }
             for (d, v) in rhr {
                 let k = DateKey.key(d)
                 store.setHealth(restingHR: v, on: k)
@@ -69,7 +77,9 @@ final class HealthKitManager {
             }
             lastSync = Date()
             let todaySteps = steps.first { DateKey.key($0.key) == store.today }?.value ?? 0
-            store.showToast("Apple Health synced · \(Int(todaySteps).formatted()) steps 🍎")
+            let todayBurn = store.healthToday?.burnedKcal
+            store.showToast("Apple Health synced · \(Int(todaySteps).formatted()) steps"
+                            + (todayBurn.map { " · \(Int($0)) kcal burned" } ?? "") + " 🍎")
         } catch {
             lastError = error.localizedDescription
         }

@@ -128,14 +128,33 @@ struct WatchCard: View {
                         .font(.system(size: 11)).foregroundStyle(Theme.muted)
                 }
                 StatBox {
-                    Text(h?.restingHR.map { "\(Int($0.rounded()))" } ?? "–")
-                        .font(.system(size: 24, weight: .heavy)).foregroundStyle(Theme.primary)
-                    Text("resting HR").font(.system(size: 11)).foregroundStyle(Theme.muted)
-                    Text(h?.restingHR != nil ? "bpm resting" : (health.hasConnected ? "No reading yet" : "Connect Health in Profile"))
+                    Text(h?.burnedKcal.map { "\(Int($0.rounded()))" } ?? "–")
+                        .font(.system(size: 24, weight: .heavy)).foregroundStyle(Theme.orange)
+                    Text("kcal burned").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    Text(h?.activeKcal.map { "\(Int($0.rounded())) active" }
+                         ?? (health.hasConnected ? "No reading yet" : "Connect Health in Profile"))
                         .font(.system(size: 11)).foregroundStyle(Theme.muted)
                         .multilineTextAlignment(.center)
                         .padding(.top, 3)
                 }
+                StatBox {
+                    Text(h?.restingHR.map { "\(Int($0.rounded()))" } ?? "–")
+                        .font(.system(size: 24, weight: .heavy)).foregroundStyle(Theme.primary)
+                    Text("resting HR").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    Text(h?.restingHR != nil ? "bpm" : (health.hasConnected ? "No reading yet" : "Connect Health"))
+                        .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 3)
+                }
+            }
+            let e = store.energy()
+            if let burned = e.burned {
+                let net = burned - e.eaten
+                Text(e.eaten > 0
+                     ? "Burned \(Int(burned)) · eaten \(Int(e.eaten)) · \(net >= 0 ? "deficit" : "surplus") \(Int(abs(net))) kcal so far"
+                     : "Burned \(Int(burned)) kcal so far · scan a meal to see today's deficit")
+                    .font(.system(size: 12)).foregroundStyle(net >= 0 || e.eaten == 0 ? Theme.muted : Theme.red)
+                    .padding(.top, 8)
             }
         }
     }

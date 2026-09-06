@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Fat Loss Coach · Admin</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --border:#262b36; --text:#e8eaf0; --muted:#8b93a7; --green:#3ddc84; --orange:#ff9f43; --blue:#54a0ff; --red:#ff6b6b; --purple:#c08cff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--blue); }
+  #login { max-width:380px; margin:18vh auto; background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:28px; }
+  #login input { width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:#0b0d11; color:var(--text); font-size:15px; }
+  button { background:var(--green); color:#062; border:0; border-radius:8px; padding:9px 14px; font-weight:700; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--muted); border:1px solid var(--border); }
+  button.on { background:var(--blue); color:#012; }
+  #app { display:none; grid-template-columns: 300px 1fr; min-height:100vh; }
+  aside { border-right:1px solid var(--border); background:var(--panel); padding:14px; overflow:auto; }
+  main { padding:18px 22px; overflow:auto; }
+  h1 { font-size:17px; margin:0 0 10px; } h2 { font-size:14px; color:var(--muted); margin:22px 0 8px; text-transform:uppercase; letter-spacing:.05em; }
+  .user { padding:10px 12px; border-radius:10px; cursor:pointer; border:1px solid transparent; margin-bottom:6px; }
+  .user:hover { background:#1e222b; } .user.sel { border-color:var(--green); background:#1a2a22; }
+  .user b { display:block; } .user small { color:var(--muted); }
+  .kpis { display:grid; grid-template-columns: repeat(auto-fill, minmax(140px,1fr)); gap:10px; }
+  .kpi { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:12px; }
+  .kpi b { font-size:22px; display:block; } .kpi span { color:var(--muted); font-size:12px; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(420px,1fr)); gap:14px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px; }
+  .card h3 { margin:0 0 8px; font-size:14px; }
+  .card canvas { max-height:240px; }
+  .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:8px 0 14px; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; } th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  th { color:var(--muted); font-weight:600; position:sticky; top:0; background:var(--panel); }
+  .scroll { overflow:auto; max-height:420px; }
+  .muted { color:var(--muted); } .err { color:var(--red); }
+  .tag { font-size:11px; padding:2px 7px; border-radius:20px; background:#232838; color:var(--muted); }
+  @media (max-width: 900px) { #app { grid-template-columns:1fr; } aside { border-right:0; border-bottom:1px solid var(--border); } }
+</style>
+</head>
+<body>
+<div id="login">
+  <h1>🏋️ Fat Loss Coach — Admin</h1>
+  <p class="muted">Enter the admin key (the <code>ADMIN_KEY</code> Fly secret).</p>
+  <input id="key" type="password" placeholder="admin key" autofocus>
+  <p><button id="go">Open dashboard</button> <span id="loginErr" class="err"></span></p>
+</div>
+
+<div id="app">
+  <aside>
+    <h1>Users <span id="count" class="tag"></span></h1>
+    <div class="bar"><button class="ghost" id="reload">Reload</button><button class="ghost" id="logout">Log out</button></div>
+    <div id="users"></div>
+  </aside>
+  <main>
+    <div id="empty" class="muted">Pick a user to see every data point over time.</div>
+    <div id="detail" style="display:none">
+      <h1 id="uname"></h1>
+      <div id="usub" class="muted"></div>
+      <div class="bar">
+        <span class="muted">Range:</span>
+        <button class="ghost rng" data-d="14">14 d</button><button class="ghost rng on" data-d="30">30 d</button>
+        <button class="ghost rng" data-d="90">90 d</button><button class="ghost rng" data-d="3650">All</button>
+        <span style="flex:1"></span>
+        <button class="ghost" id="csvDays">Days CSV</button><button class="ghost" id="csvMeals">Meals CSV</button>
+      </div>
+      <div class="kpis" id="kpis"></div>
+      <div class="grid" id="charts"></div>
+      <h2>Meals</h2><div class="card scroll"><table id="meals"></table></div>
+      <h2>Scans (server log)</h2><div class="card scroll"><table id="scans"></table></div>
+      <h2>All days (raw)</h2><div class="card scroll"><table id="days"></table></div>
+    </div>
+  </main>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const C = { green:'#3ddc84', orange:'#ff9f43', blue:'#54a0ff', red:'#ff6b6b', purple:'#c08cff', muted:'#8b93a7', teal:'#2ed3c8', pink:'#ff7eb6' };
+let key = localStorage.getItem('adminKey') || '';
+let users = [], current = null, rangeDays = 30, charts = [];
+
+async function api(path) {
+  const r = await fetch(path, { headers: { 'x-admin-key': key } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+function fmtDate(s) { return s ? new Date(s).toLocaleString([], { dateStyle:'medium', timeStyle:'short' }) : '–'; }
+function n(v, d = 0) { return v == null || isNaN(v) ? '–' : Number(v).toFixed(d); }
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function login() {
+  $('#loginErr').textContent = '';
+  try {
+    const j = await api('/admin/api/users');
+    users = j.users; localStorage.setItem('adminKey', key);
+    $('#login').style.display = 'none'; $('#app').style.display = 'grid';
+    renderUsers();
+  } catch (e) { $('#loginErr').textContent = e.message; }
+}
+$('#go').onclick = () => { key = $('#key').value.trim(); login(); };
+$('#key').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#go').click(); });
+$('#logout').onclick = () => { localStorage.removeItem('adminKey'); location.reload(); };
+$('#reload').onclick = async () => { users = (await api('/admin/api/users')).users; renderUsers(); if (current) openUser(current.uid); };
+document.querySelectorAll('.rng').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('.rng').forEach((x) => x.classList.remove('on')); b.classList.add('on');
+  rangeDays = Number(b.dataset.d); if (current) renderDetail();
+});
+
+function renderUsers() {
+  $('#count').textContent = users.length;
+  users.sort((a, b) => (b.profile?.lastSeenAt || '').localeCompare(a.profile?.lastSeenAt || ''));
+  $('#users').innerHTML = users.map((u) => `
+    <div class="user ${current?.uid === u.uid ? 'sel' : ''}" data-uid="${u.uid}">
+      <b>${esc(u.profile?.displayName || u.profile?.email || u.uid.slice(0, 8))}</b>
+      <small>${esc(u.profile?.email || '')}</small><br>
+      <small>${u.stats?.latestWeight ? n(u.stats.latestWeight, 1) + ' kg · ' : ''}${u.stats?.dayCount ?? 0} days · ${u.stats?.mealCount ?? 0} meals · ${u.usage.scans} scans</small><br>
+      <small>seen ${fmtDate(u.profile?.lastSeenAt)}${u.schema < 2 ? ' · <span class="err">old app, no rows yet</span>' : ''}</small>
+    </div>`).join('') || '<p class="muted">No users have signed in yet.</p>';
+  document.querySelectorAll('.user').forEach((el) => el.onclick = () => openUser(el.dataset.uid));
+}
+
+async function openUser(uid) {
+  const u = users.find((x) => x.uid === uid);
+  $('#empty').textContent = 'Loading…';
+  try {
+    const d = await api('/admin/api/users/' + uid);
+    current = { ...u, ...d };
+    renderUsers(); renderDetail();
+  } catch (e) { $('#empty').textContent = e.message; }
+}
+
+function inRange(days) {
+  const cutoff = new Date(Date.now() - rangeDays * 864e5).toISOString().slice(0, 10);
+  return days.filter((d) => d.date >= cutoff);
+}
+
+function renderDetail() {
+  const u = current, p = u.profile || {}, g = u.goals || {}, s = u.stats || {};
+  $('#empty').style.display = 'none'; $('#detail').style.display = 'block';
+  $('#uname').textContent = p.displayName || p.email || u.uid;
+  $('#usub').innerHTML = `${esc(p.email || '')} · uid <code>${u.uid}</code> · ${esc(p.device || '')} ${esc(p.os || '')} · app ${esc(p.appVersion || '?')} (${esc(p.build || '?')}) · ${esc(p.timezone || '')}<br>
+    joined ${fmtDate(p.createdAt)} · last seen ${fmtDate(p.lastSeenAt)} · phase ${g && u.program?.phase || '?'} since ${u.program?.startDate || '–'} · targets ${g.kcal ?? '?'} kcal / ${g.protein ?? '?'} g protein / deficit ${g.deficit ?? '?'} · goal ${g.goalWeight ?? '?'} kg`;
+
+  const days = inRange(u.days);
+  const withDef = days.filter((d) => d.deficit != null);
+  const avg = (arr, k) => { const v = arr.map((d) => d[k]).filter((x) => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+  const first = u.days.find((d) => d.weightKg != null), last = [...u.days].reverse().find((d) => d.weightKg != null);
+  const kpis = [
+    [n(s.latestWeight, 1) + ' kg', `latest weight (${s.latestWeightDate || '–'})`],
+    [(last && first) ? n(first.weightKg - last.weightKg, 1) + ' kg' : '–', `lost since ${first?.date || '–'}`],
+    [n(avg(withDef, 'deficit')) + ' kcal', `avg deficit (${withDef.length} days with both)`],
+    [n(avg(days, 'kcal')), 'avg kcal eaten / logged day'],
+    [n(avg(days, 'burnedKcal')), 'avg kcal burned (Watch)'],
+    [n(avg(days, 'protein')), 'avg protein g'],
+    [n(avg(days, 'steps')), 'avg steps'],
+    [n(avg(days, 'hrv'), 1) + ' ms', 'avg HRV'],
+    [n(avg(days, 'sleepH'), 1) + ' h', 'avg sleep'],
+    [n(avg(days, 'habitCount'), 1), 'avg habits / day'],
+    [u.scans.length, `scans (${(u.usage.tokensIn / 1000).toFixed(0)}k in / ${(u.usage.tokensOut / 1000).toFixed(0)}k out tokens)`],
+  ];
+  $('#kpis').innerHTML = kpis.map(([v, l]) => `<div class="kpi"><b>${v}</b><span>${l}</span></div>`).join('');
+
+  charts.forEach((c) => c.destroy()); charts = [];
+  const labels = days.map((d) => d.date);
+  const pick = (k) => days.map((d) => d[k] ?? null);
+  const defs = [
+    ['Weight & waist', [ds('Weight kg', pick('weightKg'), C.green), ds('Waist cm', pick('waistCm'), C.orange, { yAxisID: 'y2' })], { y2: true, spanGaps: true }],
+    ['Energy balance (eaten vs burned)', [bar('Eaten kcal', pick('kcal'), C.green), bar('Burned kcal', pick('burnedKcal'), C.orange), ds('Deficit', pick('deficit'), C.blue, { type: 'line', yAxisID: 'y2' })], { y2: true }],
+    ['Macros (g)', [bar('Protein', pick('protein'), C.green), bar('Carbs', pick('carbs'), C.orange), bar('Fat', pick('fat'), C.blue)], { stacked: true }],
+    ['Steps', [bar('Steps', pick('steps'), C.blue)], { line: g.stepsGoal }],
+    ['Heart: HRV & resting HR', [ds('HRV ms', pick('hrv'), C.blue), ds('Resting HR', pick('rhr'), C.red, { yAxisID: 'y2' }), ds('Resp /min', pick('resp'), C.muted, { yAxisID: 'y2' })], { y2: true, spanGaps: true }],
+    ['Sleep (h)', [ds('Total', pick('sleepH'), C.purple), ds('Deep', pick('deepH'), C.blue), ds('REM', pick('remH'), C.teal)], { spanGaps: true }],
+    ['Readiness & mood', [ds('Readiness', pick('readiness'), C.green), ds('Mood (1-5)', pick('mood'), C.pink, { yAxisID: 'y2' })], { y2: true, spanGaps: true }],
+    ['Water (ml)', [bar('Water', pick('waterMl'), C.teal)], { line: g.waterGoal }],
+    ['Habits · supplements · breathing (count/day)', [ds('Habits', pick('habitCount'), C.green), ds('Supplements', pick('supplementCount'), C.orange), ds('Breathing', pick('breathingCount'), C.blue), ds('Exercises done', pick('exercisesDone'), C.purple)], { spanGaps: true }],
+    ['Active vs resting energy', [bar('Active kcal', pick('activeKcal'), C.orange), bar('Resting kcal', pick('basalKcal'), C.muted)], { stacked: true }],
+  ];
+  const exercises = [...new Set(days.flatMap((d) => Object.keys(d.lifts || {})))].sort();
+  if (exercises.length) {
+    const palette = Object.values(C);
+    defs.push(['Lifts (kg)', exercises.map((ex, i) => ds(ex, days.map((d) => d.lifts?.[ex]?.kg ?? null), palette[i % palette.length])), { spanGaps: true }]);
+  }
+  $('#charts').innerHTML = defs.map((d, i) => `<div class="card"><h3>${d[0]}</h3><canvas id="c${i}"></canvas></div>`).join('');
+  defs.forEach((d, i) => charts.push(makeChart('c' + i, labels, d[1], d[2] || {})));
+
+  const meals = u.meals.filter((m) => m.date >= labels[0] || !labels.length).slice().reverse();
+  $('#meals').innerHTML = `<tr><th>Date</th><th>Time</th><th>Slot</th><th>Meal</th><th>kcal</th><th>P</th><th>C</th><th>F</th><th>Conf.</th><th>Items</th></tr>` +
+    meals.map((m) => `<tr><td>${m.date}</td><td>${new Date(m.at).toLocaleTimeString([], { timeStyle: 'short' })}</td><td>${esc(m.slot || '')}</td><td>${esc(m.name)}</td><td>${n(m.kcal)}</td><td>${n(m.protein)}</td><td>${n(m.carbs)}</td><td>${n(m.fat)}</td><td>${esc(m.confidence || '')}</td><td>${esc((m.items || []).map((i) => i.name + ' ' + i.portion).join('; '))}</td></tr>`).join('');
+  const scans = u.scans.slice().reverse();
+  $('#scans').innerHTML = `<tr><th>When</th><th>Result</th><th>kcal</th><th>Conf.</th><th>Model</th><th>ms</th><th>Tokens</th><th>Notes / error</th></tr>` +
+    scans.map((s) => `<tr><td>${fmtDate(s.at)}</td><td>${s.ok ? esc(s.isFood ? s.name : 'not food') : '<span class="err">failed</span>'}</td><td>${n(s.kcal)}</td><td>${esc(s.confidence || '')}</td><td>${esc(s.model || '')}</td><td>${s.ms ?? ''}</td><td>${s.tokensIn ?? ''}/${s.tokensOut ?? ''}</td><td>${esc(s.error || s.notes || '')}</td></tr>`).join('');
+
+  const cols = ['date','weightKg','waistCm','kcal','protein','carbs','fat','mealCount','activeKcal','basalKcal','burnedKcal','deficit','steps','restingHR','hrv','rhr','resp','sleepH','deepH','remH','readiness','mood','waterMl','habitCount','supplementCount','breathingCount','exercisesDone'];
+  $('#days').innerHTML = `<tr>${cols.map((c) => `<th>${c}</th>`).join('')}<th>lifts</th></tr>` +
+    days.slice().reverse().map((d) => `<tr>${cols.map((c) => `<td>${d[c] == null ? '' : typeof d[c] === 'number' ? n(d[c], Number.isInteger(d[c]) ? 0 : 1) : esc(d[c])}</td>`).join('')}<td>${esc(Object.entries(d.lifts || {}).map(([k, v]) => `${k} ${v.kg}×${v.reps}`).join(', '))}</td></tr>`).join('');
+
+  $('#csvDays').onclick = () => download(`${u.uid}-days.csv`, toCSV(u.days, [...cols, 'habits', 'supplements', 'breathing']));
+  $('#csvMeals').onclick = () => download(`${u.uid}-meals.csv`, toCSV(u.meals, ['date','at','slot','name','kcal','protein','carbs','fat','confidence','notes']));
+}
+
+function ds(label, data, color, extra = {}) { return { label, data, borderColor: color, backgroundColor: color + '33', tension: .3, pointRadius: 2, borderWidth: 2, ...extra }; }
+function bar(label, data, color, extra = {}) { return { type: 'bar', label, data, backgroundColor: color + 'aa', borderRadius: 3, ...extra }; }
+function makeChart(id, labels, datasets, o) {
+  const scales = { x: { ticks: { color: C.muted, maxTicksLimit: 10 }, grid: { color: '#222733' }, stacked: !!o.stacked },
+                   y: { ticks: { color: C.muted }, grid: { color: '#222733' }, stacked: !!o.stacked, beginAtZero: !!o.stacked } };
+  if (o.y2) scales.y2 = { position: 'right', ticks: { color: C.muted }, grid: { drawOnChartArea: false } };
+  const plugins = { legend: { labels: { color: C.muted, boxWidth: 10 } } };
+  const chart = new Chart(document.getElementById(id), {
+    type: datasets.every((d) => d.type === 'bar') ? 'bar' : 'line',
+    data: { labels, datasets },
+    options: { responsive: true, spanGaps: !!o.spanGaps, interaction: { mode: 'index', intersect: false }, scales, plugins },
+  });
+  if (o.line) {
+    chart.data.datasets.push({ type: 'line', label: 'Goal', data: labels.map(() => o.line), borderColor: C.red, borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5 });
+    chart.update();
+  }
+  return chart;
+}
+function toCSV(rows, cols) {
+  const cell = (v) => v == null ? '' : `"${String(Array.isArray(v) ? v.join('|') : v).replace(/"/g, '""')}"`;
+  return [cols.join(','), ...rows.map((r) => cols.map((c) => cell(r[c])).join(','))].join('\n');
+}
+function download(name, text) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' })); a.download = name; a.click();
+}
+if (key) login();
+</script>
+</body>
+</html>

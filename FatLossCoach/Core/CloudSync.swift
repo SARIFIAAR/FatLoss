@@ -6,8 +6,9 @@ import FirebaseCore
 import FirebaseAuth
 import FirebaseFirestore
 
-/// Mirrors the local `AppData` to Firestore at `users/{uid}` (one JSON blob per user) and
-/// merges remote changes back in. The app is fully usable without signing in.
+/// Mirrors the local `AppData` to Firestore at `users/{uid}` (one JSON blob per user, used for sync) and
+/// merges remote changes back in. The app is fully usable without signing in. `CloudMirror` additionally
+/// writes flat per-day / per-meal rows plus a profile so the backend can trend every data point per user.
 @Observable
 final class CloudSync {
     private(set) var userID: String?
@@ -21,6 +22,8 @@ final class CloudSync {
     private var authHandle: AuthStateDidChangeListenerHandle?
     private var pushTask: Task<Void, Never>?
     private var currentNonce: String?
+    private let mirror = CloudMirror()
+    private var remoteHasProfile = false
 
     private let deviceID: String = {
         let k = "cloud-device-id"
@@ -72,10 +75,14 @@ final class CloudSync {
         guard let snap, let store else { return }
         if !snap.exists {
             // First sign-in from this account: seed the cloud with local data.
+            remoteHasProfile = false
             schedulePush(immediate: true)
             return
         }
         guard !snap.metadata.hasPendingWrites else { return }
+        remoteHasProfile = snap.get("profile.createdAt") != nil
+        // Older blobs (schema 1) have no per-day rows yet: back-fill them once.
+        let needsMirror = (snap.get("schema") as? Int ?? 0) < CloudMirror.schema
         guard let json = snap.get("json") as? String,
               let raw = json.data(using: .utf8),
               let remote = try? Store.decoder.decode(AppData.self, from: raw) else { return }
@@ -88,7 +95,7 @@ final class CloudSync {
             store.lastModified = merged.updatedAt
             store.isApplyingRemote = false
         }
-        if merged != remote { schedulePush() }
+        if merged != remote || needsMirror { schedulePush() }
         lastError = nil
         status = "Synced " + Date().formatted(date: .omitted, time: .shortened)
     }
@@ -109,12 +116,18 @@ final class CloudSync {
         isSyncing = true
         defer { isSyncing = false }
         do {
-            try await docRef(uid).setData([
+            let user = Auth.auth().currentUser
+            var fields: [String: Any] = [
                 "json": json,
                 "updatedAt": Timestamp(date: data.updatedAt),
                 "deviceId": deviceID,
-                "schema": 1,
-            ])
+                "schema": CloudMirror.schema,
+            ]
+            fields.merge(CloudMirror.profileFields(data: data, displayName: user?.displayName,
+                                                   email: user?.email ?? email, isNew: !remoteHasProfile)) { _, new in new }
+            try await docRef(uid).setData(fields, merge: true)
+            remoteHasProfile = true
+            try await mirror.push(uid: uid, data: data)
             lastError = nil
             status = "Synced " + Date().formatted(date: .omitted, time: .shortened)
         } catch {

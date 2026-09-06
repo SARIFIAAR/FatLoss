@@ -145,12 +145,16 @@ final class Store {
     // MARK: Water
 
     var waterToday: Int { data.water[today] ?? 0 }
+    /// Called after water changes so reminders can be re-planned with the new progress.
+    var onWaterChange: (() -> Void)?
+
     func addWater(_ ml: Int) {
         data.water[today] = min(waterToday + ml, Plan.maxWaterPerDay)
         showToast("+\(ml) ml 💧")
         autoHabit("water", done: waterToday >= data.goals.waterGoal)
+        onWaterChange?()
     }
-    func resetWater() { data.water[today] = 0 }
+    func resetWater() { data.water[today] = 0; onWaterChange?() }
 
     // MARK: Weight & waist
 
@@ -391,12 +395,45 @@ final class Store {
 
     var healthToday: HealthDay? { data.health[today] }
 
-    func setHealth(steps: Int? = nil, restingHR: Double? = nil, on day: String? = nil) {
+    func setHealth(steps: Int? = nil, restingHR: Double? = nil,
+                   activeKcal: Double? = nil, basalKcal: Double? = nil, on day: String? = nil) {
         let k = day ?? today
         var h = data.health[k] ?? HealthDay()
         if let steps { h.steps = steps }
         if let restingHR { h.restingHR = restingHR }
+        if let activeKcal { h.activeKcal = activeKcal }
+        if let basalKcal { h.basalKcal = basalKcal }
         data.health[k] = h
+    }
+
+    // MARK: Energy balance (Apple Watch burn vs. logged intake)
+
+    struct EnergyDay: Identifiable, Hashable {
+        let date: Date
+        let eaten: Double
+        let active: Double?
+        let basal: Double?
+        var burned: Double? { let t = (active ?? 0) + (basal ?? 0); return t > 0 ? t : nil }
+        /// Positive = deficit, negative = surplus. nil until both sides have data.
+        var deficit: Double? { guard let burned, eaten > 0 else { return nil }; return burned - eaten }
+        var id: Date { date }
+    }
+
+    func energy(on day: String? = nil) -> EnergyDay {
+        let k = day ?? today
+        let h = data.health[k]
+        return EnergyDay(date: DateKey.date(k) ?? Date(), eaten: totals(on: k).kcal,
+                         active: h?.activeKcal, basal: h?.basalKcal)
+    }
+
+    func energySeries(days: Int = 7) -> [EnergyDay] {
+        (0..<days).reversed().map { energy(on: DateKey.key(DateKey.daysAgo($0))) }
+    }
+
+    /// Average daily deficit over the last `days` full days that have both intake and burn logged.
+    func averageDeficit(days: Int = 7) -> Double? {
+        let ds = (1...days).compactMap { energy(on: DateKey.key(DateKey.daysAgo($0))).deficit }
+        return ds.isEmpty ? nil : ds.reduce(0, +) / Double(ds.count)
     }
 
     /// Manual fallback for the Profile tab (mirrors the web app's manualSync()).
