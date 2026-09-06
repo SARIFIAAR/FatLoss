@@ -297,21 +297,30 @@ struct SupplementsCard: View {
 }
 
 struct BreathingCard: View {
+    @Environment(Store.self) private var store
     var body: some View {
         Card {
             SectionTitle("🌬️ Breathing Schedule")
             VStack(spacing: 0) {
                 ForEach(Array(Plan.breathing.enumerated()), id: \.element.id) { i, b in
-                    HStack(alignment: .top, spacing: 10) {
-                        Text(b.icon).font(.system(size: 22))
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(b.time).font(.system(size: 11, weight: .heavy)).foregroundStyle(Theme.primary)
-                            Text(b.name).font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
-                            Text(b.detail).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    let done = store.isBreathingDone(b.name)
+                    Button { store.toggleBreathing(b.name) } label: {
+                        HStack(alignment: .center, spacing: 10) {
+                            Text(b.icon).font(.system(size: 22))
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(b.time).font(.system(size: 11, weight: .heavy)).foregroundStyle(Theme.primary)
+                                Text(b.name).font(.system(size: 14, weight: .bold))
+                                    .foregroundStyle(done ? Theme.muted : Theme.text)
+                                    .strikethrough(done, color: Theme.muted)
+                                Text(b.detail).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                            }
+                            Spacer(minLength: 6)
+                            CheckMark(done: done)
                         }
-                        Spacer(minLength: 0)
+                        .padding(.vertical, 9)
+                        .contentShape(Rectangle())
                     }
-                    .padding(.vertical, 9)
+                    .buttonStyle(.plain)
                     if i < Plan.breathing.count - 1 { Divider().overlay(Theme.border) }
                 }
             }

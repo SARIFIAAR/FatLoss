@@ -1,15 +1,39 @@
 import SwiftUI
 import PhotosUI
 
+/// Shared photo → analysis → log flow, driven by the scan card and by each meal-plan row.
+@Observable
+final class ScanFlow {
+    var slot: String?                      // meal key the photo belongs to (nil = other)
+    var showCamera = false
+    var showLibrary = false
+    var pickerItem: PhotosPickerItem?
+    var pending: PendingMeal?
+    var error: String?
+
+    struct PendingMeal: Identifiable {
+        let id = UUID()
+        let image: UIImage
+        let analysis: MealScanner.Analysis
+        let slot: String?
+    }
+
+    func camera(slot: String?) { self.slot = slot; error = nil; showCamera = true }
+}
+
 struct NutritionView: View {
     @Environment(Store.self) private var store
+    @Environment(MealScanner.self) private var scanner
+    @State private var flow = ScanFlow()
 
     var body: some View {
+        @Bindable var flow = flow
         let g = store.data.goals
         let ml = store.waterToday
         let pct = min(Double(ml) / Double(g.waterGoal), 1)
         Screen(subtitle: "Fuel your fat loss", title: "Nutrition 🥗") {
-            MealScanCard()
+            MealScanCard(flow: flow)
+            MealPlanCard(flow: flow)
             TodayMealsCard()
             TimelineView(.periodic(from: .now, by: 60)) { ctx in
                 if Calendar.current.component(.hour, from: ctx.date) >= Plan.kitchenClosesHour {
@@ -42,31 +66,6 @@ struct NutritionView: View {
             }
 
             Card {
-                SectionTitle("Meal Plan")
-                VStack(spacing: 0) {
-                    ForEach(Array(Plan.meals.enumerated()), id: \.element.id) { i, m in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(m.name).font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
-                                Text(m.time).font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accent)
-                            }
-                            Spacer()
-                            Text(m.kcal).font(.system(size: 13)).foregroundStyle(Theme.muted)
-                        }
-                        .padding(.vertical, 10)
-                        if i < Plan.meals.count - 1 { Divider().overlay(Theme.border) }
-                    }
-                }
-                Text("⏰ Kitchen closes at 9:00 PM — no food after this")
-                    .font(.system(size: 12)).foregroundStyle(Color(hex: 0x8B5E3C))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                    .background(Color(hex: 0xFFF8F0))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .padding(.top, 10)
-            }
-
-            Card {
                 let t = store.totals()
                 SectionTitle("Today vs Targets")
                 VStack(spacing: 10) {
@@ -83,6 +82,39 @@ struct NutritionView: View {
                     .font(.system(size: 12)).foregroundStyle(Theme.muted)
                     .padding(.top, 10)
             }
+        }
+        .fullScreenCover(isPresented: $flow.showCamera) {
+            CameraPicker { image in
+                flow.showCamera = false
+                if let image { Task { await analyze(image) } }
+            }
+            .ignoresSafeArea()
+        }
+        .onChange(of: flow.pickerItem) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self), let img = UIImage(data: data) {
+                    await analyze(img)
+                }
+                flow.pickerItem = nil
+            }
+        }
+        .sheet(item: $flow.pending) { p in
+            MealResultSheet(image: p.image, analysis: p.analysis, slot: p.slot) { entry in
+                store.addMeal(entry)
+                flow.pending = nil
+            }
+        }
+    }
+
+    private func analyze(_ image: UIImage) async {
+        flow.error = nil
+        do {
+            let hint = Plan.meal(flow.slot).map { "This is my \($0.name.dropFirst(2))." }
+            let a = try await scanner.analyze(image, hint: hint)
+            flow.pending = ScanFlow.PendingMeal(image: image, analysis: a, slot: flow.slot)
+        } catch {
+            flow.error = error.localizedDescription
         }
     }
 }
@@ -124,24 +156,14 @@ struct MacroBar: View {
 // MARK: - Meal photo scanner
 
 struct MealScanCard: View {
-    @Environment(Store.self) private var store
+    @Bindable var flow: ScanFlow
     @Environment(MealScanner.self) private var scanner
     @Environment(CloudSync.self) private var cloud
-    @State private var showCamera = false
-    @State private var pickerItem: PhotosPickerItem?
-    @State private var pending: PendingMeal?
-    @State private var error: String?
-
-    struct PendingMeal: Identifiable {
-        let id = UUID()
-        let image: UIImage
-        var analysis: MealScanner.Analysis
-    }
 
     var body: some View {
         Card {
             SectionTitle("📷 Scan a meal")
-            Text("Photograph your plate and get calories, protein, carbs and fat estimated for you, then log it against today's targets.")
+            Text("Tap the camera on a meal below to log that meal, or scan anything else here. You get calories, protein, carbs and fat estimated from the photo.")
                 .font(.system(size: 13)).foregroundStyle(Theme.muted).lineSpacing(3)
                 .padding(.bottom, 10)
             if !cloud.isSignedIn {
@@ -151,14 +173,14 @@ struct MealScanCard: View {
             }
             HStack(spacing: 10) {
                 Button {
-                    showCamera = true
+                    flow.camera(slot: nil)
                 } label: {
                     Label(scanner.isAnalyzing ? "Analyzing…" : "Camera", systemImage: "camera.fill")
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .disabled(scanner.isAnalyzing || !cloud.isSignedIn || !UIImagePickerController.isSourceTypeAvailable(.camera))
 
-                PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
+                PhotosPicker(selection: $flow.pickerItem, matching: .images, photoLibrary: .shared()) {
                     Label("Library", systemImage: "photo.on.rectangle")
                         .font(.system(size: 16, weight: .bold)).foregroundStyle(Theme.primary)
                         .frame(maxWidth: .infinity).padding(.vertical, 14)
@@ -166,6 +188,7 @@ struct MealScanCard: View {
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.accent, lineWidth: 2))
                 }
+                .simultaneousGesture(TapGesture().onEnded { flow.slot = nil; flow.error = nil })
                 .disabled(scanner.isAnalyzing || !cloud.isSignedIn)
             }
             if scanner.isAnalyzing {
@@ -175,42 +198,74 @@ struct MealScanCard: View {
                 }
                 .padding(.top, 10)
             }
-            if let error {
+            if let error = flow.error {
                 Text(error).font(.system(size: 12)).foregroundStyle(Theme.red).padding(.top, 8)
             }
         }
-        .fullScreenCover(isPresented: $showCamera) {
-            CameraPicker { image in
-                showCamera = false
-                if let image { Task { await analyze(image) } }
-            }
-            .ignoresSafeArea()
-        }
-        .onChange(of: pickerItem) { _, item in
-            guard let item else { return }
-            Task {
-                if let data = try? await item.loadTransferable(type: Data.self), let img = UIImage(data: data) {
-                    await analyze(img)
-                }
-                pickerItem = nil
-            }
-        }
-        .sheet(item: $pending) { p in
-            MealResultSheet(image: p.image, analysis: p.analysis) { entry in
-                store.addMeal(entry)
-                pending = nil
-            }
-        }
     }
+}
 
-    private func analyze(_ image: UIImage) async {
-        error = nil
-        do {
-            let a = try await scanner.analyze(image)
-            pending = PendingMeal(image: image, analysis: a)
-        } catch {
-            self.error = error.localizedDescription
+/// Meal plan with a camera per meal: the photo is logged against that meal slot.
+struct MealPlanCard: View {
+    @Bindable var flow: ScanFlow
+    @Environment(Store.self) private var store
+    @Environment(MealScanner.self) private var scanner
+    @Environment(CloudSync.self) private var cloud
+
+    var body: some View {
+        Card {
+            SectionTitle("Meal Plan")
+            VStack(spacing: 0) {
+                ForEach(Array(Plan.meals.enumerated()), id: \.element.id) { i, m in
+                    let eaten = store.kcal(slot: m.key)
+                    let logged = eaten > 0
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text(m.name).font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
+                                if logged {
+                                    Image(systemName: "checkmark.circle.fill").font(.system(size: 13)).foregroundStyle(Theme.primary)
+                                }
+                            }
+                            Text(m.time).font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accent)
+                        }
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 2) {
+                            if logged {
+                                Text("\(Int(eaten.rounded())) kcal")
+                                    .font(.system(size: 13, weight: .heavy))
+                                    .foregroundStyle(eaten > Double(m.targetKcal) * 1.25 ? Theme.red : Theme.primary)
+                                Text("plan \(m.kcal)").font(.system(size: 10)).foregroundStyle(Theme.muted)
+                            } else {
+                                Text(m.kcal).font(.system(size: 13)).foregroundStyle(Theme.muted)
+                            }
+                        }
+                        Menu {
+                            Button { flow.camera(slot: m.key) } label: { Label("Take photo", systemImage: "camera.fill") }
+                            Button { flow.slot = m.key; flow.error = nil; flow.showLibrary = true } label: { Label("Choose from library", systemImage: "photo.on.rectangle") }
+                        } label: {
+                            Image(systemName: logged ? "camera.badge.ellipsis" : "camera.fill")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 38, height: 38)
+                                .background(logged ? Theme.primaryLight : Theme.primary)
+                                .clipShape(Circle())
+                        }
+                        .disabled(scanner.isAnalyzing || !cloud.isSignedIn)
+                    }
+                    .padding(.vertical, 10)
+                    if i < Plan.meals.count - 1 { Divider().overlay(Theme.border) }
+                }
+            }
+            Text("⏰ Kitchen closes at 9:00 PM — no food after this")
+                .font(.system(size: 12)).foregroundStyle(Color(hex: 0x8B5E3C))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(Color(hex: 0xFFF8F0))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .padding(.top, 10)
         }
+        .photosPicker(isPresented: $flow.showLibrary, selection: $flow.pickerItem, matching: .images, photoLibrary: .shared())
     }
 }
 
@@ -241,6 +296,7 @@ struct CameraPicker: UIViewControllerRepresentable {
 struct MealResultSheet: View {
     let image: UIImage
     let analysis: MealScanner.Analysis
+    var slot: String? = nil
     let onAdd: (MealEntry) -> Void
     @Environment(Store.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -254,6 +310,10 @@ struct MealResultSheet: View {
                         .frame(height: 180).frame(maxWidth: .infinity)
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
+                    if let m = Plan.meal(slot) {
+                        Text("Logging as \(m.name) · plan \(m.kcal)")
+                            .font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accent)
+                    }
                     HStack(alignment: .firstTextBaseline) {
                         Text(analysis.meal_name).font(.system(size: 20, weight: .heavy)).foregroundStyle(Theme.text)
                         Spacer()
@@ -295,7 +355,11 @@ struct MealResultSheet: View {
                         Text("ℹ️ \(analysis.notes)").font(.system(size: 12)).foregroundStyle(Theme.muted).lineSpacing(3)
                     }
 
-                    Button("Add to today's log") { onAdd(analysis.mealEntry(date: store.today)) }
+                    Button(Plan.meal(slot).map { "Log as \($0.name)" } ?? "Add to today's log") {
+                        var e = analysis.mealEntry(date: store.today)
+                        e.slot = slot
+                        onAdd(e)
+                    }
                         .buttonStyle(PrimaryButtonStyle())
                         .padding(.top, 6)
                     Button("Discard") { dismiss() }
@@ -324,7 +388,7 @@ struct TodayMealsCard: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(m.name).font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
-                                Text("\(m.time.formatted(date: .omitted, time: .shortened)) · P \(Int(m.protein.rounded())) · C \(Int(m.carbs.rounded())) · F \(Int(m.fat.rounded()))")
+                                Text("\(Plan.meal(m.slot).map { $0.name + " · " } ?? "")\(m.time.formatted(date: .omitted, time: .shortened)) · P \(Int(m.protein.rounded())) · C \(Int(m.carbs.rounded())) · F \(Int(m.fat.rounded()))")
                                     .font(.system(size: 11)).foregroundStyle(Theme.muted)
                             }
                             Spacer()

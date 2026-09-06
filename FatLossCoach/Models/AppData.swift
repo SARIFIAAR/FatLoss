@@ -101,6 +101,7 @@ struct MealEntry: Codable, Hashable, Identifiable {
     var items: [FoodItem] = []
     var confidence: String? = nil    // low / medium / high
     var notes: String? = nil
+    var slot: String? = nil          // Plan.meals key: breakfast / lunch / snack / dinner / evening
 }
 
 struct ProgramState: Codable, Hashable {
@@ -127,6 +128,7 @@ struct AppData: Codable, Hashable {
     var health: [String: HealthDay] = [:]                   // was "health-sync"
     var exerciseDone: [String: Set<Int>] = [:]              // was "ex-YYYY-MM-DD-Mon"
     var meals: [String: [MealEntry]] = [:]                  // date -> meals eaten
+    var breathing: [String: Set<String>] = [:]              // date -> breathing slots done
     var goals = Goals()
     var program = ProgramState()
     var updatedAt: Date = Date()
@@ -145,6 +147,7 @@ struct AppData: Codable, Hashable {
         health       = c.value(.health,       default: [:])
         exerciseDone = c.value(.exerciseDone, default: [:])
         meals        = c.value(.meals,        default: [:])
+        breathing    = c.value(.breathing,    default: [:])
         goals        = c.value(.goals,        default: Goals())
         program      = c.value(.program,      default: ProgramState())
         updatedAt    = c.value(.updatedAt,    default: Date())
@@ -175,6 +178,7 @@ struct AppData: Codable, Hashable {
         out.habits.merge(older.habits) { $0.union($1) }
         out.supplements.merge(older.supplements) { $0.union($1) }
         out.exerciseDone.merge(older.exerciseDone) { $0.union($1) }
+        out.breathing.merge(older.breathing) { $0.union($1) }
         out.overload.merge(older.overload) { newer, old in
             var byDate: [String: ExerciseLog] = [:]
             for l in old { byDate[l.date] = l }

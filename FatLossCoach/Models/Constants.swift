@@ -61,10 +61,12 @@ struct BreathingSlot: Identifiable {
 }
 
 struct Meal: Identifiable {
+    let key: String          // "breakfast"
     let name: String
     let time: String
-    let kcal: String
-    var id: String { name }
+    let targetKcal: Int
+    var id: String { key }
+    var kcal: String { "~\(targetKcal) kcal" }
 }
 
 /// Static programme content, ported 1:1 from the web app.
@@ -75,6 +77,7 @@ enum Plan {
         Habit(key: "water",   label: "Water 3L 💧",            time: "all day"),
         Habit(key: "kitchen", label: "Kitchen Closed 9pm 🌙",  time: "9:00 PM"),
         Habit(key: "breath",  label: "Breathing Exercise 🌬️", time: "any time"),
+        Habit(key: "supps",   label: "Supplements Taken 💊",   time: "D3 · Omega-3 · Mg"),
         Habit(key: "sleep",   label: "In Bed by 11pm 😴",      time: "11:00 PM"),
     ]
 
@@ -201,12 +204,13 @@ enum Plan {
     ]
 
     static let meals: [Meal] = [
-        Meal(name: "🌅 Breakfast",          time: "7:00 – 8:30 AM",  kcal: "~480 kcal"),
-        Meal(name: "☀️ Lunch",              time: "12:30 – 2:00 PM", kcal: "~560 kcal"),
-        Meal(name: "🍎 Snack",              time: "3:30 – 4:30 PM",  kcal: "~200 kcal"),
-        Meal(name: "🌆 Dinner",             time: "7:00 – 8:00 PM",  kcal: "~480 kcal"),
-        Meal(name: "🌙 Evening (optional)", time: "before 9:00 PM",  kcal: "~130 kcal"),
+        Meal(key: "breakfast", name: "🌅 Breakfast",          time: "7:00 – 8:30 AM",  targetKcal: 480),
+        Meal(key: "lunch",     name: "☀️ Lunch",              time: "12:30 – 2:00 PM", targetKcal: 560),
+        Meal(key: "snack",     name: "🍎 Snack",              time: "3:30 – 4:30 PM",  targetKcal: 200),
+        Meal(key: "dinner",    name: "🌆 Dinner",             time: "7:00 – 8:00 PM",  targetKcal: 480),
+        Meal(key: "evening",   name: "🌙 Evening (optional)", time: "before 9:00 PM",  targetKcal: 130),
     ]
+    static func meal(_ key: String?) -> Meal? { meals.first { $0.key == key } }
 
     static let kitchenClosesHour = 21
     static let maxWaterPerDay = 5000

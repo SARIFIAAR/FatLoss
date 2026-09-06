@@ -16,6 +16,10 @@ struct ProgressTabView: View {
                               goal: g.goalWeight, unit: "kg")
             }
             Card {
+                SectionTitle("Daily Calories — Last 7 Days")
+                CaloriesChartView(points: store.macroKcalSeries(days: 7), target: Double(g.kcal))
+            }
+            Card {
                 SectionTitle("Weekly Steps")
                 StepsChartView(points: store.stepsSeries(days: 7), goal: Double(g.stepsGoal))
             }
@@ -240,6 +244,49 @@ struct StepsChartView: View {
             }
         }
         .frame(height: 170)
+    }
+}
+
+struct CaloriesChartView: View {
+    let points: [Store.MacroKcal]
+    let target: Double
+
+    var body: some View {
+        if points.allSatisfy({ $0.kcal == 0 }) {
+            EmptyChart(text: "Scan or log meals to see calories here")
+        } else {
+            let dayTotals = Dictionary(grouping: points, by: \.date).mapValues { $0.reduce(0) { $0 + $1.kcal } }
+            let top = max(target * 1.15, (dayTotals.values.max() ?? 0) * 1.1)
+            Chart {
+                ForEach(points) { p in
+                    BarMark(x: .value("Day", p.date, unit: .day), y: .value("kcal", p.kcal))
+                        .foregroundStyle(by: .value("Macro", p.macro))
+                        .cornerRadius(3)
+                }
+                RuleMark(y: .value("Target", target))
+                    .foregroundStyle(Theme.red)
+                    .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                    .annotation(position: .top, alignment: .trailing) {
+                        Text("Target \(Int(target))").font(.system(size: 9)).foregroundStyle(Theme.red)
+                    }
+            }
+            .chartForegroundStyleScale(["Protein": Theme.primary, "Carbs": Theme.orange, "Fat": Theme.blue])
+            .chartYScale(domain: 0...top)
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .day)) {
+                    AxisValueLabel(format: .dateTime.weekday(.abbreviated), centered: true)
+                        .font(.system(size: 10)).foregroundStyle(Theme.muted)
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading, values: .automatic(desiredCount: 5)) {
+                    AxisGridLine().foregroundStyle(Theme.border.opacity(0.6))
+                    AxisValueLabel().font(.system(size: 10)).foregroundStyle(Theme.muted)
+                }
+            }
+            .chartLegend(position: .bottom, alignment: .leading, spacing: 8)
+            .frame(height: 190)
+        }
     }
 }
 

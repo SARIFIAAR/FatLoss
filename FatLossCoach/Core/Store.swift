@@ -104,6 +104,24 @@ final class Store {
     }
     func habitCount(on day: String) -> Int { data.habits[day]?.count ?? 0 }
 
+    /// Auto-complete a habit from another tracker (supplements, breathing, water). Never un-ticks.
+    private func autoHabit(_ key: String, done: Bool) {
+        guard done, !(data.habits[today]?.contains(key) ?? false) else { return }
+        var set = data.habits[today] ?? []
+        set.insert(key)
+        data.habits[today] = set
+    }
+
+    // MARK: Breathing
+
+    func isBreathingDone(_ name: String) -> Bool { data.breathing[today]?.contains(name) ?? false }
+    func toggleBreathing(_ name: String) {
+        var set = data.breathing[today] ?? []
+        if set.contains(name) { set.remove(name) } else { set.insert(name); showToast("Breathing done 🌬️") }
+        data.breathing[today] = set
+        autoHabit("breath", done: !set.isEmpty)
+    }
+
     // MARK: Supplements
 
     func isSupplementTaken(_ key: String) -> Bool { data.supplements[today]?.contains(key) ?? false }
@@ -116,6 +134,7 @@ final class Store {
             showToast("Supplement taken! 💊")
         }
         data.supplements[today] = set
+        autoHabit("supps", done: Plan.trackedSupplements.allSatisfy { set.contains($0) })
     }
     /// Percent of the last `days` days on which the supplement was taken.
     func adherence(_ key: String, days: Int = 7) -> Int {
@@ -129,6 +148,7 @@ final class Store {
     func addWater(_ ml: Int) {
         data.water[today] = min(waterToday + ml, Plan.maxWaterPerDay)
         showToast("+\(ml) ml 💧")
+        autoHabit("water", done: waterToday >= data.goals.waterGoal)
     }
     func resetWater() { data.water[today] = 0 }
 
@@ -253,6 +273,28 @@ final class Store {
     func totals(on day: String? = nil) -> MacroTotals {
         (data.meals[day ?? today] ?? []).reduce(into: MacroTotals()) {
             $0.kcal += $1.kcal; $0.protein += $1.protein; $0.carbs += $1.carbs; $0.fat += $1.fat
+        }
+    }
+
+    func meals(slot: String, on day: String? = nil) -> [MealEntry] {
+        let key: String = day ?? today
+        let list: [MealEntry] = data.meals[key] ?? []
+        return list.filter { $0.slot == slot }
+    }
+    func kcal(slot: String) -> Double { meals(slot: slot).reduce(0) { $0 + $1.kcal } }
+
+    struct MacroKcal: Identifiable {
+        let date: Date; let macro: String; let kcal: Double
+        var id: String { "\(date.timeIntervalSince1970)-\(macro)" }
+    }
+    /// Calories per day split into protein / carbs / fat energy (4 / 4 / 9 kcal per g).
+    func macroKcalSeries(days: Int = 7) -> [MacroKcal] {
+        (0..<days).reversed().flatMap { n -> [MacroKcal] in
+            let d = DateKey.daysAgo(n)
+            let t = totals(on: DateKey.key(d))
+            return [MacroKcal(date: d, macro: "Protein", kcal: t.protein * 4),
+                    MacroKcal(date: d, macro: "Carbs", kcal: t.carbs * 4),
+                    MacroKcal(date: d, macro: "Fat", kcal: t.fat * 9)]
         }
     }
 
