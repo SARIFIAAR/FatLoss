@@ -9,13 +9,20 @@ final class Store {
     var data: AppData {
         didSet {
             guard data != oldValue else { return }
-            if !isApplyingRemote { lastModified = Date() }
+            if !isApplyingRemote {
+                lastModified = Date()
+                if data.goals != oldValue.goals || data.program != oldValue.program || data.reminders != oldValue.reminders {
+                    settingsModified = Date()
+                }
+            }
             scheduleSave()
             if !isApplyingRemote { onChange?() }
         }
     }
     /// Kept outside `data` so writes don't observe themselves. Stamped into `updatedAt` on save/export/push.
     var lastModified: Date
+    /// Same idea for goals / programme / reminders — see `AppData.settingsUpdatedAt`.
+    var settingsModified: Date
     var toast: String?
 
     /// Set by CloudSync while merging a remote snapshot so we don't echo it back.
@@ -35,12 +42,14 @@ final class Store {
             .flatMap { try? Self.decoder.decode(AppData.self, from: $0) } ?? AppData()
         data = loaded
         lastModified = loaded.updatedAt
+        settingsModified = loaded.settingsUpdatedAt
     }
 
     /// `data` with the current modification time stamped in — what gets persisted and synced.
     func snapshot() -> AppData {
         var d = data
         d.updatedAt = lastModified
+        d.settingsUpdatedAt = settingsModified
         return d
     }
 
@@ -54,7 +63,15 @@ final class Store {
     }()
     static let decoder: JSONDecoder = {
         let d = JSONDecoder()
-        d.dateDecodingStrategy = .iso8601
+        // Accept both "2026-09-07T19:21:25Z" and "…25.467Z" so a timestamp never fails to decode.
+        let plain = ISO8601DateFormatter()
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        d.dateDecodingStrategy = .custom { decoder in
+            let str = try decoder.singleValueContainer().decode(String.self)
+            if let date = plain.date(from: str) ?? fractional.date(from: str) { return date }
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Bad date \(str)"))
+        }
         return d
     }()
 
@@ -294,7 +311,8 @@ final class Store {
         let list: [MealEntry] = data.meals[key] ?? []
         return list.filter { $0.slot == slot }
     }
-    func kcal(slot: String) -> Double { meals(slot: slot).reduce(0) { $0 + $1.kcal } }
+    func kcal(slot: String, on day: String? = nil) -> Double { meals(slot: slot, on: day).reduce(0) { $0 + $1.kcal } }
+    func meals(on day: String) -> [MealEntry] { (data.meals[day] ?? []).sorted { $0.time < $1.time } }
 
     struct MacroKcal: Identifiable {
         let date: Date; let macro: String; let kcal: Double

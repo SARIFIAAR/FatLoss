@@ -90,9 +90,11 @@ final class CloudSync {
         let local = store.snapshot()
         let merged = local.merged(with: remote)
         if merged != local {
+            print("CloudSync merge: local \(local.updatedAt)/settings \(local.settingsUpdatedAt) remote \(remote.updatedAt)/settings \(remote.settingsUpdatedAt) → program \(merged.program) reminders water=\(merged.reminders.waterOn) walk=\(merged.reminders.walkOn)")
             store.isApplyingRemote = true
             store.data = merged
             store.lastModified = merged.updatedAt
+            store.settingsModified = merged.settingsUpdatedAt
             store.isApplyingRemote = false
         }
         if merged != remote || needsMirror { schedulePush() }

@@ -6,12 +6,14 @@ struct FoodEntrySheet: View {
     let onLog: (MealEntry) -> Void
     let onAIEstimate: (String) -> Void
     private let startWithBarcode: Bool
+    private let date: String
     @State private var slot: String?
 
-    init(slot: String?, startWithBarcode: Bool = false, onLog: @escaping (MealEntry) -> Void, onAIEstimate: @escaping (String) -> Void) {
+    init(slot: String?, date: String? = nil, startWithBarcode: Bool = false, onLog: @escaping (MealEntry) -> Void, onAIEstimate: @escaping (String) -> Void) {
         self.onLog = onLog
         self.onAIEstimate = onAIEstimate
         self.startWithBarcode = startWithBarcode
+        self.date = date ?? DateKey.key()
         _slot = State(initialValue: slot)
     }
 
@@ -152,7 +154,7 @@ struct FoodEntrySheet: View {
                     VStack(spacing: 10) {
                     SlotPicker(slot: $slot)
                     Button(Plan.logLabel(slot)) {
-                        var e = MealEntry(date: store.today, name: mealName, kcal: total.kcal, protein: total.protein,
+                        var e = MealEntry(date: date, name: mealName, kcal: total.kcal, protein: total.protein,
                                           carbs: total.carbs, fat: total.fat,
                                           items: basket.map { FoodItem(name: $0.food.name, portion: $0.portionLabel, grams: $0.grams,
                                                                        kcal: $0.macros.kcal, protein: $0.macros.protein,

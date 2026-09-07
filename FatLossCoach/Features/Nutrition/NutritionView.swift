@@ -4,6 +4,7 @@ import PhotosUI
 /// Shared photo → analysis → log flow, driven by the scan card and by each meal-plan row.
 @Observable
 final class ScanFlow {
+    var day: String = DateKey.key()        // the day being logged (selected in the week calendar)
     var slot: String?                      // meal key the photo belongs to (nil = other)
     var showCamera = false
     var showLibrary = false
@@ -28,16 +29,22 @@ struct NutritionView: View {
     @Environment(Store.self) private var store
     @Environment(MealScanner.self) private var scanner
     @State private var flow = ScanFlow()
+    // Debug / screenshots: `-nutritionDay 2026-09-06` opens the tab on that day.
+    @State private var selectedDay = UserDefaults.standard.string(forKey: "nutritionDay") ?? DateKey.key()
 
     var body: some View {
         @Bindable var flow = flow
         let g = store.data.goals
         let ml = store.waterToday
         let pct = min(Double(ml) / Double(g.waterGoal), 1)
+        let isToday = selectedDay == store.today
         Screen(subtitle: "Fuel your fat loss", title: "Nutrition 🥗") {
+            WeekCalendarCard(selected: $selectedDay)
+                .onAppear { flow.day = selectedDay }
+                .onChange(of: selectedDay) { _, d in flow.day = d }
             MealScanCard(flow: flow)
-            MealPlanCard(flow: flow)
-            TodayMealsCard()
+            MealPlanCard(flow: flow, day: selectedDay)
+            TodayMealsCard(day: selectedDay)
             TimelineView(.periodic(from: .now, by: 60)) { ctx in
                 if Calendar.current.component(.hour, from: ctx.date) >= Plan.kitchenClosesHour {
                     HStack(spacing: 10) {
@@ -69,8 +76,8 @@ struct NutritionView: View {
             }
 
             Card {
-                let t = store.totals()
-                SectionTitle("Today vs Targets")
+                let t = store.totals(on: selectedDay)
+                SectionTitle(isToday ? "Today vs Targets" : "\(WeekCalendarCard.longDay(selectedDay)) vs Targets")
                 VStack(spacing: 10) {
                     MacroBar(name: "🔥 Calories", value: "\(Int(t.kcal.rounded())) / \(g.kcal) kcal",
                              fraction: t.kcal / Double(g.kcal), color: t.kcal > Double(g.kcal) ? Theme.red : Theme.primaryLight)
@@ -81,11 +88,12 @@ struct NutritionView: View {
                     MacroBar(name: "🥑 Fat", value: "\(Int(t.fat.rounded())) / \(g.fat) g",
                              fraction: t.fat / Double(g.fat), color: Theme.blue)
                 }
-                Text("\(max(0, g.kcal - Int(t.kcal.rounded()))) kcal left today · target \(g.kcal.formatted()) kcal (−\(g.deficit) deficit)")
+                Text(isToday ? "\(max(0, g.kcal - Int(t.kcal.rounded()))) kcal left today · target \(g.kcal.formatted()) kcal (−\(g.deficit) deficit)"
+                             : (t.kcal > Double(g.kcal) ? "\(Int(t.kcal.rounded()) - g.kcal) kcal over target that day" : "\(g.kcal - Int(t.kcal.rounded())) kcal under target that day"))
                     .font(.system(size: 12)).foregroundStyle(Theme.muted)
                     .padding(.top, 10)
                 let e = store.energy()
-                if let burned = e.burned {
+                if isToday, let burned = e.burned {
                     let net = burned - t.kcal
                     HStack(spacing: 6) {
                         Text("⌚ Burned \(Int(burned)) kcal").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.orange)
@@ -119,13 +127,13 @@ struct NutritionView: View {
             }
         }
         .sheet(item: $flow.pending) { p in
-            MealResultSheet(image: p.image, analysis: p.analysis, slot: p.slot) { entry in
+            MealResultSheet(image: p.image, analysis: p.analysis, slot: p.slot, date: flow.day) { entry in
                 store.addMeal(entry)
                 flow.pending = nil
             }
         }
         .sheet(isPresented: $flow.showTyped) {
-            FoodEntrySheet(slot: flow.slot, startWithBarcode: flow.typedStartsWithBarcode) { entry in
+            FoodEntrySheet(slot: flow.slot, date: flow.day, startWithBarcode: flow.typedStartsWithBarcode) { entry in
                 store.addMeal(entry)
                 flow.showTyped = false
             } onAIEstimate: { text in
@@ -207,7 +215,7 @@ struct MealScanCard: View {
 
     var body: some View {
         Card {
-            SectionTitle("🍽️ Log a meal")
+            SectionTitle(flow.day == DateKey.key() ? "🍽️ Log a meal" : "🍽️ Log a meal · \(WeekCalendarCard.longDay(flow.day))")
             Text("Photo, typed search or barcode — each meal below has all three. Photos and descriptions are estimated by the dietitian model; typed foods and barcodes use the USDA / Open Food Facts nutrition databases.")
                 .font(.system(size: 13)).foregroundStyle(Theme.muted).lineSpacing(3)
                 .padding(.bottom, 10)
@@ -261,6 +269,7 @@ struct MealScanCard: View {
 /// Meal plan with a "+" per meal: photo, library, typed search or barcode — all logged against that meal slot.
 struct MealPlanCard: View {
     @Bindable var flow: ScanFlow
+    var day: String
     @Environment(Store.self) private var store
     @Environment(MealScanner.self) private var scanner
     @Environment(CloudSync.self) private var cloud
@@ -270,7 +279,7 @@ struct MealPlanCard: View {
             SectionTitle("Meal Plan")
             VStack(spacing: 0) {
                 ForEach(Array(Plan.meals.enumerated()), id: \.element.id) { i, m in
-                    let eaten = store.kcal(slot: m.key)
+                    let eaten = store.kcal(slot: m.key, on: day)
                     let logged = eaten > 0
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 2) {
@@ -353,14 +362,16 @@ struct MealResultSheet: View {
     let image: UIImage?
     let analysis: MealScanner.Analysis
     let onAdd: (MealEntry) -> Void
+    let date: String
     @State private var slot: String?
     @Environment(Store.self) private var store
     @Environment(\.dismiss) private var dismiss
 
-    init(image: UIImage?, analysis: MealScanner.Analysis, slot: String? = nil, onAdd: @escaping (MealEntry) -> Void) {
+    init(image: UIImage?, analysis: MealScanner.Analysis, slot: String? = nil, date: String? = nil, onAdd: @escaping (MealEntry) -> Void) {
         self.image = image
         self.analysis = analysis
         self.onAdd = onAdd
+        self.date = date ?? DateKey.key()
         _slot = State(initialValue: slot)
     }
 
@@ -428,7 +439,7 @@ struct MealResultSheet: View {
                     SlotPicker(slot: $slot).padding(.top, 4)
 
                     Button(Plan.logLabel(slot)) {
-                        var e = analysis.mealEntry(date: store.today)
+                        var e = analysis.mealEntry(date: date)
                         e.slot = slot
                         onAdd(e)
                     }
@@ -448,13 +459,14 @@ struct MealResultSheet: View {
 }
 
 struct TodayMealsCard: View {
+    var day: String
     @Environment(Store.self) private var store
 
     var body: some View {
-        let meals = store.mealsToday
+        let meals = store.meals(on: day)
         if !meals.isEmpty {
             Card {
-                SectionTitle("🍽️ Eaten today")
+                SectionTitle(day == store.today ? "🍽️ Eaten today" : "🍽️ Eaten \(WeekCalendarCard.longDay(day))")
                 VStack(spacing: 0) {
                     ForEach(Array(meals.enumerated()), id: \.element.id) { i, m in
                         HStack {

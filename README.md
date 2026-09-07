@@ -5,6 +5,9 @@ programme (106 kg → 93 kg). iOS 17+, iPhone. Currently on TestFlight as build 
 
 ## Status (7 September 2026)
 
+- **Build 9 (7 September 2026, evening):** fixes a cloud-sync merge that could reset the programme start date
+  and reminder switches after an update, and adds an Apple-Fitness-style **week calendar** on Nutrition — a
+  calorie ring per day, swipe between weeks, tap any day to see what you ate and log meals to that day.
 - **Build 8 uploaded 7 September 2026** with everything below.
 - Every meal can now be logged three ways — **photo**,
   **typed search** against the USDA FoodData Central database (household portions or grams × quantity,
@@ -38,7 +41,7 @@ programme (106 kg → 93 kg). iOS 17+, iPhone. Currently on TestFlight as build 
 | **Today** | Guided breathing sessions (shape + travelling dot, music, voice, haptics) from the breathing schedule · Programme phase strip · daily targets (eaten vs target once meals are logged) · Apple Watch steps, resting HR and kcal burned with a burned / eaten / deficit line · readiness score from HRV, sleep and resting HR · 7 habits (supplements, breathing and water tick themselves) · water · supplements · tickable breathing schedule · log weight / waist |
 | **Progress** | Weight goal bar · waist and weight charts with goal line · daily calories stacked by protein / carbs / fat · 7-day energy balance (eaten vs burned, per-day deficit, average) · weekly steps vs goal · HRV (30 nights) · sleep total / deep / REM (14 nights) · 28-day habit heat-map · supplement adherence |
 | **Workout** | Three-phase programme with a progress bar and week counter: **Phase 1 Foundation** (4 weeks, 2× full body + walks), **Phase 2 Build** (4 weeks, machine-first 3×), **Phase 3 Full Gym** (8 weeks, Push / Pull / Legs). Exercise photos, per-exercise progressive-overload log, start / advance / change phase |
-| **Nutrition** | Log each meal by photo (Claude vision), typed search (USDA FoodData Central, portions × quantity, multi-food meals), barcode (Open Food Facts / USDA Branded) or a one-line AI estimate · "+" menu on each meal-plan slot · eaten-today list · kcal burned and deficit so far plus 7-day average deficit · water tracker · 9 PM kitchen-closed banner |
+| **Nutrition** | Week calendar with a calorie ring per day (swipe weeks, tap a day to review or back-fill it) · Log each meal by photo (Claude vision), typed search (USDA FoodData Central, portions × quantity, multi-food meals), barcode (Open Food Facts / USDA Branded) or a one-line AI estimate · "+" menu on each meal-plan slot · eaten-today list · kcal burned and deficit so far plus 7-day average deficit · water tracker · 9 PM kitchen-closed banner |
 | **Profile** | Goals · cloud backup with Sign in with Apple · Apple Health connect and sync · manual entry fallback · water / walk reminders · Shortcuts URL scheme · import from the web app · JSON export |
 
 ## Architecture

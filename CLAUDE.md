@@ -160,8 +160,8 @@ blocked for Claude by the permission classifier — the user runs it.
 - Workout: 3-phase programme (Foundation 4 wk → Build 4 wk → Full Gym 8 wk) with a progress bar, week
   counter, start/advance/change controls; per-phase schedule with exercise photos
   (raw.githubusercontent.com/yuhonas/free-exercise-db) and progressive-overload logging.
-- Nutrition: log any meal by photo / library / typed USDA search / barcode / AI text, slot picker on every
-  result screen, eaten-today list, water tracker,
+- Nutrition: week calendar (calorie ring per day, swipe weeks, tap a day to see/log that day), log any meal by
+  photo / library / typed USDA search / barcode / AI text, slot picker on every result screen, eaten list, water tracker,
   meal plan with eaten vs planned kcal, Watch burned / deficit-so-far + 7-day average deficit line,
   9 PM kitchen-closed banner.
 - Profile: goals editor, cloud sync (Sign in with Apple), Apple Health connect/sync + manual entry,
@@ -200,7 +200,18 @@ user runs it — ONE run at a time). Build 8 contains everything below.**
   `Store.markBreathingDone`. `BreathingSlot` gained `pattern`/`minutes`/`cycles`/`guide`. Debug launch args:
   `-breathing "Box Breathing"` opens a session, `-breathingStart 1` auto-starts it.
 - Server redeployed and `USDA_API_KEY` set by the user on 2026-09-07 (`/health` → `"foods":"usda"`).
-- Next build: bump `CURRENT_PROJECT_VERSION` (both configs) to 9, then the user runs `! sh ~/Developer/FatLossCoach/scripts/ship.sh`.
+- **Build 9 (2026-09-07 late):** (1) **sync-merge bug** — after installing build 8 the user's programme start
+  date and reminder toggles reverted while meals/habits/water survived: `AppData.merged` took scalar settings
+  wholesale from the copy with the newer `updatedAt`, so a stale copy could revert them. Fix: `settingsUpdatedAt`
+  (stamped by `Store.settingsModified` whenever goals/program/reminders change; merge takes those three from the
+  copy with the newer settings stamp), a safety net (further phase wins; same phase → started beats not-started),
+  `updatedAt` decode default is now the epoch (never "now"), and the JSON decoder accepts fractional-second
+  ISO dates. `CloudSync` prints a "CloudSync merge:" line whenever a merge changes local data.
+  (2) **Week calendar on Nutrition** (`WeekCalendarCard`, Apple-Fitness style): Mon–Sun strip with a
+  calorie ring per day, swipe / chevrons between weeks, tap a day → the eaten list, totals-vs-targets and the
+  meal-plan "eaten" numbers show that day, and logging (all four paths) writes to the selected day
+  (`ScanFlow.day`, `MealResultSheet(date:)`, `FoodEntrySheet(date:)`). Debug arg `-nutritionDay 2026-09-06`.
+- Next build: bump `CURRENT_PROJECT_VERSION` (both configs), then the user runs `! sh ~/Developer/FatLossCoach/scripts/ship.sh`.
 
 ## Where things stood (2026-09-06, night)
 

@@ -174,6 +174,9 @@ struct AppData: Codable, Hashable {
     var program = ProgramState()
     var reminders = ReminderSettings()
     var updatedAt: Date = Date()
+    /// When goals / programme / reminders last changed. Merges take those three from the copy with the
+    /// newer settings stamp, so a copy that is "newer" only because of health or meal writes can't revert them.
+    var settingsUpdatedAt: Date = Date(timeIntervalSince1970: 0)
 
     init() {}
 
@@ -193,7 +196,9 @@ struct AppData: Codable, Hashable {
         goals        = c.value(.goals,        default: Goals())
         program      = c.value(.program,      default: ProgramState())
         reminders    = c.value(.reminders,    default: ReminderSettings())
-        updatedAt    = c.value(.updatedAt,    default: Date())
+        // An unreadable stamp must never make a copy look newest — default to the epoch, not now.
+        updatedAt    = c.value(.updatedAt,    default: Date(timeIntervalSince1970: 0))
+        settingsUpdatedAt = c.value(.settingsUpdatedAt, default: Date(timeIntervalSince1970: 0))
     }
 
     var isEmpty: Bool {
@@ -241,9 +246,19 @@ struct AppData: Codable, Hashable {
             for m in newer { byID[m.id] = m }
             return byID.values.sorted { $0.time < $1.time }
         }
-        // Programme: the further-along phase wins (never silently move someone backwards).
-        if older.program.phase > out.program.phase { out.program = older.program }
+        // Settings (goals, programme, reminders) follow their own stamp, not the data stamp.
+        let settingsSource = other.settingsUpdatedAt > settingsUpdatedAt ? other : self
+        out.goals = settingsSource.goals
+        out.reminders = settingsSource.reminders
+        out.program = settingsSource.program
+        // Programme safety net: the further-along phase wins, and at the same phase a started
+        // programme beats a not-started one (never silently move someone backwards or un-start them).
+        for cand in [program, other.program] {
+            if cand.phase > out.program.phase { out.program = cand }
+            else if cand.phase == out.program.phase, out.program.startDate == nil, cand.startDate != nil { out.program = cand }
+        }
         out.updatedAt = max(updatedAt, other.updatedAt)
+        out.settingsUpdatedAt = max(settingsUpdatedAt, other.settingsUpdatedAt)
         return out
     }
 }
