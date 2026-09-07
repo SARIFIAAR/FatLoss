@@ -3,13 +3,20 @@ import AVFoundation
 import UIKit
 
 /// Drives one guided breathing session: ready countdown → inhale / hold / exhale / hold cycles until the
-/// slot's time or cycle count is used up. Spoken cues (AVSpeechSynthesizer) and haptics on each phase.
+/// slot's time or cycle count is used up. Spoken cues (AVSpeechSynthesizer), ambient music and haptics.
 @Observable
 final class BreathingSession {
     enum State { case intro, countdown, running, paused, finished }
     enum Phase {
         case inhale, hold, exhale, rest
         var label: String {
+            switch self {
+            case .inhale: return "breathe in"
+            case .hold, .rest: return "hold"
+            case .exhale: return "breathe out"
+            }
+        }
+        var spoken: String {
             switch self {
             case .inhale: return "Breathe in"
             case .hold, .rest: return "Hold"
@@ -19,18 +26,31 @@ final class BreathingSession {
     }
 
     let slot: BreathingSlot
+    /// The non-zero phases of this technique, in order — one side of the shape each.
+    let phases: [(phase: Phase, seconds: Int)]
     var state: State = .intro
     var countdown = 3
-    var phase: Phase = .inhale
-    var phaseTotal = 4
-    var phaseRemaining = 4
+    var phaseIndex = 0
+    var phaseRemaining = 0
+    /// Wall-clock start of the current phase; the view derives smooth dot position from it.
+    var phaseStart = Date()
+    var pausedAt: Date?
     var remaining: Int
     var cyclesDone = 0
+    var finishedEarly = false
+
     var voiceOn: Bool {
         didSet { UserDefaults.standard.set(voiceOn, forKey: "breathVoice"); if !voiceOn { synth.stopSpeaking(at: .immediate) } }
     }
+    var musicOn: Bool {
+        didSet {
+            UserDefaults.standard.set(musicOn, forKey: "breathMusic")
+            if musicOn, state == .running || state == .countdown { startMusic() } else if !musicOn { stopMusic() }
+        }
+    }
 
     private let synth = AVSpeechSynthesizer()
+    private var music: AVAudioPlayer?
     private var task: Task<Void, Never>?
     private let tap = UIImpactFeedbackGenerator(style: .medium)
 
@@ -38,16 +58,21 @@ final class BreathingSession {
         self.slot = slot
         self.remaining = slot.totalSeconds
         self.voiceOn = UserDefaults.standard.object(forKey: "breathVoice") as? Bool ?? true
-        phaseTotal = slot.inhale
-        phaseRemaining = slot.inhale
+        self.musicOn = UserDefaults.standard.object(forKey: "breathMusic") as? Bool ?? true
+        self.phases = [(Phase.inhale, slot.inhale), (.hold, slot.hold1), (.exhale, slot.exhale), (.rest, slot.hold2)].filter { $0.1 > 0 }
+        self.phaseRemaining = phases.first?.seconds ?? 0
     }
 
-    var finishedEarly = false
+    var phase: Phase { phases[phaseIndex].phase }
+    var phaseTotal: Int { phases[phaseIndex].seconds }
     var completed: Bool { state == .finished && !finishedEarly }
-    var elapsedMinutes: Int { max(1, Int(((Double(slot.totalSeconds - remaining)) / 60).rounded(.up))) }
 
-    /// Circle scale target for the current phase: big on inhale/hold, small on exhale/rest.
-    var scale: CGFloat { (phase == .inhale || phase == .hold) ? 1.0 : 0.62 }
+    /// 0…1 through the current phase at wall-clock `now` (frozen while paused).
+    func phaseProgress(at now: Date) -> Double {
+        guard state == .running || state == .paused, phaseTotal > 0 else { return 0 }
+        let end = pausedAt ?? now
+        return min(1, max(0, end.timeIntervalSince(phaseStart) / Double(phaseTotal)))
+    }
 
     func start() {
         guard state == .intro else { return }
@@ -55,20 +80,26 @@ final class BreathingSession {
         UIApplication.shared.isIdleTimerDisabled = true
         state = .countdown
         countdown = 3
+        if musicOn { startMusic() }
         task = Task { [weak self] in await self?.run() }
     }
 
     func pause() {
         guard state == .running else { return }
         state = .paused
+        pausedAt = Date()
         synth.pauseSpeaking(at: .immediate)
+        music?.setVolume(0.15, fadeDuration: 0.6)
         tap.impactOccurred(intensity: 0.6)
     }
 
     func resume() {
-        guard state == .paused else { return }
+        guard state == .paused, let p = pausedAt else { return }
+        phaseStart = phaseStart.addingTimeInterval(Date().timeIntervalSince(p))
+        pausedAt = nil
         state = .running
-        say(phase.label)
+        music?.setVolume(0.5, fadeDuration: 0.6)
+        say(phase.spoken)
         tap.impactOccurred(intensity: 0.6)
     }
 
@@ -85,31 +116,32 @@ final class BreathingSession {
             state = .finished
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             say(finishedEarly ? "Session ended. Take a moment to relax." : "Well done. Your session is complete. Notice how calm your body feels.")
+            music?.setVolume(0, fadeDuration: 4)
+            Task { [weak self] in try? await Task.sleep(for: .seconds(4)); self?.stopMusic() }
         }
     }
 
     private func run() async {
-        // Ready countdown
         while countdown > 0 {
             if Task.isCancelled { return }
             say(countdown == 3 ? "Get comfortable. Starting in 3" : "\(countdown)")
             try? await Task.sleep(for: .seconds(1))
             countdown -= 1
         }
-        state = .running
         say("Relax your shoulders. Let's begin.")
         try? await Task.sleep(for: .seconds(2))
+        if Task.isCancelled { return }
+        state = .running
 
-        let phases: [(Phase, Int)] = [(.inhale, slot.inhale), (.hold, slot.hold1), (.exhale, slot.exhale), (.rest, slot.hold2)].filter { $0.1 > 0 }
         outer: while !Task.isCancelled {
-            for (p, secs) in phases {
-                phase = p
-                phaseTotal = secs
-                phaseRemaining = secs
+            for i in phases.indices {
+                phaseIndex = i
+                phaseRemaining = phases[i].seconds
+                phaseStart = Date()
                 tap.impactOccurred()
-                say(p.label)
-                for _ in 0..<secs {
-                    while state == .paused { try? await Task.sleep(for: .milliseconds(200)); if Task.isCancelled { return } }
+                say(phases[i].phase.spoken)
+                for _ in 0..<phases[i].seconds {
+                    while state == .paused { try? await Task.sleep(for: .milliseconds(100)); if Task.isCancelled { return } }
                     try? await Task.sleep(for: .seconds(1))
                     if Task.isCancelled { return }
                     phaseRemaining -= 1
@@ -134,14 +166,32 @@ final class BreathingSession {
     }
 
     private func configureAudio() {
-        // .playback so cues are heard with the silent switch on; duck music instead of stopping it.
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+        // .playback so cues are heard with the silent switch on; duck other apps' audio rather than stopping it.
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.duckOthers])
         try? AVAudioSession.sharedInstance().setActive(true)
+    }
+
+    private func startMusic() {
+        if music == nil, let url = Bundle.main.url(forResource: "breathing_ambient", withExtension: "m4a") {
+            music = try? AVAudioPlayer(contentsOf: url)
+            music?.numberOfLoops = -1
+            music?.prepareToPlay()
+        }
+        guard let music, !music.isPlaying else { return }
+        music.volume = 0
+        music.play()
+        music.setVolume(0.5, fadeDuration: 3)
+    }
+
+    private func stopMusic() {
+        music?.stop()
+        music = nil
     }
 
     deinit {
         task?.cancel()
         synth.stopSpeaking(at: .immediate)
+        music?.stop()
         UIApplication.shared.isIdleTimerDisabled = false
     }
 }
@@ -157,7 +207,7 @@ struct BreathingSessionView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(colors: [Color(hex: 0x0E1A14), Color(hex: 0x1B4332)], startPoint: .top, endPoint: .bottom).ignoresSafeArea()
+            OceanBackground().ignoresSafeArea()
             switch session.state {
             case .intro: intro
             case .countdown, .running, .paused: active
@@ -187,60 +237,72 @@ struct BreathingSessionView: View {
                         pill(slot.patternLabel)
                         pill(slot.cycles.map { "\($0) cycles" } ?? "\(slot.minutes) min")
                     }
-                    Text(slot.guide).font(.system(size: 15)).foregroundStyle(.white.opacity(0.85)).lineSpacing(5)
+                    Text(slot.guide).font(.system(size: 15)).foregroundStyle(.white.opacity(0.88)).lineSpacing(5)
                     VStack(alignment: .leading, spacing: 8) {
                         Text("HOW THE GUIDE WORKS").font(.system(size: 11, weight: .bold)).kerning(0.8).foregroundStyle(Theme.accent)
-                        tip("circle.dashed", "The circle grows while you breathe in and shrinks while you breathe out. Match its pace.")
-                        tip("speaker.wave.2.fill", "A voice says each step. A gentle tap on the phone marks every change.")
+                        tip(shapeIcon, "A dot travels along the \(shapeName) — one side per step. Breathe in as it climbs, out as it descends, hold on the flat sides.")
+                        tip("speaker.wave.2.fill", "A voice says each step and the phone taps gently at every change, so you can close your eyes.")
                         tip("checkmark.circle.fill", "Finishing ticks the session off your schedule and your breathing habit.")
                     }
                     .padding(14)
-                    .background(.white.opacity(0.06))
+                    .background(.white.opacity(0.08))
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 .padding(20)
             }
-            VStack(spacing: 10) {
+            VStack(spacing: 8) {
                 Toggle(isOn: Binding(get: { session.voiceOn }, set: { session.voiceOn = $0 })) {
                     Label("Voice guidance", systemImage: "speaker.wave.2.fill").font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
                 }
                 .tint(Theme.primaryLight)
+                Toggle(isOn: Binding(get: { session.musicOn }, set: { session.musicOn = $0 })) {
+                    Label("Calming music", systemImage: "music.note").font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
+                }
+                .tint(Theme.primaryLight)
                 Button { session.start() } label: { Label("Start", systemImage: "play.fill") }
                     .buttonStyle(PrimaryButtonStyle())
+                    .padding(.top, 4)
             }
             .padding(20)
+            .background(.black.opacity(0.25))
         }
+    }
+
+    private var shapeName: String {
+        switch session.phases.count { case 4: return "square"; case 3: return "triangle"; default: return "circle" }
+    }
+    private var shapeIcon: String {
+        switch session.phases.count { case 4: return "square"; case 3: return "triangle"; default: return "circle" }
     }
 
     private func pill(_ text: String) -> some View {
         Text(text).font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
             .padding(.vertical, 6).padding(.horizontal, 10)
-            .background(.white.opacity(0.12)).clipShape(Capsule())
+            .background(.white.opacity(0.14)).clipShape(Capsule())
     }
 
     private func tip(_ icon: String, _ text: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: icon).font(.system(size: 14)).foregroundStyle(Theme.accent).frame(width: 18)
-            Text(text).font(.system(size: 13)).foregroundStyle(.white.opacity(0.8)).lineSpacing(3)
+            Text(text).font(.system(size: 13)).foregroundStyle(.white.opacity(0.85)).lineSpacing(3)
         }
     }
 
     private var header: some View {
         HStack {
-            Button { dismiss() } label: {
-                Image(systemName: "xmark").font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
-                    .frame(width: 36, height: 36).background(.white.opacity(0.12)).clipShape(Circle())
-            }
+            Button { dismiss() } label: { roundIcon("xmark") }
             Spacer()
             if session.state != .intro {
-                Button { session.voiceOn.toggle() } label: {
-                    Image(systemName: session.voiceOn ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                        .font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
-                        .frame(width: 36, height: 36).background(.white.opacity(0.12)).clipShape(Circle())
-                }
+                Button { session.musicOn.toggle() } label: { roundIcon(session.musicOn ? "music.note" : "speaker.slash") }
+                Button { session.voiceOn.toggle() } label: { roundIcon(session.voiceOn ? "speaker.wave.2.fill" : "speaker.slash.fill") }
             }
         }
         .padding(.horizontal, 20).padding(.top, 12)
+    }
+
+    private func roundIcon(_ name: String) -> some View {
+        Image(systemName: name).font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
+            .frame(width: 38, height: 38).background(.white.opacity(0.16)).clipShape(Circle())
     }
 
     // MARK: session
@@ -250,11 +312,12 @@ struct BreathingSessionView: View {
             header
             VStack(spacing: 6) {
                 Text(slot.name).font(.system(size: 18, weight: .heavy)).foregroundStyle(.white)
-                Text(slot.patternLabel).font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accent)
+                Text(slot.patternLabel).font(.system(size: 12, weight: .bold)).foregroundStyle(.white.opacity(0.75))
             }
             .padding(.top, 8)
             Spacer()
-            BreathCircle(session: session)
+            BreathShape(session: session)
+                .frame(width: 320, height: 320)
             Spacer()
             VStack(spacing: 14) {
                 HStack(spacing: 24) {
@@ -285,7 +348,7 @@ struct BreathingSessionView: View {
     private func stat(value: String, label: String) -> some View {
         VStack(spacing: 2) {
             Text(value).font(.system(size: 22, weight: .heavy)).monospacedDigit().foregroundStyle(.white)
-            Text(label).font(.system(size: 11)).foregroundStyle(.white.opacity(0.6))
+            Text(label).font(.system(size: 11)).foregroundStyle(.white.opacity(0.65))
         }
         .frame(minWidth: 90)
     }
@@ -300,7 +363,7 @@ struct BreathingSessionView: View {
             Text(session.completed
                  ? "\(slot.name) · \(session.cyclesDone) cycles. Notice how much calmer you feel — this is the state to make food decisions in."
                  : "You did \(session.cyclesDone) cycle\(session.cyclesDone == 1 ? "" : "s"). Even a short session counts — come back when you can.")
-                .font(.system(size: 15)).foregroundStyle(.white.opacity(0.8)).multilineTextAlignment(.center).lineSpacing(4)
+                .font(.system(size: 15)).foregroundStyle(.white.opacity(0.85)).multilineTextAlignment(.center).lineSpacing(4)
                 .padding(.horizontal, 30)
             Spacer()
             Button("Done") { dismiss() }
@@ -311,42 +374,157 @@ struct BreathingSessionView: View {
     }
 }
 
-/// The breathing circle: scales with the phase (grow on inhale, shrink on exhale), a ring that fills over the
-/// phase, the phase name and a seconds countdown in the middle.
-struct BreathCircle: View {
+// MARK: - Breath shape (triangle / square / circle with a travelling dot)
+
+/// One side per phase: a dot moves along the shape continuously — up on inhale, across on hold, down on
+/// exhale — so nothing ever jumps back. Two-phase patterns use a circle (up the right, down the left).
+struct BreathShape: View {
     let session: BreathingSession
 
-    private var progress: Double {
-        guard session.phaseTotal > 0 else { return 0 }
-        return 1 - Double(session.phaseRemaining) / Double(session.phaseTotal)
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 60, paused: session.state != .running)) { ctx in
+            let n = session.phases.count
+            let p = session.state == .countdown ? 0 : session.phaseProgress(at: ctx.date)
+            let idx = session.state == .countdown ? 0 : session.phaseIndex
+            GeometryReader { geo in
+                let rect = geo.frame(in: .local).insetBy(dx: 40, dy: 40)
+                let path = shapePath(sides: n, in: rect)
+                let dot = position(sides: n, in: rect, side: idx, t: p)
+                ZStack {
+                    path.stroke(.white.opacity(0.25), style: StrokeStyle(lineWidth: 14, lineCap: .round, lineJoin: .round)).blur(radius: 6)
+                    path.stroke(.white.opacity(0.92), style: StrokeStyle(lineWidth: 7, lineCap: .round, lineJoin: .round))
+                    // Side labels
+                    ForEach(0..<n, id: \.self) { i in
+                        let lab = sideLabel(sides: n, in: rect, side: i)
+                        Text("\(session.phases[i].phase.label) · \(session.phases[i].seconds)s")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(i == idx && session.state != .countdown ? Theme.accent : .white.opacity(0.75))
+                            .fixedSize()
+                            .rotationEffect(lab.angle)
+                            .position(lab.point)
+                    }
+                    // Travelling dot
+                    Circle().fill(.white).frame(width: 30, height: 30)
+                        .shadow(color: .white.opacity(0.9), radius: 14)
+                        .shadow(color: Theme.accent.opacity(0.8), radius: 26)
+                        .position(dot)
+                    // Centre text
+                    VStack(spacing: 2) {
+                        if session.state == .countdown {
+                            Text(session.countdown > 0 ? "get ready" : "relax…").font(.system(size: 18, weight: .semibold)).foregroundStyle(.white.opacity(0.9))
+                            Text(session.countdown > 0 ? "\(session.countdown)" : "begin").font(.system(size: session.countdown > 0 ? 44 : 30, weight: .black)).foregroundStyle(.white)
+                        } else {
+                            Text(session.state == .paused ? "paused" : session.phase.label)
+                                .font(.system(size: n == 3 ? 22 : 26, weight: .bold)).foregroundStyle(.white)
+                                .shadow(color: .black.opacity(0.4), radius: 8)
+                            Text("\(session.phaseRemaining)").font(.system(size: 34, weight: .black)).monospacedDigit().foregroundStyle(.white.opacity(0.9))
+                                .contentTransition(.numericText())
+                        }
+                    }
+                    .position(x: rect.midX, y: n == 3 ? rect.midY + rect.height * 0.12 : rect.midY)
+                }
+            }
+        }
     }
 
+    private func vertices(sides: Int, in r: CGRect) -> [CGPoint] {
+        switch sides {
+        case 3: return [CGPoint(x: r.minX, y: r.maxY), CGPoint(x: r.midX, y: r.minY), CGPoint(x: r.maxX, y: r.maxY)]
+        default: return [CGPoint(x: r.minX, y: r.maxY), CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.maxX, y: r.minY), CGPoint(x: r.maxX, y: r.maxY)]
+        }
+    }
+
+    private func shapePath(sides: Int, in r: CGRect) -> Path {
+        if sides <= 2 { return Path(ellipseIn: r) }
+        var p = Path()
+        let v = vertices(sides: sides, in: r)
+        p.move(to: v[0]); for pt in v.dropFirst() { p.addLine(to: pt) }; p.closeSubpath()
+        return p
+    }
+
+    /// Point on side `side` at fraction `t` (0 = start vertex, 1 = next vertex). Circle: side 0 is the right
+    /// half from bottom to top, side 1 the left half from top to bottom.
+    private func position(sides: Int, in r: CGRect, side: Int, t: Double) -> CGPoint {
+        if sides <= 2 {
+            let angle = (side == 0 ? Double.pi / 2 - t * Double.pi : -Double.pi / 2 - t * Double.pi)
+            return CGPoint(x: r.midX + cos(angle) * r.width / 2, y: r.midY + sin(angle) * r.height / 2)
+        }
+        let v = vertices(sides: sides, in: r)
+        let a = v[side % v.count], b = v[(side + 1) % v.count]
+        return CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
+    }
+
+    /// Where a side's label sits (just outside the side's midpoint) and how it is rotated to run along it.
+    private func sideLabel(sides: Int, in r: CGRect, side: Int) -> (point: CGPoint, angle: Angle) {
+        let gap: CGFloat = 20
+        if sides <= 2 {
+            return side == 0 ? (CGPoint(x: r.maxX + gap, y: r.midY), .degrees(90)) : (CGPoint(x: r.minX - gap, y: r.midY), .degrees(-90))
+        }
+        let v = vertices(sides: sides, in: r)
+        let a = v[side % v.count], b = v[(side + 1) % v.count]
+        let mid = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+        let dx = b.x - a.x, dy = b.y - a.y
+        let len = max(1, hypot(dx, dy))
+        // outward normal = away from the centre of the shape
+        var nx = -dy / len, ny = dx / len
+        if (mid.x + nx - r.midX) * (mid.x - r.midX) + (mid.y + ny - r.midY) * (mid.y - r.midY) < (mid.x - r.midX) * (mid.x - r.midX) + (mid.y - r.midY) * (mid.y - r.midY) {
+            nx = -nx; ny = -ny
+        }
+        var deg = atan2(dy, dx) * 180 / .pi
+        if deg > 90 { deg -= 180 } else if deg < -90 { deg += 180 }   // keep text upright
+        return (CGPoint(x: mid.x + nx * gap, y: mid.y + ny * gap), .degrees(deg))
+    }
+}
+
+// MARK: - Ocean background
+
+private extension OceanBackground {
+    static func wave(index fw: Double, time t: Double, size: CGSize) -> Path {
+        var path = Path()
+        let baseY: Double = size.height * (0.55 + fw * 0.12)
+        let speed: Double = 0.5 + fw * 0.15
+        path.move(to: CGPoint(x: 0, y: size.height))
+        var x: Double = 0
+        while x <= size.width {
+            let a: Double = 14 * sin(x / 70 + t * speed + fw)
+            let b: Double = 8 * sin(x / 31 - t * 0.35 + fw * 2)
+            path.addLine(to: CGPoint(x: x, y: baseY + a + b))
+            x += 6
+        }
+        path.addLine(to: CGPoint(x: size.width, y: size.height))
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// Living background: deep teal gradient, slow drifting light patches and soft rolling waves — no assets.
+struct OceanBackground: View {
     var body: some View {
-        ZStack {
-            Circle().fill(Theme.accent.opacity(0.10)).frame(width: 300, height: 300)
-            Circle()
-                .fill(RadialGradient(colors: [Theme.primaryLight.opacity(0.9), Theme.primary.opacity(0.6)], center: .center, startRadius: 20, endRadius: 150))
-                .frame(width: 260, height: 260)
-                .scaleEffect(session.state == .countdown ? 0.62 : session.scale)
-                .shadow(color: Theme.accent.opacity(0.35), radius: 40)
-                .animation(.easeInOut(duration: Double(session.phaseTotal)), value: session.scale)
-            Circle().stroke(.white.opacity(0.12), lineWidth: 10).frame(width: 290, height: 290)
-            Circle()
-                .trim(from: 0, to: session.state == .countdown ? 0 : progress)
-                .stroke(AngularGradient(colors: [Theme.accent, .white, Theme.accent], center: .center), style: StrokeStyle(lineWidth: 10, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .frame(width: 290, height: 290)
-                .animation(.linear(duration: 1), value: progress)
-            VStack(spacing: 4) {
-                if session.state == .countdown {
-                    Text("Get ready").font(.system(size: 16, weight: .bold)).foregroundStyle(.white.opacity(0.85))
-                    Text("\(session.countdown)").font(.system(size: 54, weight: .black)).foregroundStyle(.white)
-                } else {
-                    Text(session.state == .paused ? "Paused" : session.phase.label)
-                        .font(.system(size: 22, weight: .heavy)).foregroundStyle(.white)
-                    Text("\(session.phaseRemaining)").font(.system(size: 54, weight: .black)).monospacedDigit().foregroundStyle(.white)
-                        .contentTransition(.numericText())
+        TimelineView(.animation(minimumInterval: 1 / 30)) { ctx in
+            let t = ctx.date.timeIntervalSinceReferenceDate
+            ZStack {
+                LinearGradient(colors: [Color(hex: 0x0B3B4A), Color(hex: 0x0E5E5C), Color(hex: 0x134E4A), Color(hex: 0x0A2A2E)],
+                               startPoint: .top, endPoint: .bottom)
+                Canvas { g, size in
+                    // Caustic light patches
+                    for i in 0..<5 {
+                        let fi = Double(i)
+                        let x = size.width * (0.5 + 0.42 * sin(t * 0.07 + fi * 1.7))
+                        let y = size.height * (0.5 + 0.38 * cos(t * 0.05 + fi * 2.3))
+                        let rad = size.width * (0.35 + 0.1 * sin(t * 0.11 + fi))
+                        let rect = CGRect(x: x - rad, y: y - rad, width: rad * 2, height: rad * 2)
+                        g.fill(Path(ellipseIn: rect),
+                               with: .radialGradient(Gradient(colors: [Color(hex: 0x5EEAD4).opacity(0.16), .clear]),
+                                                     center: CGPoint(x: x, y: y), startRadius: 0, endRadius: rad))
+                    }
+                    // Rolling waves
+                    for w in 0..<4 {
+                        let fw = Double(w)
+                        let path = Self.wave(index: fw, time: t, size: size)
+                        g.fill(path, with: .color(.white.opacity(0.035 + fw * 0.01)))
+                    }
                 }
+                LinearGradient(colors: [.black.opacity(0.35), .clear, .black.opacity(0.45)], startPoint: .top, endPoint: .bottom)
             }
         }
     }

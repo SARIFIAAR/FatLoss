@@ -185,9 +185,13 @@ blocked for Claude by the permission classifier — the user runs it.
   USDA order; generic before branded), `GET /barcode?code=`, `/analyze` accepts `{ text }`.
   New optional secret **`USDA_API_KEY`** (defaults to `DEMO_KEY`, 30 requests/hour per IP — get a free
   key at https://fdc.nal.usda.gov/api-key-signup and `flyctl -a fatloss-analyzer secrets set USDA_API_KEY=…`).
-- **Guided breathing** (ported from the user's Flutter "Breathing Exercise" app in ~/Downloads): tapping a row
-  in the Today breathing schedule opens `Features/Today/BreathingSessionView.swift` — intro with per-technique
-  guide text, 3-s countdown, circle grows on inhale / shrinks on exhale, phase ring + seconds, spoken cues via
+- **Guided breathing** (ported from the user's Flutter "Breathing Exercise" app in ~/Downloads, visual style
+  from @daily_breathing reels): tapping a row in the Today breathing schedule opens
+  `Features/Today/BreathingSessionView.swift` — intro with per-technique guide text, 3-s countdown, then a
+  **shape with one side per phase** (square 4-4-4-4, triangle 4-7-8, circle for in/out) with a dot that travels
+  continuously (up = inhale, across = hold, down = exhale; never jumps back), side labels, animated ocean
+  background (`OceanBackground`, Canvas, no assets), **ambient music** `Resources/breathing_ambient.m4a`
+  (90-s seamless pad + ocean wash generated with numpy, AVAudioPlayer loop, toggle `breathMusic`), spoken cues via
   `AVSpeechSynthesizer` (toggle, persisted `breathVoice`), haptics per phase, pause/end, finishing calls
   `Store.markBreathingDone`. `BreathingSlot` gained `pattern`/`minutes`/`cycles`/`guide`. Debug launch args:
   `-breathing "Box Breathing"` opens a session, `-breathingStart 1` auto-starts it.
