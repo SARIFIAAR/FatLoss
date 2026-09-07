@@ -149,9 +149,9 @@ blocked for Claude by the permission classifier — the user runs it.
 
 **Firestore rules**: `firebase deploy --only firestore:rules --project fat-loss-6516d`.
 
-## Feature status (build 7)
+## Feature status (build 8)
 
-- Today: phase strip, eaten/target macros, Apple Watch steps + kcal burned (active + resting) + RHR with a
+- Today: guided breathing sessions (shape + travelling dot, ocean background, music, voice, haptics), phase strip, eaten/target macros, Apple Watch steps + kcal burned (active + resting) + RHR with a
   burned/eaten/deficit line, readiness score (HRV 40 · sleep 30
   +5 deep +5 REM · RHR 20), habits (7; supplements/breathing/water auto-tick), water, supplements,
   tickable breathing, weight/waist logging.
@@ -160,7 +160,8 @@ blocked for Claude by the permission classifier — the user runs it.
 - Workout: 3-phase programme (Foundation 4 wk → Build 4 wk → Full Gym 8 wk) with a progress bar, week
   counter, start/advance/change controls; per-phase schedule with exercise photos
   (raw.githubusercontent.com/yuhonas/free-exercise-db) and progressive-overload logging.
-- Nutrition: meal scanner (camera/library, per-meal-slot buttons), eaten-today list, water tracker,
+- Nutrition: log any meal by photo / library / typed USDA search / barcode / AI text, slot picker on every
+  result screen, eaten-today list, water tracker,
   meal plan with eaten vs planned kcal, Watch burned / deficit-so-far + 7-day average deficit line,
   9 PM kitchen-closed banner.
 - Profile: goals editor, cloud sync (Sign in with Apple), Apple Health connect/sync + manual entry,
@@ -169,7 +170,10 @@ blocked for Claude by the permission classifier — the user runs it.
 
 ## Where things stand (2026-09-07)
 
-**Done today (uncommitted → committed, NOT yet built for TestFlight, server NOT yet redeployed).**
+**Shipped: build 1.0.0 (8) uploaded to TestFlight 2026-09-07 22:40 (delivery UUID
+`98d23776-bebd-4eb3-b582-a638855f805b`), commit `14369df` + this docs commit. Ship with
+`sh scripts/ship.sh` (archive + export + upload; the archive is classifier-blocked for Claude too now, so the
+user runs it — ONE run at a time). Build 8 contains everything below.**
 - The Anthropic key on Fly went invalid (`authentication_error: API key is invalid` → app showed
   "Model error 401"); a new key was set with `flyctl secrets set ANTHROPIC_API_KEY=…` and verified.
 - **Three ways to log every meal**: photo (as before), **Type it in** (search the USDA FoodData Central
@@ -196,8 +200,7 @@ blocked for Claude by the permission classifier — the user runs it.
   `Store.markBreathingDone`. `BreathingSlot` gained `pattern`/`minutes`/`cycles`/`guide`. Debug launch args:
   `-breathing "Box Breathing"` opens a session, `-breathingStart 1` auto-starts it.
 - Server redeployed and `USDA_API_KEY` set by the user on 2026-09-07 (`/health` → `"foods":"usda"`).
-- **To ship:** bump to build 8
-  and run `build/export_upload.sh` (user runs with `!`).
+- Next build: bump `CURRENT_PROJECT_VERSION` (both configs) to 9, then the user runs `! sh ~/Developer/FatLossCoach/scripts/ship.sh`.
 
 ## Where things stood (2026-09-06, night)
 
