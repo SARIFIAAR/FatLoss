@@ -315,33 +315,55 @@ struct SupplementsCard: View {
     }
 }
 
+/// Breathing schedule: tap a row to start the guided session (circle + voice + haptics); the tick on the
+/// right still lets you mark one done by hand.
 struct BreathingCard: View {
     @Environment(Store.self) private var store
+    @State private var session: BreathingSlot?
     var body: some View {
         Card {
             SectionTitle("🌬️ Breathing Schedule")
+            Text("Tap a session to be guided through it.").font(.system(size: 12)).foregroundStyle(Theme.muted).padding(.bottom, 4)
             VStack(spacing: 0) {
                 ForEach(Array(Plan.breathing.enumerated()), id: \.element.id) { i, b in
                     let done = store.isBreathingDone(b.name)
-                    Button { store.toggleBreathing(b.name) } label: {
-                        HStack(alignment: .center, spacing: 10) {
-                            Text(b.icon).font(.system(size: 22))
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(b.time).font(.system(size: 11, weight: .heavy)).foregroundStyle(Theme.primary)
-                                Text(b.name).font(.system(size: 14, weight: .bold))
-                                    .foregroundStyle(done ? Theme.muted : Theme.text)
-                                    .strikethrough(done, color: Theme.muted)
-                                Text(b.detail).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    HStack(alignment: .center, spacing: 10) {
+                        Button { session = b } label: {
+                            HStack(alignment: .center, spacing: 10) {
+                                ZStack {
+                                    Circle().fill(done ? Theme.border : Theme.primary.opacity(0.12)).frame(width: 40, height: 40)
+                                    Text(b.icon).font(.system(size: 20))
+                                }
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(b.time).font(.system(size: 11, weight: .heavy)).foregroundStyle(Theme.primary)
+                                    HStack(spacing: 6) {
+                                        Text(b.name).font(.system(size: 14, weight: .bold))
+                                            .foregroundStyle(done ? Theme.muted : Theme.text)
+                                            .strikethrough(done, color: Theme.muted)
+                                        Image(systemName: "play.circle.fill").font(.system(size: 14)).foregroundStyle(Theme.primaryLight)
+                                    }
+                                    Text(b.detail).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                                }
+                                Spacer(minLength: 6)
                             }
-                            Spacer(minLength: 6)
-                            CheckMark(done: done)
+                            .contentShape(Rectangle())
                         }
-                        .padding(.vertical, 9)
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
+                        Button { store.toggleBreathing(b.name) } label: { CheckMark(done: done) }
+                            .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+                    .padding(.vertical, 9)
                     if i < Plan.breathing.count - 1 { Divider().overlay(Theme.border) }
                 }
+            }
+        }
+        .fullScreenCover(item: $session) { slot in
+            BreathingSessionView(slot: slot)
+        }
+        // Debug / screenshots: `-breathing "Box Breathing"` opens that session; add `-breathingStart 1` to auto-start.
+        .onAppear {
+            if session == nil, let name = UserDefaults.standard.string(forKey: "breathing"), let slot = Plan.breathing.first(where: { $0.name == name }) {
+                session = slot
             }
         }
     }

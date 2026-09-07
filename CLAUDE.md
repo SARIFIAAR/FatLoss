@@ -185,7 +185,14 @@ blocked for Claude by the permission classifier — the user runs it.
   USDA order; generic before branded), `GET /barcode?code=`, `/analyze` accepts `{ text }`.
   New optional secret **`USDA_API_KEY`** (defaults to `DEMO_KEY`, 30 requests/hour per IP — get a free
   key at https://fdc.nal.usda.gov/api-key-signup and `flyctl -a fatloss-analyzer secrets set USDA_API_KEY=…`).
-- **To ship:** `cd server && flyctl deploy --ha=false` (classifier blocks Claude), then bump to build 8
+- **Guided breathing** (ported from the user's Flutter "Breathing Exercise" app in ~/Downloads): tapping a row
+  in the Today breathing schedule opens `Features/Today/BreathingSessionView.swift` — intro with per-technique
+  guide text, 3-s countdown, circle grows on inhale / shrinks on exhale, phase ring + seconds, spoken cues via
+  `AVSpeechSynthesizer` (toggle, persisted `breathVoice`), haptics per phase, pause/end, finishing calls
+  `Store.markBreathingDone`. `BreathingSlot` gained `pattern`/`minutes`/`cycles`/`guide`. Debug launch args:
+  `-breathing "Box Breathing"` opens a session, `-breathingStart 1` auto-starts it.
+- Server redeployed and `USDA_API_KEY` set by the user on 2026-09-07 (`/health` → `"foods":"usda"`).
+- **To ship:** bump to build 8
   and run `build/export_upload.sh` (user runs with `!`).
 
 ## Where things stood (2026-09-06, night)

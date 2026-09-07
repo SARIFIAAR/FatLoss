@@ -115,6 +115,15 @@ final class Store {
     // MARK: Breathing
 
     func isBreathingDone(_ name: String) -> Bool { data.breathing[today]?.contains(name) ?? false }
+    /// Called when a guided session finishes — ticks the slot, never un-ticks.
+    func markBreathingDone(_ name: String) {
+        guard !isBreathingDone(name) else { return }
+        var set = data.breathing[today] ?? []
+        set.insert(name)
+        data.breathing[today] = set
+        autoHabit("breath", done: true)
+        showToast("\(name) done 🌬️")
+    }
     func toggleBreathing(_ name: String) {
         var set = data.breathing[today] ?? []
         if set.contains(name) { set.remove(name) } else { set.insert(name); showToast("Breathing done 🌬️") }

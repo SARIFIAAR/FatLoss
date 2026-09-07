@@ -57,7 +57,29 @@ struct BreathingSlot: Identifiable {
     let time: String
     let name: String
     let detail: String
+    /// Seconds for inhale · hold · exhale · hold (0 = skip that phase).
+    var pattern: [Int] = [4, 4, 4, 4]
+    /// Session length in minutes (used when `cycles` is nil).
+    var minutes: Int = 3
+    /// Fixed number of breath cycles instead of a timed session.
+    var cycles: Int? = nil
+    /// Why and how — shown on the session intro screen.
+    var guide: String = ""
     var id: String { name }
+
+    var inhale: Int { pattern[0] }
+    var hold1: Int { pattern.count > 1 ? pattern[1] : 0 }
+    var exhale: Int { pattern.count > 2 ? pattern[2] : 0 }
+    var hold2: Int { pattern.count > 3 ? pattern[3] : 0 }
+    var cycleSeconds: Int { inhale + hold1 + exhale + hold2 }
+    var totalSeconds: Int { cycles.map { $0 * cycleSeconds } ?? minutes * 60 }
+    var patternLabel: String {
+        var parts = ["In \(inhale)s"]
+        if hold1 > 0 { parts.append("Hold \(hold1)s") }
+        parts.append("Out \(exhale)s")
+        if hold2 > 0 { parts.append("Hold \(hold2)s") }
+        return parts.joined(separator: " · ")
+    }
 }
 
 struct Meal: Identifiable {
@@ -197,10 +219,18 @@ enum Plan {
     }
 
     static let breathing: [BreathingSlot] = [
-        BreathingSlot(icon: "🌅", time: "7:00 AM",           name: "Box Breathing",   detail: "Inhale 4s · Hold 4s · Exhale 4s · Hold 4s — 5 min"),
-        BreathingSlot(icon: "💪", time: "Pre-Workout",       name: "Belly Breathing", detail: "Deep diaphragm breaths — 3 min to activate focus"),
-        BreathingSlot(icon: "🌙", time: "Evening (craving)", name: "4-7-8 Technique", detail: "Inhale 4s · Hold 7s · Exhale 8s — 3 cycles. Stops cravings."),
-        BreathingSlot(icon: "😴", time: "Bedtime",           name: "Extended Exhale", detail: "Inhale 4s · Exhale 8s — repeat until drowsy"),
+        BreathingSlot(icon: "🌅", time: "7:00 AM",           name: "Box Breathing",   detail: "Inhale 4s · Hold 4s · Exhale 4s · Hold 4s — 5 min",
+                      pattern: [4, 4, 4, 4], minutes: 5,
+                      guide: "Sit tall, shoulders down, one hand on your belly. Breathe in through the nose for 4, hold 4, out through the nose for 4, hold 4 — the four equal sides of a box.\n\nThis steadies the nervous system and sharpens focus for the day. If 4 seconds feels long at first, the app will still guide you — just follow the circle and let the breath be quiet, never forced."),
+        BreathingSlot(icon: "💪", time: "Pre-Workout",       name: "Belly Breathing", detail: "Deep diaphragm breaths — 3 min to activate focus",
+                      pattern: [5, 0, 5, 0], minutes: 3,
+                      guide: "Belly (diaphragmatic) breathing: one hand on the chest, one on the belly. As you breathe in for 5 seconds the belly hand should rise more than the chest hand; breathe out for 5 and feel it fall.\n\nIt lowers tension in the neck and shoulders and switches you on before training. Keep the jaw soft and breathe through the nose."),
+        BreathingSlot(icon: "🌙", time: "Evening (craving)", name: "4-7-8 Technique", detail: "Inhale 4s · Hold 7s · Exhale 8s — 3 cycles. Stops cravings.",
+                      pattern: [4, 7, 8, 0], cycles: 4,
+                      guide: "Tongue resting behind the top front teeth. Breathe in quietly through the nose for 4, hold for 7, then breathe out fully through the mouth for 8 with a soft whoosh.\n\nThe long hold and exhale calm the stress response that drives evening cravings — do it before opening the fridge. If the 7-second hold is too much at first, hold for as long as is comfortable; the count will still guide you."),
+        BreathingSlot(icon: "😴", time: "Bedtime",           name: "Extended Exhale", detail: "Inhale 4s · Exhale 8s — repeat until drowsy",
+                      pattern: [4, 0, 8, 0], minutes: 5,
+                      guide: "Lying down, lights low. Breathe in through the nose for 4 and let the breath out slowly for 8 — the exhale is twice the inhale.\n\nA long exhale tells the body it is safe to sleep; better sleep means lower cortisol and easier fat loss. Stop whenever you feel drowsy — there is no need to finish the timer."),
     ]
 
     static let meals: [Meal] = [
