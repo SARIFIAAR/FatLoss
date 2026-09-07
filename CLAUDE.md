@@ -211,6 +211,18 @@ user runs it — ONE run at a time). Build 8 contains everything below.**
   calorie ring per day, swipe / chevrons between weeks, tap a day → the eaten list, totals-vs-targets and the
   meal-plan "eaten" numbers show that day, and logging (all four paths) writes to the selected day
   (`ScanFlow.day`, `MealResultSheet(date:)`, `FoodEntrySheet(date:)`). Debug arg `-nutritionDay 2026-09-06`.
+- **Onboarding questionnaire (2026-09-08, not yet shipped):** `Models/Intake.swift` (`IntakeProfile` — ~45
+  answers across About you / Goal / Activity / Training / Food / Lifestyle / Health incl. gentle mood + anxiety
+  questions, medications, supplements / Devices; lenient decoding) + `PlanBuilder` (Mifflin-St Jeor BMR ×
+  activity factor from job + steps + training days, deficit by pace capped at 25 % of TDEE with 1500/1200 kcal
+  floors, protein 1.8 g/kg goal weight (2.0 over 50), fat 27 %, carbs the rest, water 35 ml/kg, steps goal by
+  band, waist target, weeks-to-goal, tailored notes). `Features/Onboarding/OnboardingView.swift` = 9 steps with
+  progress bar, option lists, chips (`FlowLayout`), steppers, hour pickers, summary. `AppData.intake`
+  (settings-stamped in merges), `Store.applyIntake` derives Goals + first weight/waist entries + reminder hours.
+  Shown automatically when `intake == nil && data.isEmpty` (fresh install, i.e. the friend); existing users
+  get Profile → "📋 My plan" → Build/Edit. Profile header now shows the intake name/sex/age/height. Debug args:
+  `-onboarding 1`, `-onboardingStep N`. Not yet done: using the answers to tailor the workout phases and meal
+  plan (they still come from `Plan` constants) — that is the natural next step.
 - Next build: bump `CURRENT_PROJECT_VERSION` (both configs), then the user runs `! sh ~/Developer/FatLossCoach/scripts/ship.sh`.
 
 ## Where things stood (2026-09-06, night)

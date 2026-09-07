@@ -53,6 +53,8 @@ struct ContentView: View {
     @Environment(Store.self) private var store
     /// Launch with `-startTab 2` to open a specific tab (debug / screenshots).
     @State private var tab = UserDefaults.standard.integer(forKey: "startTab")
+    /// New profile (no answers, no data) → questionnaire first. `-onboarding 1` forces it for screenshots.
+    @State private var showOnboarding = false
 
     var body: some View {
         TabView(selection: $tab) {
@@ -75,5 +77,11 @@ struct ContentView: View {
             }
         }
         .animation(.spring(duration: 0.3), value: store.toast)
+        .onAppear {
+            if UserDefaults.standard.bool(forKey: "onboarding") || (store.data.intake == nil && store.data.isEmpty) { showOnboarding = true }
+        }
+        .fullScreenCover(isPresented: $showOnboarding) {
+            OnboardingView(existing: store.data.intake, canSkip: !store.data.isEmpty) { store.applyIntake($0) }
+        }
     }
 }

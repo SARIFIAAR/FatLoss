@@ -11,7 +11,7 @@ final class Store {
             guard data != oldValue else { return }
             if !isApplyingRemote {
                 lastModified = Date()
-                if data.goals != oldValue.goals || data.program != oldValue.program || data.reminders != oldValue.reminders {
+                if data.goals != oldValue.goals || data.program != oldValue.program || data.reminders != oldValue.reminders || data.intake != oldValue.intake {
                     settingsModified = Date()
                 }
             }
@@ -127,6 +127,23 @@ final class Store {
         var set = data.habits[today] ?? []
         set.insert(key)
         data.habits[today] = set
+    }
+
+    // MARK: Onboarding
+
+    /// Save the questionnaire and derive goals, first weight/waist entries and reminder hours from it.
+    func applyIntake(_ intake: IntakeProfile) {
+        var p = intake
+        p.completedAt = Date()
+        var d = data
+        d.intake = p
+        d.goals = PlanBuilder.goals(for: p, existing: d.goals)
+        d.reminders.startHour = min(max(p.wakeHour + 1, 6), 12)
+        d.reminders.endHour = min(max(p.bedHour - 1, 18), 23)
+        data = d
+        if data.weightLogs.isEmpty || (currentWeight ?? 0) != p.weightKg { _ = logWeight(p.weightKg) }
+        if let w = p.waistCm, data.waistLogs.last?.value != w { _ = logWaist(w) }
+        showToast("Plan ready for \(p.name.isEmpty ? "you" : p.name) 🎯")
     }
 
     // MARK: Breathing

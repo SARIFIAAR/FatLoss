@@ -5,10 +5,12 @@ import UIKit
 struct ProfileView: View {
     @Environment(Store.self) private var store
     @State private var weightText = ""
+    @State private var editPlan = false
 
     var body: some View {
         Screen(subtitle: "Your health profile", title: "Profile ⚙️") {
             headerCard
+            PlanQuestionnaireCard(edit: $editPlan)
             GoalsCard()
             CloudCard()
             HealthCard()
@@ -21,18 +23,22 @@ struct ProfileView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.top, 4)
         }
+        .fullScreenCover(isPresented: $editPlan) {
+            OnboardingView(existing: store.data.intake, canSkip: true) { store.applyIntake($0) }
+        }
     }
 
     private var headerCard: some View {
         let g = store.data.goals
+        let me = store.data.intake
         return Card {
             VStack(spacing: 12) {
-                Text("M")
+                Text(me.map { $0.initial.isEmpty ? "?" : $0.initial } ?? "M")
                     .font(.system(size: 28, weight: .heavy)).foregroundStyle(.white)
                     .frame(width: 72, height: 72).background(Theme.primary).clipShape(Circle())
                 VStack(spacing: 2) {
-                    Text("Fat Loss Coach").font(.system(size: 22, weight: .heavy)).foregroundStyle(Theme.text)
-                    Text("Male · 49 yrs · 189 cm").font(.system(size: 14)).foregroundStyle(Theme.muted)
+                    Text(me.map { $0.name.isEmpty ? "Fat Loss Coach" : $0.name } ?? "Fat Loss Coach").font(.system(size: 22, weight: .heavy)).foregroundStyle(Theme.text)
+                    Text(me.map { "\($0.sex.label) · \($0.age) yrs · \(Fmt.num($0.heightCm)) cm" } ?? "Male · 49 yrs · 189 cm").font(.system(size: 14)).foregroundStyle(Theme.muted)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -409,6 +415,31 @@ struct ImportExportCard: View {
             ShareLink(item: store.exportJSON(), preview: SharePreview("Fat Loss Coach data")) {
                 Label("Share data as JSON", systemImage: "square.and.arrow.up")
                     .font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.primary)
+            }
+        }
+    }
+}
+
+
+/// Entry point to the plan questionnaire (first-run onboarding, re-openable to tune the plan).
+struct PlanQuestionnaireCard: View {
+    @Binding var edit: Bool
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        Card {
+            SectionTitle("📋 My plan")
+            if let p = store.data.intake {
+                Text("\(p.pace.label) pace · \(p.trainingDays) training days · \(p.location.label.lowercased()) · \(p.eatingStyle.label.lowercased()) · \(p.mealsPerDay) meals/day")
+                    .font(.system(size: 13)).foregroundStyle(Theme.muted).lineSpacing(3)
+                if let d = p.completedAt {
+                    Text("Answers saved \(d.formatted(date: .abbreviated, time: .omitted))").font(.system(size: 11)).foregroundStyle(Theme.muted).padding(.top, 2)
+                }
+                Button("Edit my answers") { edit = true }.buttonStyle(SecondaryButtonStyle()).padding(.top, 10)
+            } else {
+                Text("Answer nine short questions about your body, goal, training, food and lifestyle, and the calorie, protein, water and step targets are built for you.")
+                    .font(.system(size: 13)).foregroundStyle(Theme.muted).lineSpacing(3)
+                Button("Build my plan") { edit = true }.buttonStyle(PrimaryButtonStyle()).padding(.top, 10)
             }
         }
     }

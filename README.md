@@ -5,6 +5,11 @@ programme (106 kg → 93 kg). iOS 17+, iPhone. Currently on TestFlight as build 
 
 ## Status (7 September 2026)
 
+- **In progress (8 September 2026):** a nine-step **onboarding questionnaire** (body, goal and pace, daily
+  activity, training availability and equipment, food style and allergies, sleep and stress, health
+  conditions with gentle mood and anxiety questions, medications and supplements, devices) that builds
+  personal calorie, macro, water and step targets plus a timeline. Shown on first launch for a new profile;
+  editable later from Profile.
 - **Build 9 uploaded 7 September 2026 (evening):** fixes a cloud-sync merge that could reset the programme start date
   and reminder switches after an update, and adds an Apple-Fitness-style **week calendar** on Nutrition — a
   calorie ring per day, swipe between weeks, tap any day to see what you ate and log meals to that day.
