@@ -5,7 +5,7 @@ programme (106 kg → 93 kg). iOS 17+, iPhone. Currently on TestFlight as build 
 
 ## Status (7 September 2026)
 
-- **Build 9 (7 September 2026, evening):** fixes a cloud-sync merge that could reset the programme start date
+- **Build 9 uploaded 7 September 2026 (evening):** fixes a cloud-sync merge that could reset the programme start date
   and reminder switches after an update, and adds an Apple-Fitness-style **week calendar** on Nutrition — a
   calorie ring per day, swipe between weeks, tap any day to see what you ate and log meals to that day.
 - **Build 8 uploaded 7 September 2026** with everything below.

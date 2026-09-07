@@ -200,7 +200,7 @@ user runs it — ONE run at a time). Build 8 contains everything below.**
   `Store.markBreathingDone`. `BreathingSlot` gained `pattern`/`minutes`/`cycles`/`guide`. Debug launch args:
   `-breathing "Box Breathing"` opens a session, `-breathingStart 1` auto-starts it.
 - Server redeployed and `USDA_API_KEY` set by the user on 2026-09-07 (`/health` → `"foods":"usda"`).
-- **Build 9 (2026-09-07 late):** (1) **sync-merge bug** — after installing build 8 the user's programme start
+- **Build 9 uploaded 2026-09-07 (delivery UUID `069ad4a9-034c-4ccc-bf34-83ced7721d1d`):** (1) **sync-merge bug** — after installing build 8 the user's programme start
   date and reminder toggles reverted while meals/habits/water survived: `AppData.merged` took scalar settings
   wholesale from the copy with the newer `updatedAt`, so a stale copy could revert them. Fix: `settingsUpdatedAt`
   (stamped by `Store.settingsModified` whenever goals/program/reminders change; merge takes those three from the
