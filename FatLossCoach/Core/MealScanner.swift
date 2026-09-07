@@ -3,7 +3,7 @@ import Observation
 import UIKit
 import FirebaseAuth
 
-/// Sends a meal photo to the analyzer service on Fly.io (Claude vision) and returns items + macros.
+/// Sends a meal photo (or a written description) to the analyzer service on Fly.io (Claude) and returns items + macros.
 /// The request carries the user's Firebase ID token; the server verifies it before calling the model.
 @Observable
 final class MealScanner {
@@ -42,7 +42,7 @@ final class MealScanner {
             switch self {
             case .notSignedIn: return "Sign in with Apple (Profile tab) to use meal scanning."
             case .badImage: return "Couldn't read that photo."
-            case .notFood: return "That doesn't look like food. Try another photo."
+            case .notFood: return "That doesn't look like food. Try again."
             case .server(let m): return m
             }
         }
@@ -64,13 +64,24 @@ final class MealScanner {
     }
 
     func analyze(_ image: UIImage, hint: String? = nil, context: Context? = nil) async throws -> Analysis {
-        guard let user = Auth.auth().currentUser else { throw ScanError.notSignedIn }
         guard let jpeg = Self.downscaledJPEG(image) else { throw ScanError.badImage }
+        return try await post(["image": jpeg.base64EncodedString(), "mediaType": "image/jpeg"], hint: hint, context: context)
+    }
+
+    /// Estimate from a typed description ("2 eggs, toast with butter, black coffee") — no photo.
+    func analyze(text: String, hint: String? = nil, context: Context? = nil) async throws -> Analysis {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { throw ScanError.notFood }
+        return try await post(["text": t], hint: hint, context: context)
+    }
+
+    private func post(_ fields: [String: Any], hint: String?, context: Context?) async throws -> Analysis {
+        guard let user = Auth.auth().currentUser else { throw ScanError.notSignedIn }
         isAnalyzing = true
         defer { isAnalyzing = false }
 
         let token = try await user.getIDToken()
-        var payload: [String: Any] = ["image": jpeg.base64EncodedString(), "mediaType": "image/jpeg"]
+        var payload = fields
         if let hint, !hint.isEmpty { payload["hint"] = hint }
         if let context, let ctx = try? JSONEncoder().encode(context),
            let obj = try? JSONSerialization.jsonObject(with: ctx) { payload["context"] = obj }

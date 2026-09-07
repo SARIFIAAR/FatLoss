@@ -10,15 +10,18 @@ final class ScanFlow {
     var pickerItem: PhotosPickerItem?
     var pending: PendingMeal?
     var error: String?
+    var showTyped = false                  // FoodEntrySheet (database search / barcode / AI text)
+    var typedStartsWithBarcode = false
 
     struct PendingMeal: Identifiable {
         let id = UUID()
-        let image: UIImage
+        let image: UIImage?                // nil when estimated from a written description
         let analysis: MealScanner.Analysis
         let slot: String?
     }
 
     func camera(slot: String?) { self.slot = slot; error = nil; showCamera = true }
+    func typed(slot: String?, barcode: Bool = false) { self.slot = slot; error = nil; typedStartsWithBarcode = barcode; showTyped = true }
 }
 
 struct NutritionView: View {
@@ -121,16 +124,39 @@ struct NutritionView: View {
                 flow.pending = nil
             }
         }
+        .sheet(isPresented: $flow.showTyped) {
+            FoodEntrySheet(slot: flow.slot, startWithBarcode: flow.typedStartsWithBarcode) { entry in
+                store.addMeal(entry)
+                flow.showTyped = false
+            } onAIEstimate: { text in
+                flow.showTyped = false
+                Task { await analyze(text: text) }
+            }
+        }
+    }
+
+    private func context() -> MealScanner.Context {
+        let g = store.data.goals
+        return MealScanner.Context(kcalTarget: g.kcal, proteinTarget: g.protein, currentWeightKg: store.currentWeight,
+                                   goalWeightKg: g.goalWeight, slot: flow.slot)
+    }
+
+    private func analyze(text: String) async {
+        flow.error = nil
+        do {
+            let hint = Plan.meal(flow.slot).map { "This is my \($0.name.dropFirst(2))." }
+            let a = try await scanner.analyze(text: text, hint: hint, context: context())
+            flow.pending = ScanFlow.PendingMeal(image: nil, analysis: a, slot: flow.slot)
+        } catch {
+            flow.error = error.localizedDescription
+        }
     }
 
     private func analyze(_ image: UIImage) async {
         flow.error = nil
         do {
             let hint = Plan.meal(flow.slot).map { "This is my \($0.name.dropFirst(2))." }
-            let g = store.data.goals
-            let ctx = MealScanner.Context(kcalTarget: g.kcal, proteinTarget: g.protein, currentWeightKg: store.currentWeight,
-                                          goalWeightKg: g.goalWeight, slot: flow.slot)
-            let a = try await scanner.analyze(image, hint: hint, context: ctx)
+            let a = try await scanner.analyze(image, hint: hint, context: context())
             flow.pending = ScanFlow.PendingMeal(image: image, analysis: a, slot: flow.slot)
         } catch {
             flow.error = error.localizedDescription
@@ -181,12 +207,12 @@ struct MealScanCard: View {
 
     var body: some View {
         Card {
-            SectionTitle("📷 Scan a meal")
-            Text("Tap the camera on a meal below to log that meal, or scan anything else here. You get calories, protein, carbs and fat estimated from the photo.")
+            SectionTitle("🍽️ Log a meal")
+            Text("Photo, typed search or barcode — each meal below has all three. Photos and descriptions are estimated by the dietitian model; typed foods and barcodes use the USDA / Open Food Facts nutrition databases.")
                 .font(.system(size: 13)).foregroundStyle(Theme.muted).lineSpacing(3)
                 .padding(.bottom, 10)
             if !cloud.isSignedIn {
-                Text("Sign in with Apple in the Profile tab to enable meal scanning.")
+                Text("Sign in with Apple in the Profile tab to enable meal logging.")
                     .font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.orange)
                     .padding(.bottom, 8)
             }
@@ -210,10 +236,18 @@ struct MealScanCard: View {
                 .simultaneousGesture(TapGesture().onEnded { flow.slot = nil; flow.error = nil })
                 .disabled(scanner.isAnalyzing || !cloud.isSignedIn)
             }
+            HStack(spacing: 10) {
+                Button { flow.typed(slot: nil) } label: { Label("Type it in", systemImage: "keyboard") }
+                    .buttonStyle(SecondaryButtonStyle())
+                Button { flow.typed(slot: nil, barcode: true) } label: { Label("Barcode", systemImage: "barcode.viewfinder") }
+                    .buttonStyle(SecondaryButtonStyle())
+            }
+            .padding(.top, 10)
+            .disabled(scanner.isAnalyzing || !cloud.isSignedIn)
             if scanner.isAnalyzing {
                 HStack(spacing: 8) {
                     ProgressView().tint(Theme.primary)
-                    Text("Looking at your plate…").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    Text("Working out the nutrition…").font(.system(size: 12)).foregroundStyle(Theme.muted)
                 }
                 .padding(.top, 10)
             }
@@ -224,7 +258,7 @@ struct MealScanCard: View {
     }
 }
 
-/// Meal plan with a camera per meal: the photo is logged against that meal slot.
+/// Meal plan with a "+" per meal: photo, library, typed search or barcode — all logged against that meal slot.
 struct MealPlanCard: View {
     @Bindable var flow: ScanFlow
     @Environment(Store.self) private var store
@@ -262,8 +296,11 @@ struct MealPlanCard: View {
                         Menu {
                             Button { flow.camera(slot: m.key) } label: { Label("Take photo", systemImage: "camera.fill") }
                             Button { flow.slot = m.key; flow.error = nil; flow.showLibrary = true } label: { Label("Choose from library", systemImage: "photo.on.rectangle") }
+                            Divider()
+                            Button { flow.typed(slot: m.key) } label: { Label("Type it in", systemImage: "keyboard") }
+                            Button { flow.typed(slot: m.key, barcode: true) } label: { Label("Scan barcode", systemImage: "barcode.viewfinder") }
                         } label: {
-                            Image(systemName: logged ? "camera.badge.ellipsis" : "camera.fill")
+                            Image(systemName: logged ? "plus.circle" : "plus")
                                 .font(.system(size: 15, weight: .bold))
                                 .foregroundStyle(.white)
                                 .frame(width: 38, height: 38)
@@ -313,7 +350,7 @@ struct CameraPicker: UIViewControllerRepresentable {
 }
 
 struct MealResultSheet: View {
-    let image: UIImage
+    let image: UIImage?
     let analysis: MealScanner.Analysis
     var slot: String? = nil
     let onAdd: (MealEntry) -> Void
@@ -324,10 +361,21 @@ struct MealResultSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    Image(uiImage: image)
-                        .resizable().scaledToFill()
-                        .frame(height: 180).frame(maxWidth: .infinity)
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    if let image {
+                        Image(uiImage: image)
+                            .resizable().scaledToFill()
+                            .frame(height: 180).frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    } else {
+                        HStack(spacing: 8) {
+                            Text("✨")
+                            Text("Estimated from your description").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.primary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(Theme.primary.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
 
                     if let m = Plan.meal(slot) {
                         Text("Logging as \(m.name) · plan \(m.kcal)")

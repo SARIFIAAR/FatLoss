@@ -3,8 +3,15 @@
 Native SwiftUI port of the single-file "My Fitness Coach" web app, built for a personal fat-loss
 programme (106 kg → 93 kg). iOS 17+, iPhone. Currently on TestFlight as build 1.0.0 (7).
 
-## Status (6 September 2026)
+## Status (7 September 2026)
 
+- **In progress (built, not yet on TestFlight):** every meal can now be logged three ways — **photo**,
+  **typed search** against the USDA FoodData Central database (household portions or grams × quantity,
+  several foods per meal) and **barcode** (Open Food Facts, USDA Branded fallback) — plus an
+  "Ask AI to estimate" fallback for a typed description. Server gained `/foods`, `/barcode` and text
+  input on `/analyze`; needs a redeploy and, ideally, a free `USDA_API_KEY` secret.
+- The Anthropic key on the server was replaced on 7 September after the old one was revoked
+  ("Model error 401" in the app).
 - All five tabs, HealthKit sync, cloud backup, web-app import and the three-phase programme are built
   and on TestFlight. **Build 7 uploaded 6 September 2026 and is VALID** (builds 1–4, 6 and 7 are there).
 - The meal-photo analyzer backend (`server/`) is **live on Fly.io** (`fatloss-analyzer.fly.dev`) and the
@@ -27,7 +34,7 @@ programme (106 kg → 93 kg). iOS 17+, iPhone. Currently on TestFlight as build 
 | **Today** | Programme phase strip · daily targets (eaten vs target once meals are logged) · Apple Watch steps, resting HR and kcal burned with a burned / eaten / deficit line · readiness score from HRV, sleep and resting HR · 7 habits (supplements, breathing and water tick themselves) · water · supplements · tickable breathing schedule · log weight / waist |
 | **Progress** | Weight goal bar · waist and weight charts with goal line · daily calories stacked by protein / carbs / fat · 7-day energy balance (eaten vs burned, per-day deficit, average) · weekly steps vs goal · HRV (30 nights) · sleep total / deep / REM (14 nights) · 28-day habit heat-map · supplement adherence |
 | **Workout** | Three-phase programme with a progress bar and week counter: **Phase 1 Foundation** (4 weeks, 2× full body + walks), **Phase 2 Build** (4 weeks, machine-first 3×), **Phase 3 Full Gym** (8 weeks, Push / Pull / Legs). Exercise photos, per-exercise progressive-overload log, start / advance / change phase |
-| **Nutrition** | Photograph a meal → calories, protein, carbs, fat per item (Claude vision) · camera button on each meal-plan slot · eaten-today list · kcal burned and deficit so far plus 7-day average deficit · water tracker · 9 PM kitchen-closed banner |
+| **Nutrition** | Log each meal by photo (Claude vision), typed search (USDA FoodData Central, portions × quantity, multi-food meals), barcode (Open Food Facts / USDA Branded) or a one-line AI estimate · "+" menu on each meal-plan slot · eaten-today list · kcal burned and deficit so far plus 7-day average deficit · water tracker · 9 PM kitchen-closed banner |
 | **Profile** | Goals · cloud backup with Sign in with Apple · Apple Health connect and sync · manual entry fallback · water / walk reminders · Shortcuts URL scheme · import from the web app · JSON export |
 
 ## Architecture

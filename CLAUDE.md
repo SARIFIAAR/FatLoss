@@ -167,7 +167,28 @@ blocked for Claude by the permission classifier — the user runs it.
   water/walk reminders,
   Shortcuts URL template, import from web app, JSON export, version/build footer.
 
-## Where things stand (2026-09-06, night)
+## Where things stand (2026-09-07)
+
+**Done today (uncommitted → committed, NOT yet built for TestFlight, server NOT yet redeployed).**
+- The Anthropic key on Fly went invalid (`authentication_error: API key is invalid` → app showed
+  "Model error 401"); a new key was set with `flyctl secrets set ANTHROPIC_API_KEY=…` and verified.
+- **Three ways to log every meal**: photo (as before), **Type it in** (search the USDA FoodData Central
+  database, pick a household portion or grams × quantity, build the meal from several foods) and
+  **Barcode** (Open Food Facts first, USDA Branded fallback). Plus **AI text estimate** as a fallback
+  from the search sheet ("Ask AI to estimate …" → `/analyze` with `text` instead of `image`).
+  Files: `Core/FoodSearch.swift` (client for `/foods` + `/barcode`), `Features/Nutrition/FoodEntrySheet.swift`
+  (search / basket / `PortionSheet`), `Features/Nutrition/BarcodeScannerView.swift` (VisionKit
+  `DataScannerViewController`, real device only), `MealScanner.analyze(text:)`, `ScanFlow.typed(slot:barcode:)`,
+  `MealResultSheet.image` is optional. Meal-plan rows now show a "+" menu: Take photo / Choose from
+  library / Type it in / Scan barcode.
+- Server: `GET /foods?q=` (USDA search, cached 6 h, ranked: all query words → fewest extra words →
+  USDA order; generic before branded), `GET /barcode?code=`, `/analyze` accepts `{ text }`.
+  New optional secret **`USDA_API_KEY`** (defaults to `DEMO_KEY`, 30 requests/hour per IP — get a free
+  key at https://fdc.nal.usda.gov/api-key-signup and `flyctl -a fatloss-analyzer secrets set USDA_API_KEY=…`).
+- **To ship:** `cd server && flyctl deploy --ha=false` (classifier blocks Claude), then bump to build 8
+  and run `build/export_upload.sh` (user runs with `!`).
+
+## Where things stood (2026-09-06, night)
 
 **Shipped.** Build 1.0.0 (7) uploaded to TestFlight 2026-09-06 (delivery UUID
 `c805a13d-0cb2-4f4e-8f99-b32be85d89c8`) and **processed VALID** (`node scripts/asc_builds.mjs`). It contains:
@@ -184,7 +205,7 @@ flyctl -a fatloss-analyzer secrets set FIREBASE_SERVICE_ACCOUNT="$(cat ~/Downloa
 ```
 Checked 2026-09-06 night: `/health` still returns `{"firestore":false,"admin":false}`, so `/admin` says the
 key/service account is not configured and scans are not logged server-side.
-The Anthropic key used today was pasted into the chat transcript; the user should rotate it.
+The Anthropic key was pasted into the chat transcript twice (09-06 and 09-07); the user should rotate it.
 
 **Housekeeping still open.**
 - A stray Firebase iOS app (bundle `com.metatec.myfitnesscoach`) still exists in project
