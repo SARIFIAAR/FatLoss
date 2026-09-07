@@ -3,10 +3,17 @@ import SwiftUI
 /// Type-it-in meal logging: search the nutrition database (or scan a barcode), pick portions,
 /// build the meal from one or more foods, and log it against a meal slot.
 struct FoodEntrySheet: View {
-    var slot: String?
-    var startWithBarcode = false
     let onLog: (MealEntry) -> Void
     let onAIEstimate: (String) -> Void
+    private let startWithBarcode: Bool
+    @State private var slot: String?
+
+    init(slot: String?, startWithBarcode: Bool = false, onLog: @escaping (MealEntry) -> Void, onAIEstimate: @escaping (String) -> Void) {
+        self.onLog = onLog
+        self.onAIEstimate = onAIEstimate
+        self.startWithBarcode = startWithBarcode
+        _slot = State(initialValue: slot)
+    }
 
     @Environment(Store.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -142,7 +149,9 @@ struct FoodEntrySheet: View {
             .scrollDismissesKeyboard(.interactively)
             .safeAreaInset(edge: .bottom) {
                 if !basket.isEmpty {
-                    Button(Plan.meal(slot).map { "Log as \($0.name)" } ?? "Add to today's log") {
+                    VStack(spacing: 10) {
+                    SlotPicker(slot: $slot)
+                    Button(Plan.logLabel(slot)) {
                         var e = MealEntry(date: store.today, name: mealName, kcal: total.kcal, protein: total.protein,
                                           carbs: total.carbs, fat: total.fat,
                                           items: basket.map { FoodItem(name: $0.food.name, portion: $0.portionLabel, grams: $0.grams,
@@ -153,11 +162,12 @@ struct FoodEntrySheet: View {
                         onLog(e)
                     }
                     .buttonStyle(PrimaryButtonStyle())
+                    }
                     .padding(.horizontal, 16).padding(.vertical, 10)
                     .background(Theme.bg)
                 }
             }
-            .navigationTitle(Plan.meal(slot).map { "Log \($0.name.dropFirst(2))" } ?? "Log a meal")
+            .navigationTitle("Log a meal")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
             .task(id: query) {

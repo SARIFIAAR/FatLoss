@@ -352,10 +352,17 @@ struct CameraPicker: UIViewControllerRepresentable {
 struct MealResultSheet: View {
     let image: UIImage?
     let analysis: MealScanner.Analysis
-    var slot: String? = nil
     let onAdd: (MealEntry) -> Void
+    @State private var slot: String?
     @Environment(Store.self) private var store
     @Environment(\.dismiss) private var dismiss
+
+    init(image: UIImage?, analysis: MealScanner.Analysis, slot: String? = nil, onAdd: @escaping (MealEntry) -> Void) {
+        self.image = image
+        self.analysis = analysis
+        self.onAdd = onAdd
+        _slot = State(initialValue: slot)
+    }
 
     var body: some View {
         NavigationStack {
@@ -377,10 +384,6 @@ struct MealResultSheet: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
 
-                    if let m = Plan.meal(slot) {
-                        Text("Logging as \(m.name) · plan \(m.kcal)")
-                            .font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accent)
-                    }
                     HStack(alignment: .firstTextBaseline) {
                         Text(analysis.meal_name).font(.system(size: 20, weight: .heavy)).foregroundStyle(Theme.text)
                         Spacer()
@@ -422,7 +425,9 @@ struct MealResultSheet: View {
                         Text("ℹ️ \(analysis.notes)").font(.system(size: 12)).foregroundStyle(Theme.muted).lineSpacing(3)
                     }
 
-                    Button(Plan.meal(slot).map { "Log as \($0.name)" } ?? "Add to today's log") {
+                    SlotPicker(slot: $slot).padding(.top, 4)
+
+                    Button(Plan.logLabel(slot)) {
                         var e = analysis.mealEntry(date: store.today)
                         e.slot = slot
                         onAdd(e)
