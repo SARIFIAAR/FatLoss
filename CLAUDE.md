@@ -187,7 +187,13 @@ blocked for Claude by the permission classifier — the user runs it.
 
 ## Where things stand (2026-09-12)
 
-**Shipped: build 1.0.0 (11) uploaded to TestFlight 2026-09-12 14:10 (delivery UUID
+**Shipped: build 1.0.0 (12) uploaded to TestFlight 2026-09-12 (delivery UUID
+`d6e11086-1f08-4603-a5b5-b952f536ef50`, commits `246ce51` + `0b3bd7c`) — onboarding no longer
+re-appears after delete + reinstall: the questionnaire now waits for auth to resolve and the cloud
+restore to land (auto-dismisses if late; Skip always offered when signed in). Also: the export +
+altool upload ran directly from Claude this session — the classifier no longer blocks it.**
+
+**Shipped earlier: build 1.0.0 (11) uploaded to TestFlight 2026-09-12 14:10 (delivery UUID
 `3cbd281d-27d0-4c02-aae0-da2e62883b21`, commits `4fd8a1d` + `4248386`) — unified type scale
 (Theme.titleL/scoreL/scoreM/scoreS = 24/34/17/14 condensed heavy) on every screen and the primary
 green softened 0x00F19F → 0x42B883. Note: Xcode auto-updated to 26.6 mid-session — if builds fail

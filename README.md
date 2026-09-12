@@ -1,10 +1,12 @@
 # Fat Loss Coach (iOS)
 
 Native SwiftUI port of the single-file "My Fitness Coach" web app, built for a personal fat-loss
-programme (106 kg → 93 kg). iOS 17+, iPhone. Currently on TestFlight as build 1.0.0 (11).
+programme (106 kg → 93 kg). iOS 17+, iPhone. Currently on TestFlight as build 1.0.0 (12).
 
 ## Status (12 September 2026)
 
+- **Build 12 uploaded 12 September 2026** — fixes the onboarding questionnaire re-appearing after
+  deleting and reinstalling the app: it now waits for the cloud restore before deciding you're new.
 - **Build 11 uploaded 12 September 2026** — one type scale across the app (the Body screen's
   condensed-heavy sizes) and a calmer emerald accent replacing the neon mint.
 - **Build 10 uploaded 12 September 2026** — a new **Body** tab (WHOOP-style dashboard, always dark):
