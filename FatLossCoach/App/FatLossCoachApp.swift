@@ -51,6 +51,7 @@ struct FatLossCoachApp: App {
 
 struct ContentView: View {
     @Environment(Store.self) private var store
+    @Environment(CloudSync.self) private var cloud
     /// Launch with `-startTab 2` to open a specific tab (debug / screenshots).
     /// Profile has no tab anymore — `-startTab 4` opens Today with the profile sheet up.
     @State private var tab: Int = {
@@ -82,11 +83,29 @@ struct ContentView: View {
             }
         }
         .animation(.spring(duration: 0.3), value: store.toast)
-        .onAppear {
-            if UserDefaults.standard.bool(forKey: "onboarding") || (store.data.intake == nil && store.data.isEmpty) { showOnboarding = true }
+        .task {
+            if UserDefaults.standard.bool(forKey: "onboarding") { showOnboarding = true; return }
+            guard store.data.intake == nil && store.data.isEmpty else { return }
+            // A reinstall keeps the Sign in with Apple session in the keychain, so an empty
+            // store does NOT mean a new user — give auth a moment to resolve, and if it does,
+            // wait for the Firestore snapshot to restore the data before deciding.
+            if cloud.isConfigured {
+                for _ in 0..<6 where !cloud.isSignedIn {                            // ~1.5 s for auth
+                    try? await Task.sleep(for: .milliseconds(250))
+                }
+                for _ in 0..<40 where cloud.isSignedIn && store.data.isEmpty {      // ~10 s for restore
+                    try? await Task.sleep(for: .milliseconds(250))
+                }
+            }
+            if store.data.intake == nil && store.data.isEmpty { showOnboarding = true }
+        }
+        .onChange(of: store.data.isEmpty) { _, empty in
+            // Cloud restore landed while the questionnaire was up (slow network) — drop it.
+            if !empty && showOnboarding && store.data.intake != nil { showOnboarding = false }
         }
         .fullScreenCover(isPresented: $showOnboarding) {
-            OnboardingView(existing: store.data.intake, canSkip: !store.data.isEmpty) { store.applyIntake($0) }
+            OnboardingView(existing: store.data.intake,
+                           canSkip: !store.data.isEmpty || cloud.isSignedIn) { store.applyIntake($0) }
         }
     }
 }
