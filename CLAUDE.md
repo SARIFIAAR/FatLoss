@@ -187,7 +187,13 @@ blocked for Claude by the permission classifier — the user runs it.
 
 ## Where things stand (2026-09-12)
 
-**Shipped: build 1.0.0 (10) uploaded to TestFlight 2026-09-12 10:46 (delivery UUID
+**Shipped: build 1.0.0 (11) uploaded to TestFlight 2026-09-12 14:10 (delivery UUID
+`3cbd281d-27d0-4c02-aae0-da2e62883b21`, commits `4fd8a1d` + `4248386`) — unified type scale
+(Theme.titleL/scoreL/scoreM/scoreS = 24/34/17/14 condensed heavy) on every screen and the primary
+green softened 0x00F19F → 0x42B883. Note: Xcode auto-updated to 26.6 mid-session — if builds fail
+with a CoreSimulator version mismatch, restart the service and run `xcodebuild -downloadPlatform iOS`.**
+
+**Shipped earlier: build 1.0.0 (10) uploaded to TestFlight 2026-09-12 10:46 (delivery UUID
 `348a83f4-fac7-46c8-809c-ce4c786b700a`), commits `bc6dac8` (Body work) + `29982ce` (bump).**
 Contains everything below (Body dashboard, expanded HealthKit, dark theme, 5-tab bar). The ASC key
 was copied to this Mac and `build/ExportOptions.plist` recreated (it lives under git-ignored build/
