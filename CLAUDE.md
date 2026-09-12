@@ -187,6 +187,14 @@ blocked for Claude by the permission classifier — the user runs it.
 
 ## Where things stand (2026-09-12)
 
+**Shipped: build 1.0.0 (10) uploaded to TestFlight 2026-09-12 10:46 (delivery UUID
+`348a83f4-fac7-46c8-809c-ce4c786b700a`), commits `bc6dac8` (Body work) + `29982ce` (bump).**
+Contains everything below (Body dashboard, expanded HealthKit, dark theme, 5-tab bar). The ASC key
+was copied to this Mac and `build/ExportOptions.plist` recreated (it lives under git-ignored build/
+— recreate with method app-store-connect, team 9F2G8CQ45J, automatic signing if wiped again).
+Migration verified in the simulator: a build-9-format data file with phase 1 started opens in
+build 10 with the phase intact and no onboarding pop.
+
 **Repo reconciled.** The canonical checkout on this Mac is now `~/FatLossCoach` (recovered from the
 other machine via `~/Downloads/FatLossCoach.zip`; its 10 unpushed build-8/9 commits were pushed to
 GitHub). The stale clone `~/FatLoss` (build-7 base + first drafts of the Body work) is superseded —

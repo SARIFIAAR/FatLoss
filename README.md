@@ -1,10 +1,20 @@
 # Fat Loss Coach (iOS)
 
 Native SwiftUI port of the single-file "My Fitness Coach" web app, built for a personal fat-loss
-programme (106 kg → 93 kg). iOS 17+, iPhone. Currently on TestFlight as build 1.0.0 (7).
+programme (106 kg → 93 kg). iOS 17+, iPhone. Currently on TestFlight as build 1.0.0 (10).
 
-## Status (7 September 2026)
+## Status (12 September 2026)
 
+- **Build 10 uploaded 12 September 2026** — a new **Body** tab (WHOOP-style dashboard, always dark):
+  recovery / strain / sleep ring gauges, a week strip with recovery-zone dots, sleep-need breakdown
+  (baseline + debt + strain credit) with stage bars, a health monitor comparing HRV, resting HR,
+  respiratory rate, wrist temperature, blood oxygen and sleep against personal 28-day typical ranges,
+  behaviour impacts (next-day recovery effect of each habit and supplement), a week-in-review card and
+  full-screen deep-dives per pillar with 30-day trend bars. Scores are computed on-device: recovery
+  0–100 from baseline z-scores, strain 0–21 from active energy and workout HR zones (Edwards TRIMP).
+  HealthKit now also reads workouts with heart-rate samples, SpO2, sleeping wrist temperature and
+  in-bed time. The whole app moved to one dark theme matching the Body tab, and the tab bar is now
+  five tabs (Today · Body · Nutrition · Train · Progress) with Profile behind the gear icon on Today.
 - **In progress (8 September 2026):** a nine-step **onboarding questionnaire** (body, goal and pace, daily
   activity, training availability and equipment, food style and allergies, sleep and stress, health
   conditions with gentle mood and anxiety questions, medications and supplements, devices) that builds
