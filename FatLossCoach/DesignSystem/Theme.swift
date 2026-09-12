@@ -23,9 +23,9 @@ extension Color {
 /// Single dark palette shared with the Body dashboard (`W`) so every tab reads as one app.
 /// The app is dark-only; `adaptive` remains for any stragglers but both sides match.
 enum Theme {
-    static let primary      = Color(hex: 0x00F19F)   // vibrant green — CTAs, selected state
+    static let primary      = Color(hex: 0x42B883)   // calm emerald — CTAs, selected state
     static let primaryLight = Color(hex: 0x43CB00)
-    static let accent       = Color(hex: 0x00F19F)
+    static let accent       = Color(hex: 0x42B883)
     static let orange       = Color(hex: 0xF0C930)
     static let red          = Color(hex: 0xFF0026)
     static let blue         = Color(hex: 0x0093E7)
@@ -41,6 +41,12 @@ enum Theme {
     static func score(_ size: CGFloat) -> Font {
         Font(UIFont.systemFont(ofSize: size, weight: .heavy, width: .condensed))
     }
+
+    // Type scale (matches the Body screen) — use these, not ad-hoc heavy sizes.
+    static let titleL = score(24)    // screen & card titles, 4-up target numbers
+    static let scoreL = score(34)    // hero numbers (gauge centres, big stats)
+    static let scoreM = score(17)    // stat / row values
+    static let scoreS = score(14)    // compact values, chips
 }
 
 enum Fmt {
@@ -301,7 +307,7 @@ struct LogValueSheet: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text(title).font(.system(size: 18, weight: .heavy)).foregroundStyle(Theme.text)
+            Text(title).font(Theme.scoreM).foregroundStyle(Theme.text)
             TextField(placeholder, text: $text)
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.center)

@@ -70,7 +70,7 @@ struct OnboardingView: View {
                 Spacer()
                 if canSkip { Button("Close") { dismiss() }.font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.accent) }
             }
-            Text(Self.titles[step]).font(.system(size: 26, weight: .heavy)).foregroundStyle(.white)
+            Text(Self.titles[step]).font(Theme.titleL).foregroundStyle(.white)
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(.white.opacity(0.2))

@@ -129,7 +129,7 @@ struct ProgressTabView: View {
                     HStack {
                         Text(s.name).font(.system(size: 15)).foregroundStyle(Theme.text)
                         Spacer()
-                        Text("\(store.adherence(s.key))%").font(.system(size: 14, weight: .heavy)).foregroundStyle(Theme.primary)
+                        Text("\(store.adherence(s.key))%").font(Theme.scoreS).foregroundStyle(Theme.primary)
                     }
                     .padding(.vertical, 9)
                     if i < Plan.trackedSupplements.count - 1 { Divider().overlay(Theme.border) }

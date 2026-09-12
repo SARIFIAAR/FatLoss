@@ -295,7 +295,7 @@ struct MealPlanCard: View {
                         VStack(alignment: .trailing, spacing: 2) {
                             if logged {
                                 Text("\(Int(eaten.rounded())) kcal")
-                                    .font(.system(size: 13, weight: .heavy))
+                                    .font(Theme.scoreS)
                                     .foregroundStyle(eaten > Double(m.targetKcal) * 1.25 ? Theme.red : Theme.primary)
                                 Text("plan \(m.kcal)").font(.system(size: 10)).foregroundStyle(Theme.muted)
                             } else {
@@ -396,7 +396,7 @@ struct MealResultSheet: View {
                     }
 
                     HStack(alignment: .firstTextBaseline) {
-                        Text(analysis.meal_name).font(.system(size: 20, weight: .heavy)).foregroundStyle(Theme.text)
+                        Text(analysis.meal_name).font(Theme.scoreM).foregroundStyle(Theme.text)
                         Spacer()
                         Text("\(analysis.confidence.capitalized) confidence")
                             .font(.system(size: 11, weight: .bold))

@@ -229,7 +229,7 @@ struct BreathingSessionView: View {
                     HStack(spacing: 12) {
                         Text(slot.icon).font(.system(size: 40))
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(slot.name).font(.system(size: 24, weight: .heavy)).foregroundStyle(.white)
+                            Text(slot.name).font(Theme.titleL).foregroundStyle(.white)
                             Text(slot.time).font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.accent)
                         }
                     }
@@ -311,7 +311,7 @@ struct BreathingSessionView: View {
         VStack(spacing: 0) {
             header
             VStack(spacing: 6) {
-                Text(slot.name).font(.system(size: 18, weight: .heavy)).foregroundStyle(.white)
+                Text(slot.name).font(Theme.scoreM).foregroundStyle(.white)
                 Text(slot.patternLabel).font(.system(size: 12, weight: .bold)).foregroundStyle(.white.opacity(0.75))
             }
             .padding(.top, 8)
@@ -347,7 +347,7 @@ struct BreathingSessionView: View {
 
     private func stat(value: String, label: String) -> some View {
         VStack(spacing: 2) {
-            Text(value).font(.system(size: 22, weight: .heavy)).monospacedDigit().foregroundStyle(.white)
+            Text(value).font(Theme.titleL).monospacedDigit().foregroundStyle(.white)
             Text(label).font(.system(size: 11)).foregroundStyle(.white.opacity(0.65))
         }
         .frame(minWidth: 90)
@@ -359,7 +359,7 @@ struct BreathingSessionView: View {
         VStack(spacing: 18) {
             Spacer()
             Text(session.completed ? "🌿" : "🌬️").font(.system(size: 64))
-            Text(session.completed ? "Session complete" : "Session ended").font(.system(size: 26, weight: .heavy)).foregroundStyle(.white)
+            Text(session.completed ? "Session complete" : "Session ended").font(Theme.titleL).foregroundStyle(.white)
             Text(session.completed
                  ? "\(slot.name) · \(session.cyclesDone) cycles. Notice how much calmer you feel — this is the state to make food decisions in."
                  : "You did \(session.cyclesDone) cycle\(session.cyclesDone == 1 ? "" : "s"). Even a short session counts — come back when you can.")

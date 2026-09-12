@@ -65,7 +65,7 @@ struct PhaseStrip: View {
         Card(padding: 14) {
             HStack(alignment: .firstTextBaseline) {
                 Text("🏁 Phase \(phase.number) · \(phase.name)")
-                    .font(.system(size: 14, weight: .heavy)).foregroundStyle(Theme.text)
+                    .font(Theme.scoreS).foregroundStyle(Theme.text)
                 Spacer()
                 Text(prog.started ? "Week \(prog.week) of \(prog.totalWeeks)" : "Not started")
                     .font(.system(size: 12, weight: .heavy))
@@ -114,7 +114,7 @@ struct MacroStat: View {
     let color: Color
     var body: some View {
         VStack(spacing: 2) {
-            Text(value).font(.system(size: 20, weight: .heavy)).foregroundStyle(color)
+            Text(value).font(Theme.scoreM).foregroundStyle(color)
                 .minimumScaleFactor(0.6).lineLimit(1)
             Text(label).font(.system(size: 11)).foregroundStyle(Theme.muted)
         }
@@ -134,7 +134,7 @@ struct WatchCard: View {
             HStack(spacing: 12) {
                 StatBox {
                     Text((h?.steps ?? 0).formatted())
-                        .font(.system(size: 24, weight: .heavy)).foregroundStyle(Theme.primary)
+                        .font(Theme.titleL).foregroundStyle(Theme.primary)
                     Text("steps").font(.system(size: 11)).foregroundStyle(Theme.muted)
                     ProgressBar(value: Double(h?.steps ?? 0) / goal, height: 8)
                         .padding(.top, 3)
@@ -143,7 +143,7 @@ struct WatchCard: View {
                 }
                 StatBox {
                     Text(h?.burnedKcal.map { "\(Int($0.rounded()))" } ?? "–")
-                        .font(.system(size: 24, weight: .heavy)).foregroundStyle(Theme.orange)
+                        .font(Theme.titleL).foregroundStyle(Theme.orange)
                     Text("kcal burned").font(.system(size: 11)).foregroundStyle(Theme.muted)
                     Text(h?.activeKcal.map { "\(Int($0.rounded())) active" }
                          ?? (health.hasConnected ? "No reading yet" : "Connect Health in Profile"))
@@ -153,7 +153,7 @@ struct WatchCard: View {
                 }
                 StatBox {
                     Text(h?.restingHR.map { "\(Int($0.rounded()))" } ?? "–")
-                        .font(.system(size: 24, weight: .heavy)).foregroundStyle(Theme.primary)
+                        .font(Theme.titleL).foregroundStyle(Theme.primary)
                     Text("resting HR").font(.system(size: 11)).foregroundStyle(Theme.muted)
                     Text(h?.restingHR != nil ? "bpm" : (health.hasConnected ? "No reading yet" : "Connect Health"))
                         .font(.system(size: 11)).foregroundStyle(Theme.muted)
@@ -235,7 +235,7 @@ struct RecStat: View {
     let value: String?
     var body: some View {
         VStack(spacing: 2) {
-            Text(value ?? "–").font(.system(size: 19, weight: .heavy)).foregroundStyle(Theme.primary)
+            Text(value ?? "–").font(Theme.scoreM).foregroundStyle(Theme.primary)
             Text(label).font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.muted)
         }
         .frame(maxWidth: .infinity)
@@ -282,7 +282,7 @@ struct WaterCard: View {
         Card {
             SectionTitle("💧 Water")
             HStack {
-                Text("\(ml) ml").font(.system(size: 18, weight: .heavy)).foregroundStyle(Theme.primary)
+                Text("\(ml) ml").font(Theme.scoreM).foregroundStyle(Theme.primary)
                 Spacer()
                 Text("Goal: \(goal.formatted()) ml").font(.system(size: 12)).foregroundStyle(Theme.muted)
             }

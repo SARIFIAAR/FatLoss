@@ -37,7 +37,7 @@ struct ProfileView: View {
                     .font(.system(size: 28, weight: .heavy)).foregroundStyle(.white)
                     .frame(width: 72, height: 72).background(Theme.primary).clipShape(Circle())
                 VStack(spacing: 2) {
-                    Text(me.map { $0.name.isEmpty ? "Fat Loss Coach" : $0.name } ?? "Fat Loss Coach").font(.system(size: 22, weight: .heavy)).foregroundStyle(Theme.text)
+                    Text(me.map { $0.name.isEmpty ? "Fat Loss Coach" : $0.name } ?? "Fat Loss Coach").font(Theme.titleL).foregroundStyle(Theme.text)
                     Text(me.map { "\($0.sex.label) · \($0.age) yrs · \(Fmt.num($0.heightCm)) cm" } ?? "Male · 49 yrs · 189 cm").font(.system(size: 14)).foregroundStyle(Theme.muted)
                 }
             }
@@ -46,19 +46,19 @@ struct ProfileView: View {
 
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                 StatBox {
-                    Text("\(Fmt.num(store.currentWeight ?? g.startWeight)) kg").font(.system(size: 20, weight: .heavy)).foregroundStyle(Theme.primary)
+                    Text("\(Fmt.num(store.currentWeight ?? g.startWeight)) kg").font(Theme.scoreM).foregroundStyle(Theme.primary)
                     Text("Current Weight").font(.system(size: 11)).foregroundStyle(Theme.muted)
                 }
                 StatBox {
-                    Text("\(Fmt.num(g.goalWeight)) kg").font(.system(size: 20, weight: .heavy)).foregroundStyle(Theme.orange)
+                    Text("\(Fmt.num(g.goalWeight)) kg").font(Theme.scoreM).foregroundStyle(Theme.orange)
                     Text("Goal Weight").font(.system(size: 11)).foregroundStyle(Theme.muted)
                 }
                 StatBox {
-                    Text("\(g.kcal)").font(.system(size: 20, weight: .heavy)).foregroundStyle(Theme.blue)
+                    Text("\(g.kcal)").font(Theme.scoreM).foregroundStyle(Theme.blue)
                     Text("kcal / day").font(.system(size: 11)).foregroundStyle(Theme.muted)
                 }
                 StatBox {
-                    Text("−\(g.deficit)").font(.system(size: 20, weight: .heavy)).foregroundStyle(Theme.primaryLight)
+                    Text("−\(g.deficit)").font(Theme.scoreM).foregroundStyle(Theme.primaryLight)
                     Text("Daily Deficit").font(.system(size: 11)).foregroundStyle(Theme.muted)
                 }
             }
@@ -77,7 +77,7 @@ struct ProfileView: View {
 
     private var medsCard: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("⚠️ Medications — Important").font(.system(size: 13, weight: .heavy)).foregroundStyle(Theme.orange)
+            Text("⚠️ Medications — Important").font(Theme.scoreS).foregroundStyle(Theme.orange)
             Text("**Wellbutrin (Bupropion) 300mg** — Suppresses appetite, boosts dopamine. Do NOT go below 1,200 kcal/day.")
             Text("**Brintellix (Vortioxetine) 20mg** — Weight-neutral. No dietary restrictions.")
             Text("Consult your doctor before any major dietary changes.")
@@ -194,7 +194,7 @@ struct HealthCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("⌚ Apple Watch — Health Sync").font(.system(size: 13, weight: .heavy)).foregroundStyle(Theme.blue)
+            Text("⌚ Apple Watch — Health Sync").font(Theme.scoreS).foregroundStyle(Theme.blue)
                 .padding(.bottom, 8)
             Text(health.lastSync.map { "Last synced \($0.formatted(date: .abbreviated, time: .shortened))" }
                  ?? "Reads steps, resting HR, HRV, respiratory rate and sleep stages straight from Apple Health.")

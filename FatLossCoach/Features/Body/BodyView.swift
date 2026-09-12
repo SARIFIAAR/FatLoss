@@ -15,7 +15,7 @@ enum W {
     static let red     = Color(hex: 0xFF0026)
     static let blue    = Color(hex: 0x0093E7)
     static let sleep   = Color(hex: 0x7BA1BB)
-    static let vibrant = Color(hex: 0x00F19F)
+    static let vibrant = Color(hex: 0x42B883)
 
     static func recoveryColor(_ zone: BodyMetrics.Recovery.Zone) -> Color {
         switch zone { case .red: red; case .yellow: yellow; case .green: green }
@@ -290,7 +290,7 @@ struct BodyView: View {
                     VStack(alignment: .trailing, spacing: 1) {
                         Text("TARGET").font(W.label(9)).kerning(1).foregroundStyle(W.muted)
                         Text("\(String(format: "%.1f", t.lowerBound))–\(String(format: "%.1f", t.upperBound))")
-                            .font(W.score(16)).foregroundStyle(W.recoveryColor(r.zone))
+                            .font(W.score(17)).foregroundStyle(W.recoveryColor(r.zone))
                     }
                 }
             }
@@ -400,7 +400,7 @@ struct BodyView: View {
             Text(i.name).font(.system(size: 13)).foregroundStyle(W.text)
             Spacer()
             Text("\(i.delta >= 0 ? "+" : "")\(Int(i.delta.rounded())) %")
-                .font(W.score(16)).foregroundStyle(i.delta >= 0 ? W.green : W.red)
+                .font(W.score(17)).foregroundStyle(i.delta >= 0 ? W.green : W.red)
         }
         .padding(.vertical, 8)
     }

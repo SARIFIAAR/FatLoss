@@ -29,7 +29,7 @@ struct WeekCalendarCard: View {
             HStack {
                 Button { withAnimation(.easeInOut(duration: 0.25)) { weekOffset -= 1 } } label: { chevron("chevron.left") }
                 Spacer()
-                Text(title).font(.system(size: 14, weight: .heavy)).foregroundStyle(Theme.text)
+                Text(title).font(Theme.scoreS).foregroundStyle(Theme.text)
                 Spacer()
                 if selected != store.today || weekOffset != 0 {
                     Button("Today") { withAnimation(.easeInOut(duration: 0.25)) { weekOffset = 0; selected = store.today } }
@@ -63,7 +63,7 @@ struct WeekCalendarCard: View {
             let t = store.totals(on: selected)
             let meals = store.data.meals[selected] ?? []
             HStack(spacing: 6) {
-                Text(selected == store.today ? "Today" : Self.longDay(selected)).font(.system(size: 13, weight: .heavy)).foregroundStyle(Theme.text)
+                Text(selected == store.today ? "Today" : Self.longDay(selected)).font(Theme.scoreS).foregroundStyle(Theme.text)
                 Text("·").foregroundStyle(Theme.muted)
                 Text(meals.isEmpty ? "nothing logged" : "\(Int(t.kcal.rounded())) kcal · \(meals.count) meal\(meals.count == 1 ? "" : "s")")
                     .font(.system(size: 13)).foregroundStyle(meals.isEmpty ? Theme.muted : Theme.primary)

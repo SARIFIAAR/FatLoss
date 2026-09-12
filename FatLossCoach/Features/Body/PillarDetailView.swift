@@ -166,7 +166,7 @@ struct PillarDetailView: View {
                 }
             }
             .frame(height: 6)
-            Text(value ?? "–").font(W.score(15)).foregroundStyle(W.text)
+            Text(value ?? "–").font(W.score(14)).foregroundStyle(W.text)
                 .frame(minWidth: 58, alignment: .trailing)
         }
         .padding(.vertical, 10)

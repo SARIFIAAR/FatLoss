@@ -69,7 +69,7 @@ struct PhaseCard: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(phase.name).font(.system(size: 20, weight: .heavy)).foregroundStyle(Theme.text)
+                    Text(phase.name).font(Theme.scoreM).foregroundStyle(Theme.text)
                     Text(phase.tagline).font(.system(size: 13)).foregroundStyle(Theme.muted)
                     Spacer()
                     Text(prog.started ? "Week \(prog.week) of \(prog.totalWeeks)" : "Not started")
@@ -166,7 +166,7 @@ struct DayCard: View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Text(day.day)
-                    .font(.system(size: 13, weight: .heavy)).foregroundStyle(Theme.muted)
+                    .font(Theme.scoreS).foregroundStyle(Theme.muted)
                     .frame(minWidth: 36, alignment: .leading)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
