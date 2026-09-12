@@ -52,7 +52,11 @@ struct FatLossCoachApp: App {
 struct ContentView: View {
     @Environment(Store.self) private var store
     /// Launch with `-startTab 2` to open a specific tab (debug / screenshots).
-    @State private var tab = UserDefaults.standard.integer(forKey: "startTab")
+    /// Profile has no tab anymore — `-startTab 4` opens Today with the profile sheet up.
+    @State private var tab: Int = {
+        let t = UserDefaults.standard.integer(forKey: "startTab")
+        return t == 4 ? 0 : t
+    }()
     /// New profile (no answers, no data) → questionnaire first. `-onboarding 1` forces it for screenshots.
     @State private var showOnboarding = false
 
@@ -60,16 +64,17 @@ struct ContentView: View {
         TabView(selection: $tab) {
             TodayView()
                 .tabItem { Label("Today", systemImage: "calendar") }.tag(0)
-            ProgressTabView()
-                .tabItem { Label("Progress", systemImage: "chart.xyaxis.line") }.tag(1)
-            WorkoutView()
-                .tabItem { Label("Workout", systemImage: "dumbbell.fill") }.tag(2)
+            BodyView()
+                .tabItem { Label("Body", systemImage: "heart.fill") }.tag(5)
             NutritionView()
                 .tabItem { Label("Nutrition", systemImage: "leaf.fill") }.tag(3)
-            ProfileView()
-                .tabItem { Label("Profile", systemImage: "person.crop.circle") }.tag(4)
+            WorkoutView()
+                .tabItem { Label("Train", systemImage: "dumbbell.fill") }.tag(2)
+            ProgressTabView()
+                .tabItem { Label("Progress", systemImage: "chart.xyaxis.line") }.tag(1)
         }
         .tint(Theme.primary)
+        .preferredColorScheme(.dark)
         .overlay(alignment: .top) {
             if let t = store.toast {
                 ToastView(text: t)

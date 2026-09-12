@@ -4,6 +4,8 @@ struct TodayView: View {
     @Environment(Store.self) private var store
     @State private var showWeight = false
     @State private var showWaist = false
+    // Profile lost its tab slot (Body took it); it lives in a sheet behind the gear now.
+    @State private var showProfile = UserDefaults.standard.integer(forKey: "startTab") == 4
 
     private var greeting: String {
         let h = Calendar.current.component(.hour, from: Date())
@@ -31,6 +33,18 @@ struct TodayView: View {
             }
             .padding(.top, 4)
         }
+        .overlay(alignment: .topTrailing) {
+            Button { showProfile = true } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .frame(width: 38, height: 38)
+                    .contentShape(Circle())
+            }
+            .padding(.trailing, 10)
+            .padding(.top, 4)
+        }
+        .sheet(isPresented: $showProfile) { ProfileView() }
         .sheet(isPresented: $showWeight) {
             LogValueSheet(title: "Log Today's Weight", placeholder: "e.g. 105.4") { store.logWeight($0) }
         }

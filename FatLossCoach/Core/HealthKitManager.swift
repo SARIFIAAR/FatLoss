@@ -20,9 +20,11 @@ final class HealthKitManager {
     private var readTypes: Set<HKObjectType> {
         var set = Set<HKObjectType>()
         let ids: [HKQuantityTypeIdentifier] = [.stepCount, .restingHeartRate, .heartRateVariabilitySDNN, .respiratoryRate,
-                                               .activeEnergyBurned, .basalEnergyBurned]
+                                               .activeEnergyBurned, .basalEnergyBurned,
+                                               .oxygenSaturation, .appleSleepingWristTemperature, .heartRate]
         for id in ids { if let t = HKObjectType.quantityType(forIdentifier: id) { set.insert(t) } }
         if let sleep = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) { set.insert(sleep) }
+        set.insert(HKObjectType.workoutType())
         return set
     }
 
@@ -68,13 +70,24 @@ final class HealthKitManager {
             }
             for (d, v) in hrv  { store.updateRecovery(on: DateKey.key(d)) { $0.hrv = v } }
             for (d, v) in resp { store.updateRecovery(on: DateKey.key(d)) { $0.resp = v } }
+            let spo2 = try await dailyStats(.oxygenSaturation, .discreteAverage, unit: .percent(), days: days)
+            let temp = try await dailyStats(.appleSleepingWristTemperature, .discreteAverage,
+                                            unit: .degreeCelsius(), days: days)
+            for (d, v) in spo2 where v > 0 { store.updateRecovery(on: DateKey.key(d)) { $0.spo2 = v * 100 } }
+            for (d, v) in temp where v > 0 { store.updateRecovery(on: DateKey.key(d)) { $0.tempC = v } }
             for (d, n) in sleep where n.total > 0.25 {
                 store.updateRecovery(on: DateKey.key(d)) {
                     $0.sleepH = n.total
                     $0.deepH = n.deep > 0 ? n.deep : $0.deepH
                     $0.remH = n.rem > 0 ? n.rem : $0.remH
+                    $0.inBedH = n.inBed > n.total ? n.inBed : $0.inBedH
+                    $0.bedTime = n.bedTime ?? $0.bedTime
+                    $0.wakeTime = n.wakeTime ?? $0.wakeTime
+                    $0.awakeCount = n.awakeCount > 0 ? n.awakeCount : $0.awakeCount
                 }
             }
+            let workouts = try await workoutsByDay(days: days)
+            for (key, list) in workouts { store.setWorkouts(list, on: key) }
             lastSync = Date()
             let todaySteps = steps.first { DateKey.key($0.key) == store.today }?.value ?? 0
             let todayBurn = store.healthToday?.burnedKcal
@@ -116,7 +129,12 @@ final class HealthKitManager {
         }
     }
 
-    struct SleepNight { var total = 0.0; var deep = 0.0; var rem = 0.0 }
+    struct SleepNight {
+        var total = 0.0; var deep = 0.0; var rem = 0.0
+        var inBed = 0.0                 // explicit inBed samples, else span first-asleep → last-wake
+        var bedTime: Date?; var wakeTime: Date?
+        var awakeCount = 0
+    }
 
     /// Sleep hours bucketed by the morning the sleep ended.
     private func sleepByNight(days: Int) async throws -> [Date: SleepNight] {
@@ -151,15 +169,129 @@ final class HealthKitManager {
             HKCategoryValueSleepAnalysis.asleepDeep.rawValue,
             HKCategoryValueSleepAnalysis.asleepREM.rawValue,
         ]
-        for s in best where asleep.contains(s.value) {
+        var inBedSpans: [Date: (Double, Date?, Date?)] = [:]   // explicit inBed: hours, first, last
+        for s in best {
             let night = cal.startOfDay(for: s.endDate)
-            var n = out[night] ?? SleepNight()
             let h = s.endDate.timeIntervalSince(s.startDate) / 3600
-            n.total += h
-            if s.value == HKCategoryValueSleepAnalysis.asleepDeep.rawValue { n.deep += h }
-            if s.value == HKCategoryValueSleepAnalysis.asleepREM.rawValue { n.rem += h }
+            var n = out[night] ?? SleepNight()
+            if s.value == HKCategoryValueSleepAnalysis.inBed.rawValue {
+                var span = inBedSpans[night] ?? (0, nil, nil)
+                span.0 += h
+                span.1 = min(span.1 ?? s.startDate, s.startDate)
+                span.2 = max(span.2 ?? s.endDate, s.endDate)
+                inBedSpans[night] = span
+            } else if s.value == HKCategoryValueSleepAnalysis.awake.rawValue {
+                n.awakeCount += 1
+            } else if asleep.contains(s.value) {
+                n.total += h
+                if s.value == HKCategoryValueSleepAnalysis.asleepDeep.rawValue { n.deep += h }
+                if s.value == HKCategoryValueSleepAnalysis.asleepREM.rawValue { n.rem += h }
+                n.bedTime = min(n.bedTime ?? s.startDate, s.startDate)
+                n.wakeTime = max(n.wakeTime ?? s.endDate, s.endDate)
+            }
             out[night] = n
         }
+        // In-bed time: explicit samples when present, else the asleep span (includes awake gaps).
+        for (night, n) in out {
+            var m = n
+            if let span = inBedSpans[night], span.0 > n.total {
+                m.inBed = span.0
+                m.bedTime = span.1 ?? m.bedTime
+            } else if let b = n.bedTime, let w = n.wakeTime {
+                m.inBed = w.timeIntervalSince(b) / 3600
+            }
+            out[night] = m
+        }
         return out
+    }
+
+    // MARK: Workouts
+
+    /// Workouts with per-zone HR minutes. Zones are % of the max HR observed across recent
+    /// workouts (floor 180): z1 <60, z2 60-70, z3 70-80, z4 80-90, z5 90+.
+    private func workoutsByDay(days: Int) async throws -> [String: [WorkoutEntry]] {
+        let end = Date()
+        let start = Calendar.current.date(byAdding: .day, value: -days, to: Calendar.current.startOfDay(for: end)) ?? end
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: [])
+
+        let workouts: [HKWorkout] = try await withCheckedThrowingContinuation { cont in
+            let q = HKSampleQuery(sampleType: .workoutType(), predicate: predicate,
+                                  limit: HKObjectQueryNoLimit,
+                                  sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]) { _, results, error in
+                if let error { cont.resume(throwing: error); return }
+                cont.resume(returning: (results as? [HKWorkout]) ?? [])
+            }
+            hk.execute(q)
+        }
+        guard !workouts.isEmpty else { return [:] }
+
+        var perWorkoutHR: [UUID: [(Date, Double)]] = [:]
+        for w in workouts {
+            perWorkoutHR[w.uuid] = try await heartRateSamples(from: w.startDate, to: w.endDate)
+        }
+        let observedMax = perWorkoutHR.values.flatMap { $0.map(\.1) }.max() ?? 0
+        let maxHR = max(180, observedMax)
+
+        var out: [String: [WorkoutEntry]] = [:]
+        for w in workouts {
+            let hr = perWorkoutHR[w.uuid] ?? []
+            var zones = [0.0, 0, 0, 0, 0]
+            for (i, s) in hr.enumerated() {
+                // A sample covers the gap to the next one (capped — gaps mean the strap was off).
+                let next = i + 1 < hr.count ? hr[i + 1].0 : w.endDate
+                let mins = min(next.timeIntervalSince(s.0), 60) / 60
+                let pct = s.1 / maxHR
+                let z = pct < 0.6 ? 0 : pct < 0.7 ? 1 : pct < 0.8 ? 2 : pct < 0.9 ? 3 : 4
+                zones[z] += mins
+            }
+            let kcal = w.statistics(for: HKQuantityType(.activeEnergyBurned))?
+                .sumQuantity()?.doubleValue(for: .kilocalorie())
+            let hrValues = hr.map(\.1)
+            let key = DateKey.key(w.startDate)
+            let entry = WorkoutEntry(id: w.uuid.uuidString, date: key,
+                                     name: w.workoutActivityType.displayName, start: w.startDate,
+                                     minutes: w.duration / 60, kcal: kcal,
+                                     avgHR: hrValues.isEmpty ? nil : hrValues.reduce(0, +) / Double(hrValues.count),
+                                     maxHR: hrValues.max(),
+                                     zoneMin: hrValues.isEmpty ? [] : zones)
+            out[key, default: []].append(entry)
+        }
+        return out
+    }
+
+    private func heartRateSamples(from: Date, to: Date) async throws -> [(Date, Double)] {
+        guard let type = HKQuantityType.quantityType(forIdentifier: .heartRate) else { return [] }
+        let predicate = HKQuery.predicateForSamples(withStart: from, end: to, options: [])
+        let perMinute = HKUnit.count().unitDivided(by: .minute())
+        return try await withCheckedThrowingContinuation { cont in
+            let q = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit,
+                                  sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]) { _, results, error in
+                if let error { cont.resume(throwing: error); return }
+                let samples = (results as? [HKQuantitySample]) ?? []
+                cont.resume(returning: samples.map { ($0.startDate, $0.quantity.doubleValue(for: perMinute)) })
+            }
+            hk.execute(q)
+        }
+    }
+}
+
+extension HKWorkoutActivityType {
+    var displayName: String {
+        switch self {
+        case .traditionalStrengthTraining, .functionalStrengthTraining: "Strength"
+        case .running: "Run"
+        case .walking: "Walk"
+        case .cycling: "Cycle"
+        case .swimming: "Swim"
+        case .highIntensityIntervalTraining: "HIIT"
+        case .rowing: "Row"
+        case .elliptical: "Elliptical"
+        case .stairClimbing: "Stairs"
+        case .yoga: "Yoga"
+        case .coreTraining: "Core"
+        case .soccer: "Football"
+        case .hiking: "Hike"
+        default: "Workout"
+        }
     }
 }

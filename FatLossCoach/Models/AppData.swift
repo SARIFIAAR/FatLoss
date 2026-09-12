@@ -31,9 +31,54 @@ struct RecoveryDay: Codable, Hashable {
     var remH: Double?
     var resp: Double?
     var mood: Int?
+    var spo2: Double?        // overnight blood oxygen %, Series 6+
+    var tempC: Double?       // sleeping wrist temperature °C, Series 8+
+    var inBedH: Double?      // time in bed (efficiency = sleepH / inBedH)
+    var bedTime: Date?       // first in-bed/asleep sample (consistency)
+    var wakeTime: Date?      // last asleep sample end
+    var awakeCount: Int?     // awake segments during the night (disturbances)
 
     var hasMetrics: Bool { (hrv ?? 0) > 0 || (sleepH ?? 0) > 0 || (rhr ?? 0) > 0 }
-    var isEmpty: Bool { !hasMetrics && deepH == nil && remH == nil && resp == nil && mood == nil }
+    var isEmpty: Bool {
+        !hasMetrics && deepH == nil && remH == nil && resp == nil && mood == nil
+            && spo2 == nil && tempC == nil && inBedH == nil
+    }
+    var efficiency: Double? {
+        guard let s = sleepH, let b = inBedH, b > 0.5, s > 0 else { return nil }
+        return min(100, s / b * 100)
+    }
+}
+
+/// One Apple Health workout (name, duration, HR summary, minutes per HR zone 1–5).
+struct WorkoutEntry: Codable, Hashable, Identifiable {
+    var id: String                    // HKWorkout UUID
+    var date: String                  // DateKey
+    var name: String
+    var start: Date
+    var minutes: Double
+    var kcal: Double?
+    var avgHR: Double?
+    var maxHR: Double?
+    var zoneMin: [Double] = []        // minutes in zones 1...5 (may be empty without HR data)
+
+    init(id: String, date: String, name: String, start: Date, minutes: Double,
+         kcal: Double? = nil, avgHR: Double? = nil, maxHR: Double? = nil, zoneMin: [Double] = []) {
+        self.id = id; self.date = date; self.name = name; self.start = start
+        self.minutes = minutes; self.kcal = kcal; self.avgHR = avgHR; self.maxHR = maxHR; self.zoneMin = zoneMin
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id      = c.value(.id,      default: UUID().uuidString)
+        date    = c.value(.date,    default: "")
+        name    = c.value(.name,    default: "Workout")
+        start   = c.value(.start,   default: Date())
+        minutes = c.value(.minutes, default: 0)
+        kcal    = c.value(.kcal,    default: nil)
+        avgHR   = c.value(.avgHR,   default: nil)
+        maxHR   = c.value(.maxHR,   default: nil)
+        zoneMin = c.value(.zoneMin, default: [])
+    }
 }
 
 struct ExerciseLog: Codable, Identifiable, Hashable {
@@ -169,6 +214,7 @@ struct AppData: Codable, Hashable {
     var health: [String: HealthDay] = [:]                   // was "health-sync"
     var exerciseDone: [String: Set<Int>] = [:]              // was "ex-YYYY-MM-DD-Mon"
     var meals: [String: [MealEntry]] = [:]                  // date -> meals eaten
+    var workouts: [String: [WorkoutEntry]] = [:]            // date -> Apple Health workouts
     var breathing: [String: Set<String>] = [:]              // date -> breathing slots done
     var goals = Goals()
     var program = ProgramState()
@@ -193,6 +239,7 @@ struct AppData: Codable, Hashable {
         health       = c.value(.health,       default: [:])
         exerciseDone = c.value(.exerciseDone, default: [:])
         meals        = c.value(.meals,        default: [:])
+        workouts     = c.value(.workouts,     default: [:])
         breathing    = c.value(.breathing,    default: [:])
         goals        = c.value(.goals,        default: Goals())
         program      = c.value(.program,      default: ProgramState())
@@ -247,6 +294,12 @@ struct AppData: Codable, Hashable {
             for m in old { byID[m.id] = m }
             for m in newer { byID[m.id] = m }
             return byID.values.sorted { $0.time < $1.time }
+        }
+        out.workouts.merge(older.workouts) { newer, old in
+            var byID: [String: WorkoutEntry] = [:]
+            for w in old { byID[w.id] = w }
+            for w in newer { byID[w.id] = w }
+            return byID.values.sorted { $0.start < $1.start }
         }
         // Settings (goals, programme, reminders) follow their own stamp, not the data stamp.
         let settingsSource = other.settingsUpdatedAt > settingsUpdatedAt ? other : self

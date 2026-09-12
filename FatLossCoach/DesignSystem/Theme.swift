@@ -20,20 +20,27 @@ extension Color {
     }
 }
 
-/// Palette lifted from the web app's CSS variables, with dark-mode counterparts.
+/// Single dark palette shared with the Body dashboard (`W`) so every tab reads as one app.
+/// The app is dark-only; `adaptive` remains for any stragglers but both sides match.
 enum Theme {
-    static let primary      = Color(hex: 0x2D6A4F)   // --p
-    static let primaryLight = Color(hex: 0x40916C)   // --pl
-    static let accent       = Color(hex: 0x74C69D)   // --a
-    static let orange       = Color(hex: 0xF4A261)   // --or
-    static let red          = Color(hex: 0xE76F51)   // --rd
-    static let blue         = Color(hex: 0x457B9D)   // --bl
+    static let primary      = Color(hex: 0x00F19F)   // vibrant green — CTAs, selected state
+    static let primaryLight = Color(hex: 0x43CB00)
+    static let accent       = Color(hex: 0x00F19F)
+    static let orange       = Color(hex: 0xF0C930)
+    static let red          = Color(hex: 0xFF0026)
+    static let blue         = Color(hex: 0x0093E7)
 
-    static let bg     = Color.adaptive(light: 0xF0FAF4, dark: 0x0E1A14)   // --bg
-    static let card   = Color.adaptive(light: 0xFFFFFF, dark: 0x18271F)   // --card
-    static let text   = Color.adaptive(light: 0x1B4332, dark: 0xE6F4EA)   // --t
-    static let muted  = Color.adaptive(light: 0x6B8C7A, dark: 0x94B3A2)   // --tm
-    static let border = Color.adaptive(light: 0xD8F3DC, dark: 0x264C39)   // --bd
+    static let bg     = Color(hex: 0x101518)
+    static let card   = Color(hex: 0x1A2227)
+    static let card2  = Color(hex: 0x232E35)         // inset boxes / tracks
+    static let text   = Color.white
+    static let muted  = Color(hex: 0x7A8B94)
+    static let border = Color(hex: 0x232E35)
+
+    /// Big numerals — heavy condensed, same face as the Body gauges.
+    static func score(_ size: CGFloat) -> Font {
+        Font(UIFont.systemFont(ofSize: size, weight: .heavy, width: .condensed))
+    }
 }
 
 enum Fmt {
@@ -47,8 +54,9 @@ enum Fmt {
 }
 
 enum Readiness {
+    // Zone colors match the Body dashboard: green / yellow / red.
     static func color(_ s: Int) -> Color {
-        s >= 80 ? Theme.primary : s >= 65 ? Theme.blue : s >= 45 ? Theme.orange : Theme.red
+        s >= 67 ? Color(hex: 0x43CB00) : s >= 34 ? Theme.orange : Theme.red
     }
     static func label(_ s: Int?) -> String {
         guard let s else { return "Connect Apple Health" }
@@ -89,16 +97,17 @@ struct TopBar: View {
     var topInset: CGFloat = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(subtitle).font(.system(size: 13)).opacity(0.8)
-            Text(title).font(.system(size: 22, weight: .heavy))
+        VStack(alignment: .leading, spacing: 3) {
+            Text(subtitle.uppercased())
+                .font(.system(size: 11, weight: .bold)).kerning(1.2)
+                .foregroundStyle(Theme.muted)
+            Text(title).font(Theme.score(26)).foregroundStyle(Theme.text)
         }
-        .foregroundStyle(.white)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 20)
-        .padding(.top, topInset + 10)
-        .padding(.bottom, 18)
-        .background(Theme.primary)
+        .padding(.horizontal, 16)
+        .padding(.top, topInset + 12)
+        .padding(.bottom, 10)
+        .background(Theme.bg)
     }
 }
 
@@ -111,8 +120,7 @@ struct Card<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(padding)
             .background(Theme.card)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .shadow(color: Theme.primary.opacity(0.08), radius: 6, y: 2)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 
@@ -135,8 +143,8 @@ struct StatBox<Content: View>: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
             .padding(.horizontal, 8)
-            .background(Theme.bg)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Theme.card2)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -165,11 +173,11 @@ struct CheckMark: View {
     var body: some View {
         ZStack {
             Circle().fill(done ? Theme.primary : Color.clear)
-            Circle().stroke(done ? Theme.primary : Theme.accent, lineWidth: 2)
+            Circle().stroke(done ? Theme.primary : Theme.muted, lineWidth: 2)
             if done {
                 Image(systemName: "checkmark")
                     .font(.system(size: size * 0.45, weight: .heavy))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color(hex: 0x101518))
             }
         }
         .frame(width: size, height: size)
@@ -217,14 +225,16 @@ struct PrimaryButtonStyle: ButtonStyle {
     var compact = false
 
     func makeBody(configuration: Configuration) -> some View {
+        // Vibrant fills need dark text for contrast; deep fills keep white.
+        let darkText = color == Theme.primary || color == Theme.orange
         configuration.label
             .font(.system(size: compact ? 13 : 16, weight: .bold))
-            .foregroundStyle(.white)
+            .foregroundStyle(darkText ? Color(hex: 0x101518) : .white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, compact ? 9 : 14)
             .padding(.horizontal, 12)
             .background(color)
-            .clipShape(RoundedRectangle(cornerRadius: compact ? 8 : 14, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: compact ? 8 : 10, style: .continuous))
             .opacity(configuration.isPressed ? 0.8 : 1)
     }
 }
@@ -267,12 +277,12 @@ struct ToastView: View {
     var body: some View {
         Text(text)
             .font(.system(size: 14, weight: .bold))
-            .foregroundStyle(.white)
+            .foregroundStyle(Color(hex: 0x101518))
             .padding(.vertical, 10)
             .padding(.horizontal, 22)
             .background(Theme.primary)
             .clipShape(Capsule())
-            .shadow(color: Theme.primary.opacity(0.3), radius: 10, y: 4)
+            .shadow(color: .black.opacity(0.4), radius: 10, y: 4)
             .padding(.top, 8)
     }
 }

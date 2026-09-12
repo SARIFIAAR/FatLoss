@@ -323,10 +323,10 @@ struct MealPlanCard: View {
                 }
             }
             Text("⏰ Kitchen closes at 9:00 PM — no food after this")
-                .font(.system(size: 12)).foregroundStyle(Color(hex: 0x8B5E3C))
+                .font(.system(size: 12)).foregroundStyle(Theme.orange)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
-                .background(Color(hex: 0xFFF8F0))
+                .background(Theme.card2)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .padding(.top, 10)
         }
