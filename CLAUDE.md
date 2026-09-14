@@ -187,7 +187,13 @@ blocked for Claude by the permission classifier — the user runs it.
 
 ## Where things stand (2026-09-12)
 
-**Shipped: build 1.0.0 (12) uploaded to TestFlight 2026-09-12 (delivery UUID
+**Shipped: build 1.0.0 (13) uploaded to TestFlight 2026-09-14 (delivery UUID
+`54e2e651-1343-475c-bda9-91e169f33464`) — Hume-inspired additions to the Body tab: Body Composition
+card (body fat %, lean/fat split from Apple Health BIA, plus BMI + BMR computed from logs/intake) and
+a WHOOP-Age-style Fitness Age tile (VO2 max / HRV / RHR / steps / sleep vs age references; transparent
+model in BodyMetrics.fitnessAge). HealthKit now also reads bodyFatPercentage, leanBodyMass, vo2Max.**
+
+**Shipped earlier: build 1.0.0 (12) uploaded to TestFlight 2026-09-12 (delivery UUID
 `d6e11086-1f08-4603-a5b5-b952f536ef50`, commits `246ce51` + `0b3bd7c`) — onboarding no longer
 re-appears after delete + reinstall: the questionnaire now waits for auth to resolve and the cloud
 restore to land (auto-dismisses if late; Skip always offered when signed in). Also: the export +
