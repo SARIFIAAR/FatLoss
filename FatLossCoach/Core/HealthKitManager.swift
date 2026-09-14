@@ -21,7 +21,8 @@ final class HealthKitManager {
         var set = Set<HKObjectType>()
         let ids: [HKQuantityTypeIdentifier] = [.stepCount, .restingHeartRate, .heartRateVariabilitySDNN, .respiratoryRate,
                                                .activeEnergyBurned, .basalEnergyBurned,
-                                               .oxygenSaturation, .appleSleepingWristTemperature, .heartRate]
+                                               .oxygenSaturation, .appleSleepingWristTemperature, .heartRate,
+                                               .bodyFatPercentage, .leanBodyMass, .bodyMass]
         for id in ids { if let t = HKObjectType.quantityType(forIdentifier: id) { set.insert(t) } }
         if let sleep = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) { set.insert(sleep) }
         set.insert(HKObjectType.workoutType())
@@ -88,6 +89,11 @@ final class HealthKitManager {
             }
             let workouts = try await workoutsByDay(days: days)
             for (key, list) in workouts { store.setWorkouts(list, on: key) }
+            // Body composition — written to Apple Health by any BIA scale (Hume, Withings, etc.).
+            let bodyFat = try await dailyStats(.bodyFatPercentage, .discreteAverage, unit: .percent(), days: days)
+            let lean    = try await dailyStats(.leanBodyMass, .discreteAverage, unit: .gramUnit(with: .kilo), days: days)
+            for (d, v) in bodyFat where v > 0 { store.setHealth(bodyFatPct: v * 100, on: DateKey.key(d)) }
+            for (d, v) in lean where v > 0 { store.setHealth(leanMassKg: v, on: DateKey.key(d)) }
             lastSync = Date()
             let todaySteps = steps.first { DateKey.key($0.key) == store.today }?.value ?? 0
             let todayBurn = store.healthToday?.burnedKcal

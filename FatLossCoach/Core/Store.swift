@@ -440,14 +440,53 @@ final class Store {
     var healthToday: HealthDay? { data.health[today] }
 
     func setHealth(steps: Int? = nil, restingHR: Double? = nil,
-                   activeKcal: Double? = nil, basalKcal: Double? = nil, on day: String? = nil) {
+                   activeKcal: Double? = nil, basalKcal: Double? = nil,
+                   bodyFatPct: Double? = nil, leanMassKg: Double? = nil, on day: String? = nil) {
         let k = day ?? today
         var h = data.health[k] ?? HealthDay()
         if let steps { h.steps = steps }
         if let restingHR { h.restingHR = restingHR }
         if let activeKcal { h.activeKcal = activeKcal }
         if let basalKcal { h.basalKcal = basalKcal }
+        if let bodyFatPct { h.bodyFatPct = bodyFatPct }
+        if let leanMassKg { h.leanMassKg = leanMassKg }
         data.health[k] = h
+    }
+
+    // MARK: Body composition (Hume-style, from a BIA scale via Apple Health)
+
+    /// Most recent body-fat % and derived fat/lean masses within the last `days`.
+    func bodyComposition(days: Int = 60) -> (bodyFatPct: Double, fatMassKg: Double, leanMassKg: Double, date: String)? {
+        for n in 0..<days {
+            let k = DateKey.key(DateKey.daysAgo(n))
+            guard let h = data.health[k], let bf = h.bodyFatPct else { continue }
+            let weight = weightOn(k) ?? currentWeight
+            guard let w = weight else { continue }
+            let fat = w * bf / 100
+            return (bf, fat, h.leanMassKg ?? (w - fat), k)
+        }
+        return nil
+    }
+
+    /// Weight logged on or most recently before a given day key.
+    func weightOn(_ key: String) -> Double? {
+        data.weightLogs.filter { $0.date <= key }.max { $0.date < $1.date }?.value
+    }
+
+    /// BMI from current weight + onboarding height.
+    var bmi: Double? {
+        guard let w = currentWeight else { return nil }
+        let h = (data.intake?.heightCm ?? 0) / 100
+        guard h > 1 else { return nil }
+        return w / (h * h)
+    }
+
+    /// Mifflin-St Jeor BMR from intake (matches PlanBuilder).
+    var bmr: Int? {
+        guard let p = data.intake else { return nil }
+        let w = currentWeight ?? p.weightKg
+        let s = p.sex == .female ? -161.0 : 5.0
+        return Int((10 * w + 6.25 * p.heightCm - 5 * Double(p.age) + s).rounded())
     }
 
     // MARK: Energy balance (Apple Watch burn vs. logged intake)

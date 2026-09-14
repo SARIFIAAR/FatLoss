@@ -55,6 +55,7 @@ struct BodyView: View {
                     sleepCard
                     strainCard.id("strain")
                     vitalsCard.id("week")
+                    bodyCompositionCard
                     impactsCard
                     weekReportCard.id("report")
                 }
@@ -376,6 +377,53 @@ struct BodyView: View {
                 .frame(minWidth: 48, alignment: .trailing)
         }
         .padding(.vertical, 9)
+    }
+
+    // MARK: Body composition (Hume-style, from a BIA scale via Apple Health)
+
+    private var bodyCompositionCard: some View {
+        let comp = store.bodyComposition()
+        return DarkCard {
+            CardTitle("Body Composition", comp != nil ? "from your scale" : "connect a scale", chevron: false) {}
+            HStack(spacing: 0) {
+                statCell("Weight", store.currentWeight.map { String(format: "%.1f kg", $0) } ?? "–")
+                statCell("Body fat", comp.map { String(format: "%.1f%%", $0.bodyFatPct) } ?? "–")
+                statCell("BMI", store.bmi.map { String(format: "%.1f", $0) } ?? "–")
+                statCell("BMR", store.bmr.map { "\($0)" } ?? "–")
+            }
+            if let c = comp {
+                fatLeanBar(fatMass: c.fatMassKg, leanMass: c.leanMassKg)
+                    .padding(.top, 12)
+                HStack(spacing: 14) {
+                    legend(String(format: "Fat %.1f kg", c.fatMassKg), W.yellow)
+                    legend(String(format: "Lean %.1f kg", c.leanMassKg), W.vibrant)
+                    Spacer()
+                }
+                .padding(.top, 8)
+            } else {
+                Text("Any BIA scale that writes to Apple Health (Hume, Withings, etc.) will fill body fat and lean mass here.")
+                    .font(.system(size: 11)).foregroundStyle(W.muted).padding(.top, 8)
+            }
+        }
+    }
+
+    private func fatLeanBar(fatMass: Double, leanMass: Double) -> some View {
+        let total = max(fatMass + leanMass, 0.01)
+        return GeometryReader { geo in
+            HStack(spacing: 2) {
+                Rectangle().fill(W.yellow).frame(width: geo.size.width * fatMass / total)
+                Rectangle().fill(W.vibrant)
+            }
+        }
+        .frame(height: 12)
+        .clipShape(Capsule())
+    }
+
+    private func legend(_ text: String, _ color: Color) -> some View {
+        HStack(spacing: 4) {
+            Circle().fill(color).frame(width: 6, height: 6)
+            Text(text).font(.system(size: 10)).foregroundStyle(W.muted)
+        }
     }
 
     // MARK: Behavior impacts
