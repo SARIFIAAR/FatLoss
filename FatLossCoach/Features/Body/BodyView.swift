@@ -404,6 +404,35 @@ struct BodyView: View {
                 Text("Body fat and lean mass appear once a BIA band (wrist impedance) writes to Apple Health. Weight, BMI and BMR show from your logs today.")
                     .font(.system(size: 11)).foregroundStyle(W.muted).padding(.top, 8)
             }
+            fitnessAgeRow
+        }
+    }
+
+    @ViewBuilder private var fitnessAgeRow: some View {
+        if let fa = store.fitnessAge() {
+            let younger = fa.delta <= 0
+            Rectangle().fill(W.divider).frame(height: 1).padding(.vertical, 12)
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("FITNESS AGE").font(W.label(9)).kerning(0.8).foregroundStyle(W.muted)
+                    Text("\(Int(fa.age.rounded()))")
+                        .font(W.score(34)).foregroundStyle(younger ? W.green : W.yellow)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(younger ? "\(Int(-fa.delta.rounded())) yrs younger" : "\(Int(fa.delta.rounded())) yrs older")
+                        .font(W.score(15)).foregroundStyle(younger ? W.green : W.yellow)
+                    Text("actual age \(fa.chronological)").font(.system(size: 11)).foregroundStyle(W.muted)
+                }
+            }
+            if let top = fa.contributors.first {
+                Text(top.offsetYears <= 0
+                     ? "\(top.name) is keeping you youngest"
+                     : "\(top.name) is aging you most — your biggest lever")
+                    .font(.system(size: 11)).foregroundStyle(W.muted).padding(.top, 6)
+            }
+            Text("Estimate from your fitness metrics — not a clinical biological age.")
+                .font(.system(size: 10)).foregroundStyle(W.muted.opacity(0.7)).padding(.top, 4)
         }
     }
 

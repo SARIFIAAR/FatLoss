@@ -177,6 +177,50 @@ enum BodyMetrics {
         return Int(dev.rounded())
     }
 
+    // MARK: Fitness Age (transparent "biological age" estimate)
+
+    struct FitnessAge {
+        var age: Double                 // estimated fitness age
+        var chronological: Int
+        var delta: Double               // age − chronological (negative = younger than your years)
+        var contributors: [(name: String, offsetYears: Double)]   // + ages you, − keeps you young
+    }
+
+    /// Compares each metric to an age/sex reference, expresses the gap in YEARS, then blends the
+    /// available ones. A motivational fitness-age estimate (same class as WHOOP Age / Hume), NOT a
+    /// clinical biological age — real biological age needs epigenetic lab testing.
+    static func fitnessAge(chronological: Int, isMale: Bool,
+                           vo2Max: Double?, hrv: Double?, restingHR: Double?,
+                           avgSteps: Double?, avgSleepH: Double?) -> FitnessAge? {
+        let age = Double(chronological)
+        var offsets: [(String, Double, Double)] = []   // name, offsetYears, weight
+
+        if let v = vo2Max, v > 0 {                      // VO2 max — strongest longevity signal
+            let ref = (isMale ? 48.0 : 40.0) - 0.40 * (age - 30)
+            offsets.append(("VO2 max", max(-15, min(15, (ref - v) / 0.40)), 0.40))
+        }
+        if let h = hrv, h > 0 {                         // HRV — higher is younger
+            let ref = 55.0 - 0.5 * (age - 30)
+            offsets.append(("HRV", max(-12, min(12, (ref - h) * 0.25)), 0.25))
+        }
+        if let r = restingHR, r > 0 {                   // Resting HR — higher is older
+            offsets.append(("Resting HR", max(-8, min(8, (r - 62) * 0.30)), 0.15))
+        }
+        if let s = avgSteps, s > 0 {                    // Activity
+            offsets.append(("Activity", max(-5, min(5, (8000 - s) / 1500)), 0.10))
+        }
+        if let sl = avgSleepH, sl > 0 {                 // Sleep
+            offsets.append(("Sleep", max(-4, min(4, (7.5 - sl) * 1.5)), 0.10))
+        }
+        guard !offsets.isEmpty else { return nil }
+
+        let wsum = offsets.reduce(0) { $0 + $1.2 }
+        let blended = offsets.reduce(0) { $0 + $1.1 * $1.2 } / wsum
+        let capped = max(-15, min(15, blended))
+        return FitnessAge(age: age + capped, chronological: chronological, delta: capped,
+                          contributors: offsets.map { ($0.0, $0.1) }.sorted { abs($0.1) > abs($1.1) })
+    }
+
     // MARK: Vitals typical ranges (health-monitor style)
 
     struct VitalRange {

@@ -22,7 +22,7 @@ final class HealthKitManager {
         let ids: [HKQuantityTypeIdentifier] = [.stepCount, .restingHeartRate, .heartRateVariabilitySDNN, .respiratoryRate,
                                                .activeEnergyBurned, .basalEnergyBurned,
                                                .oxygenSaturation, .appleSleepingWristTemperature, .heartRate,
-                                               .bodyFatPercentage, .leanBodyMass, .bodyMass]
+                                               .bodyFatPercentage, .leanBodyMass, .bodyMass, .vo2Max]
         for id in ids { if let t = HKObjectType.quantityType(forIdentifier: id) { set.insert(t) } }
         if let sleep = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) { set.insert(sleep) }
         set.insert(HKObjectType.workoutType())
@@ -94,6 +94,9 @@ final class HealthKitManager {
             let lean    = try await dailyStats(.leanBodyMass, .discreteAverage, unit: .gramUnit(with: .kilo), days: days)
             for (d, v) in bodyFat where v > 0 { store.setHealth(bodyFatPct: v * 100, on: DateKey.key(d)) }
             for (d, v) in lean where v > 0 { store.setHealth(leanMassKg: v, on: DateKey.key(d)) }
+            let mlKgMin = HKUnit.literUnit(with: .milli).unitDivided(by: HKUnit.gramUnit(with: .kilo).unitMultiplied(by: .minute()))
+            let vo2 = try await dailyStats(.vo2Max, .discreteAverage, unit: mlKgMin, days: days)
+            for (d, v) in vo2 where v > 0 { store.setHealth(vo2Max: v, on: DateKey.key(d)) }
             lastSync = Date()
             let todaySteps = steps.first { DateKey.key($0.key) == store.today }?.value ?? 0
             let todayBurn = store.healthToday?.burnedKcal

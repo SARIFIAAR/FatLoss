@@ -93,8 +93,9 @@ struct HealthDay: Codable, Hashable {
     var restingHR: Double?
     var activeKcal: Double?      // Apple Watch "Move" energy (active calories)
     var basalKcal: Double?       // resting / basal energy for the same day
-    var bodyFatPct: Double?      // from a BIA scale via Apple Health (Hume, Withings, etc.)
-    var leanMassKg: Double?      // lean body mass from the same scale
+    var bodyFatPct: Double?      // from a BIA band/scale via Apple Health
+    var leanMassKg: Double?      // lean body mass from the same source
+    var vo2Max: Double?          // ml/kg/min, Apple Health (Watch cardio fitness)
 
     /// Total energy burned so far that day (nil until the Watch has reported anything).
     var burnedKcal: Double? {
@@ -103,9 +104,9 @@ struct HealthDay: Codable, Hashable {
     }
 
     init(steps: Int = 0, restingHR: Double? = nil, activeKcal: Double? = nil, basalKcal: Double? = nil,
-         bodyFatPct: Double? = nil, leanMassKg: Double? = nil) {
+         bodyFatPct: Double? = nil, leanMassKg: Double? = nil, vo2Max: Double? = nil) {
         self.steps = steps; self.restingHR = restingHR; self.activeKcal = activeKcal; self.basalKcal = basalKcal
-        self.bodyFatPct = bodyFatPct; self.leanMassKg = leanMassKg
+        self.bodyFatPct = bodyFatPct; self.leanMassKg = leanMassKg; self.vo2Max = vo2Max
     }
 
     init(from decoder: Decoder) throws {
@@ -116,6 +117,7 @@ struct HealthDay: Codable, Hashable {
         basalKcal  = c.value(.basalKcal,  default: nil)
         bodyFatPct = c.value(.bodyFatPct, default: nil)
         leanMassKg = c.value(.leanMassKg, default: nil)
+        vo2Max     = c.value(.vo2Max,     default: nil)
     }
 }
 

@@ -441,7 +441,8 @@ final class Store {
 
     func setHealth(steps: Int? = nil, restingHR: Double? = nil,
                    activeKcal: Double? = nil, basalKcal: Double? = nil,
-                   bodyFatPct: Double? = nil, leanMassKg: Double? = nil, on day: String? = nil) {
+                   bodyFatPct: Double? = nil, leanMassKg: Double? = nil, vo2Max: Double? = nil,
+                   on day: String? = nil) {
         let k = day ?? today
         var h = data.health[k] ?? HealthDay()
         if let steps { h.steps = steps }
@@ -450,6 +451,7 @@ final class Store {
         if let basalKcal { h.basalKcal = basalKcal }
         if let bodyFatPct { h.bodyFatPct = bodyFatPct }
         if let leanMassKg { h.leanMassKg = leanMassKg }
+        if let vo2Max { h.vo2Max = vo2Max }
         data.health[k] = h
     }
 
@@ -479,6 +481,30 @@ final class Store {
         let h = (data.intake?.heightCm ?? 0) / 100
         guard h > 1 else { return nil }
         return w / (h * h)
+    }
+
+    /// Latest VO2 max within the last `days` (Apple Health, infrequent).
+    func latestVO2(days: Int = 90) -> Double? {
+        for n in 0..<days {
+            if let v = data.health[DateKey.key(DateKey.daysAgo(n))]?.vo2Max, v > 0 { return v }
+        }
+        return nil
+    }
+
+    /// Fitness-age estimate from recent metrics (28-day averages of HRV/RHR/steps/sleep + latest VO2).
+    func fitnessAge() -> BodyMetrics.FitnessAge? {
+        guard let intake = data.intake else { return nil }
+        func avg(_ vals: [Double]) -> Double? { vals.isEmpty ? nil : vals.reduce(0, +) / Double(vals.count) }
+        let hrv = avg(bodyHistory(\.hrv, days: 28))
+        let rhr = avg(bodyHistory(\.rhr, days: 28))
+        let sleep = avg(bodyHistory(\.sleepH, days: 28))
+        let steps = avg((1...28).compactMap { n -> Double? in
+            let s = data.health[DateKey.key(DateKey.daysAgo(n))]?.steps ?? 0
+            return s > 0 ? Double(s) : nil
+        })
+        return BodyMetrics.fitnessAge(chronological: intake.age, isMale: intake.sex == .male,
+                                      vo2Max: latestVO2(), hrv: hrv, restingHR: rhr,
+                                      avgSteps: steps, avgSleepH: sleep)
     }
 
     /// Mifflin-St Jeor BMR from intake (matches PlanBuilder).
