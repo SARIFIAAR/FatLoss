@@ -384,7 +384,7 @@ struct BodyView: View {
     private var bodyCompositionCard: some View {
         let comp = store.bodyComposition()
         return DarkCard {
-            CardTitle("Body Composition", comp != nil ? "from your scale" : "connect a scale", chevron: false) {}
+            CardTitle("Body Composition", comp != nil ? "body fat + lean mass" : "weight-based", chevron: false) {}
             HStack(spacing: 0) {
                 statCell("Weight", store.currentWeight.map { String(format: "%.1f kg", $0) } ?? "–")
                 statCell("Body fat", comp.map { String(format: "%.1f%%", $0.bodyFatPct) } ?? "–")
@@ -401,7 +401,7 @@ struct BodyView: View {
                 }
                 .padding(.top, 8)
             } else {
-                Text("Any BIA scale that writes to Apple Health (Hume, Withings, etc.) will fill body fat and lean mass here.")
+                Text("Body fat and lean mass appear once a BIA band (wrist impedance) writes to Apple Health. Weight, BMI and BMR show from your logs today.")
                     .font(.system(size: 11)).foregroundStyle(W.muted).padding(.top, 8)
             }
         }
