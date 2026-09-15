@@ -84,6 +84,45 @@ enum BodyMetrics {
         return out
     }
 
+    // MARK: Stress (0–100, HRV-based autonomic activation)
+
+    struct Stress {
+        var score: Int                  // 0–100, higher = more sympathetic (stress)
+        var hrvDrop: Double?            // component signals 0...1, for detail
+        var rhrRise: Double?
+        var respRise: Double?
+
+        enum Zone { case calm, balanced, elevated }
+        var zone: Zone { score <= 33 ? .calm : score <= 66 ? .balanced : .elevated }
+        var label: String { score <= 33 ? "Calm" : score <= 66 ? "Balanced" : "Elevated" }
+    }
+
+    /// Stress as autonomic activation vs a personal 28-day baseline: HRV suppression (60%), resting
+    /// HR elevation (25%), respiratory-rate elevation (15%). Grounded in the HRV-stress consensus
+    /// (low HRV ↔ higher sympathetic tone), not a proprietary clinic formula.
+    static func stress(hrv: Double?, restingHR: Double?, resp: Double?,
+                       hrvHistory: [Double], rhrHistory: [Double], respHistory: [Double]) -> Stress? {
+        guard let hrv, hrv > 0, let hrvBase = baseline(hrvHistory.map(log)) else { return nil }
+
+        var weights = 0.0, total = 0.0
+        var out = Stress(score: 0)
+
+        // HRV below baseline → stress. squash(−z) so a drop pushes toward 1.
+        let hrvS = squash(-hrvBase.z(log(hrv)))
+        out.hrvDrop = hrvS; total += 0.60 * hrvS; weights += 0.60
+
+        if let r = restingHR, r > 0, let base = baseline(rhrHistory) {
+            let s = squash(base.z(r))            // elevated RHR → stress
+            out.rhrRise = s; total += 0.25 * s; weights += 0.25
+        }
+        if let rr = resp, rr > 0, let base = baseline(respHistory) {
+            let s = squash(base.z(rr))           // elevated respiration → stress
+            out.respRise = s; total += 0.15 * s; weights += 0.15
+        }
+        out.score = max(1, min(99, Int((total / weights * 100).rounded())))
+        return out
+    }
+
     // MARK: Strain (0–21)
 
     struct Strain {
@@ -288,9 +327,13 @@ extension Store {
                                             tempHistory: bodyHistory(\.tempC),
                                             spo2History: bodyHistory(\.spo2),
                                             sleepPerformance: perf)
+        let stress = BodyMetrics.stress(hrv: rec.hrv, restingHR: rec.rhr, resp: rec.resp,
+                                        hrvHistory: bodyHistory(\.hrv),
+                                        rhrHistory: bodyHistory(\.rhr),
+                                        respHistory: bodyHistory(\.resp))
         return BodyDayScores(day: rec, health: health, workouts: workouts, recovery: recovery,
                              strain: strain, sleepNeed: need, sleepPerformance: perf,
-                             capKcal: capKcal, capTrimp: capTrimp)
+                             stress: stress, capKcal: capKcal, capTrimp: capTrimp)
     }
 
     /// Bedtimes of the last `nights` (for the consistency metric).
@@ -365,6 +408,7 @@ struct BodyDayScores {
     var strain: BodyMetrics.Strain
     var sleepNeed: BodyMetrics.SleepNeed
     var sleepPerformance: Double?
+    var stress: BodyMetrics.Stress?
     var capKcal: Double = 600
     var capTrimp: Double = 120
 }

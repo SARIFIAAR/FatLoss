@@ -52,6 +52,7 @@ struct BodyView: View {
                     gaugeRow
                     if scores.recovery == nil { calibratingCard }
                     recoveryCard
+                    stressCard.id("stress")
                     sleepCard
                     strainCard.id("strain")
                     vitalsCard.id("week")
@@ -197,6 +198,102 @@ struct BodyView: View {
             ])
         }
         .onTapGesture { pillar = .recovery }
+    }
+
+    // MARK: Stress (HRV-based autonomic activation)
+
+    private func stressColor(_ zone: BodyMetrics.Stress.Zone) -> Color {
+        switch zone { case .calm: W.green; case .balanced: W.yellow; case .elevated: W.red }
+    }
+
+    @ViewBuilder private var stressCard: some View {
+        if let st = scores.stress {
+            DarkCard {
+                CardTitle("Stress", st.label, chevron: false) {}
+                HStack(alignment: .firstTextBaseline) {
+                    Text("\(st.score)").font(W.score(34)).foregroundStyle(stressColor(st.zone))
+                    Text("/ 100").font(.system(size: 13)).foregroundStyle(W.muted)
+                    Spacer()
+                    Text(st.zone == .calm ? "Low autonomic load"
+                         : st.zone == .balanced ? "Normal for you" : "Elevated — ease off")
+                        .font(.system(size: 12)).foregroundStyle(W.muted)
+                }
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(W.card2)
+                        Capsule().fill(stressColor(st.zone))
+                            .frame(width: max(6, geo.size.width * Double(st.score) / 100))
+                    }
+                }
+                .frame(height: 10)
+                .padding(.top, 8)
+                DividedRows(topPadding: 8, rows: [
+                    AnyView(stressRow("HRV", st.hrvDrop)),
+                    AnyView(stressRow("Resting HR", st.rhrRise)),
+                    AnyView(stressRow("Respiratory rate", st.respRise)),
+                ])
+                stress7DayTable
+                Text("HRV-based estimate of autonomic (sympathetic) load vs your 28-day baseline. Not a medical measurement.")
+                    .font(.system(size: 10)).foregroundStyle(W.muted.opacity(0.7)).padding(.top, 6)
+            }
+        }
+    }
+
+    /// Last 7 days of stress as a labelled table: weekday, coloured bar, score.
+    private var stress7DayTable: some View {
+        VStack(spacing: 0) {
+            Rectangle().fill(W.divider).frame(height: 1).padding(.vertical, 10)
+            Text("LAST 7 DAYS").font(W.label(9)).kerning(0.8).foregroundStyle(W.muted)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 6)
+            ForEach((0..<7).reversed(), id: \.self) { n in
+                let day = DateKey.daysAgo(n)
+                let s = store.bodyDay(DateKey.key(day)).stress
+                HStack(spacing: 10) {
+                    Text(weekdayShort(day)).font(.system(size: 12)).foregroundStyle(W.muted)
+                        .frame(width: 38, alignment: .leading)
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(W.card2)
+                            if let s {
+                                Capsule().fill(stressColor(s.zone))
+                                    .frame(width: max(4, geo.size.width * Double(s.score) / 100))
+                            }
+                        }
+                    }
+                    .frame(height: 8)
+                    Text(s.map { "\($0.score)" } ?? "–")
+                        .font(W.score(15)).foregroundStyle(s.map { stressColor($0.zone) } ?? W.muted)
+                        .frame(width: 34, alignment: .trailing)
+                    Text(s?.label ?? "").font(.system(size: 10)).foregroundStyle(W.muted)
+                        .frame(width: 64, alignment: .leading)
+                }
+                .padding(.vertical, 5)
+            }
+        }
+    }
+
+    private func weekdayShort(_ d: Date) -> String {
+        let f = DateFormatter(); f.dateFormat = "EEE"; return f.string(from: d)
+    }
+
+    /// One driver row: how much this signal is contributing to today's stress (0–1 → bar).
+    private func stressRow(_ name: String, _ signal: Double?) -> some View {
+        HStack(spacing: 10) {
+            Text(name).font(.system(size: 13)).foregroundStyle(W.muted).frame(width: 120, alignment: .leading)
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(W.card2)
+                    if let s = signal {
+                        Capsule().fill(s >= 0.6 ? W.red : s >= 0.4 ? W.yellow : W.green)
+                            .frame(width: max(4, geo.size.width * s))
+                    }
+                }
+            }
+            .frame(height: 6)
+            Text(signal.map { $0 >= 0.6 ? "high" : $0 >= 0.4 ? "mid" : "low" } ?? "–")
+                .font(.system(size: 11)).foregroundStyle(W.muted).frame(width: 34, alignment: .trailing)
+        }
+        .padding(.vertical, 9)
     }
 
     /// today vs 28-day baseline, with an up/down arrow tinted by whether the move is good.
