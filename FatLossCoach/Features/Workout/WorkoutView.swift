@@ -7,7 +7,7 @@ struct WorkoutView: View {
     var body: some View {
         let today = Plan.todayAbbrev
         let phase = store.currentPhase
-        Screen(subtitle: "Phase \(phase.number) — \(phase.name)", title: "Workout 🏋️") {
+        Screen(subtitle: "Phase \(phase.number) — \(phase.name)", title: "Workout") {
             PhaseCard()
 
             VStack(spacing: 10) {
@@ -46,7 +46,7 @@ struct PhaseCard: View {
         let prog = store.phaseProgress
         Card {
             HStack(alignment: .firstTextBaseline) {
-                SectionTitle("🏁 Programme · Phase \(phase.number) of \(Plan.phases.count)")
+                SectionTitle("Programme · Phase \(phase.number) of \(Plan.phases.count)")
                 Spacer()
                 Menu {
                     ForEach(Plan.phases) { ph in
@@ -83,7 +83,7 @@ struct PhaseCard: View {
                     .padding(.top, 2)
                 HStack {
                     Text(prog.started
-                         ? (prog.isComplete ? "Phase complete 🎉" : "\(prog.daysLeft) days left in this phase")
+                         ? (prog.isComplete ? "Phase complete" : "\(prog.daysLeft) days left in this phase")
                          : "\(phase.weeks) weeks · \(phase.trainingDays.count)× training per week")
                     Spacer()
                     if let sd = store.data.program.startDate, let d = DateKey.date(sd) {
@@ -99,11 +99,11 @@ struct PhaseCard: View {
                 .padding(.top, 10)
 
             if !prog.started {
-                Button("▶︎ Start Phase \(phase.number) today") { store.startCurrentPhase() }
+                Button("︎ Start Phase \(phase.number) today") { store.startCurrentPhase() }
                     .buttonStyle(PrimaryButtonStyle())
                     .padding(.top, 12)
             } else if prog.isComplete, phase.number < Plan.phases.count {
-                Button("Advance to Phase \(phase.number + 1): \(Plan.phase(phase.number + 1).name) →") { store.advancePhase() }
+                Button("Advance to Phase \(phase.number + 1): \(Plan.phase(phase.number + 1).name)") { store.advancePhase() }
                     .buttonStyle(PrimaryButtonStyle(color: Theme.orange))
                     .padding(.top, 12)
             }
@@ -182,7 +182,7 @@ struct DayCard: View {
                 }
                 Spacer()
                 if day.isTraining {
-                    Text("Start →")
+                    Text("Start")
                         .font(.system(size: 11, weight: isToday ? .heavy : .regular))
                         .foregroundStyle(isToday ? Theme.primary : Theme.muted)
                         .padding(.vertical, 3).padding(.horizontal, 9)
@@ -215,7 +215,7 @@ struct SessionSheet: View {
                         ExerciseRow(day: day.day, index: i, exercise: ex)
                         if i < day.exercises.count - 1 { Divider().overlay(Theme.border) }
                     }
-                    Button("✅ Complete Workout") {
+                    Button("Complete Workout") {
                         store.completeWorkout()
                         dismiss()
                     }
@@ -268,7 +268,7 @@ struct ExerciseRow: View {
                     Text(exercise.name).font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.text)
                     Text(exercise.muscles).font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.accent)
                     if let last {
-                        Text("📊 Last: \(Fmt.num(last.kg)) kg × \(last.reps) reps")
+                        Text("Last: \(Fmt.num(last.kg)) kg × \(last.reps) reps")
                             .font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.blue).padding(.top, 2)
                     } else {
                         Text("Set your baseline today")
@@ -284,7 +284,7 @@ struct ExerciseRow: View {
                 NumField(placeholder: "kg", text: $kg, decimal: true)
                 Text("×").font(.system(size: 16, weight: .bold)).foregroundStyle(Theme.muted)
                 NumField(placeholder: "reps", text: $reps, decimal: false)
-                Button(saved ? "✓ Saved" : "Log Weight") {
+                Button(saved ? "Saved" : "Log Weight") {
                     guard let k = Fmt.parse(kg), k > 0, let r = Int(reps.trimmingCharacters(in: .whitespaces)), r > 0 else {
                         store.showToast("Enter weight & reps first")
                         return

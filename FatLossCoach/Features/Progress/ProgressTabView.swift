@@ -7,7 +7,7 @@ struct ProgressTabView: View {
 
     var body: some View {
         let g = store.data.goals
-        Screen(subtitle: "Toward your goal", title: "Progress 📊") {
+        Screen(subtitle: "Toward your goal", title: "Progress") {
             goalCard
             waistCard
             Card {
@@ -44,7 +44,7 @@ struct ProgressTabView: View {
             adherenceCard
         }
         .sheet(isPresented: $showWaist) {
-            LogValueSheet(title: "📏 Log Waist Circumference", placeholder: "e.g. 102 cm") { store.logWaist($0) }
+            LogValueSheet(title: "Log Waist Circumference", placeholder: "e.g. 102 cm") { store.logWaist($0) }
         }
     }
 
@@ -77,7 +77,7 @@ struct ProgressTabView: View {
     private var waistCard: some View {
         let g = store.data.goals
         return Card {
-            SectionTitle("📏 Waist Circumference")
+            SectionTitle("Waist Circumference")
             HStack {
                 Text(store.currentWaist.map { "\(Fmt.num($0)) cm" } ?? "– cm")
                     .font(.system(size: 28, weight: .black)).foregroundStyle(Theme.orange)
@@ -143,10 +143,17 @@ struct ProgressTabView: View {
 
 struct EmptyChart: View {
     var text = "No data yet"
+    var icon = "chart.line.uptrend.xyaxis"
     var body: some View {
-        Text(text)
-            .font(.system(size: 13)).foregroundStyle(Theme.muted)
-            .frame(maxWidth: .infinity, minHeight: 170)
+        VStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 26, weight: .light)).foregroundStyle(Theme.muted.opacity(0.5))
+            Text(text)
+                .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 26)
     }
 }
 

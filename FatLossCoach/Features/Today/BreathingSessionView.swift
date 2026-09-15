@@ -358,7 +358,7 @@ struct BreathingSessionView: View {
     private var done: some View {
         VStack(spacing: 18) {
             Spacer()
-            Text(session.completed ? "🌿" : "🌬️").font(.system(size: 64))
+            Text(session.completed ? "" : "").font(.system(size: 64))
             Text(session.completed ? "Session complete" : "Session ended").font(Theme.titleL).foregroundStyle(.white)
             Text(session.completed
                  ? "\(slot.name) · \(session.cyclesDone) cycles. Notice how much calmer you feel — this is the state to make food decisions in."

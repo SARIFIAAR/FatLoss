@@ -9,7 +9,7 @@ struct TodayView: View {
 
     private var greeting: String {
         let h = Calendar.current.component(.hour, from: Date())
-        return h < 12 ? "Good morning! 👋" : h < 17 ? "Good afternoon! ☀️" : "Good evening! 🌙"
+        return h < 12 ? "Good morning!" : h < 17 ? "Good afternoon!" : "Good evening!"
     }
     private var dateLine: String {
         Date().formatted(.dateTime.weekday(.wide).month(.wide).day())
@@ -28,7 +28,7 @@ struct TodayView: View {
             HStack(spacing: 10) {
                 Button("+ Log Weight") { showWeight = true }
                     .buttonStyle(PrimaryButtonStyle())
-                Button("📏 Log Waist") { showWaist = true }
+                Button("Log Waist") { showWaist = true }
                     .buttonStyle(PrimaryButtonStyle(color: Theme.orange))
             }
             .padding(.top, 4)
@@ -49,7 +49,7 @@ struct TodayView: View {
             LogValueSheet(title: "Log Today's Weight", placeholder: "e.g. 105.4") { store.logWeight($0) }
         }
         .sheet(isPresented: $showWaist) {
-            LogValueSheet(title: "📏 Log Waist Circumference", placeholder: "e.g. 102 cm") { store.logWaist($0) }
+            LogValueSheet(title: "Log Waist Circumference", placeholder: "e.g. 102 cm") { store.logWaist($0) }
         }
     }
 }
@@ -64,7 +64,7 @@ struct PhaseStrip: View {
         let prog = store.phaseProgress
         Card(padding: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text("🏁 Phase \(phase.number) · \(phase.name)")
+                Text("Phase \(phase.number) · \(phase.name)")
                     .font(Theme.scoreS).foregroundStyle(Theme.text)
                 Spacer()
                 Text(prog.started ? "Week \(prog.week) of \(prog.totalWeeks)" : "Not started")
@@ -73,11 +73,11 @@ struct PhaseStrip: View {
             }
             PhaseTrack(compact: true).padding(.top, 8)
             if !prog.started {
-                Button("▶︎ Start Phase \(phase.number) today") { store.startCurrentPhase() }
+                Button("︎ Start Phase \(phase.number) today") { store.startCurrentPhase() }
                     .buttonStyle(PrimaryButtonStyle(compact: true))
                     .padding(.top, 10)
             } else if prog.isComplete, phase.number < Plan.phases.count {
-                Button("Advance to Phase \(phase.number + 1) →") { store.advancePhase() }
+                Button("Advance to Phase \(phase.number + 1)") { store.advancePhase() }
                     .buttonStyle(PrimaryButtonStyle(color: Theme.orange, compact: true))
                     .padding(.top, 10)
             }
@@ -130,7 +130,7 @@ struct WatchCard: View {
         let h = store.healthToday
         let goal = Double(store.data.goals.stepsGoal)
         Card {
-            SectionTitle("⌚ Apple Watch Today")
+            SectionTitle("Apple Watch Today")
             HStack(spacing: 12) {
                 StatBox {
                     Text((h?.steps ?? 0).formatted())
@@ -176,14 +176,14 @@ struct WatchCard: View {
 
 struct RecoveryCard: View {
     @Environment(Store.self) private var store
-    private let moods = ["😔", "😞", "😐", "😊", "😄"]
+    private let moods = ["", "", "", "", ""]
 
     var body: some View {
         let rec = store.recoveryToday
         let score = Store.readiness(rec)
         let color = score.map(Readiness.color) ?? Theme.muted
         Card {
-            SectionTitle("⚡ Recovery & Readiness")
+            SectionTitle("Recovery & Readiness")
             VStack(spacing: 4) {
                 Text(score.map { String($0) } ?? "–")
                     .font(.system(size: 52, weight: .black)).foregroundStyle(color)
@@ -280,7 +280,7 @@ struct WaterCard: View {
         let ml = store.waterToday
         let goal = store.data.goals.waterGoal
         Card {
-            SectionTitle("💧 Water")
+            SectionTitle("Water")
             HStack {
                 Text("\(ml) ml").font(Theme.scoreM).foregroundStyle(Theme.primary)
                 Spacer()
@@ -298,7 +298,7 @@ struct SupplementsCard: View {
     @Environment(Store.self) private var store
     var body: some View {
         Card {
-            SectionTitle("💊 Supplements")
+            SectionTitle("Supplements")
             VStack(spacing: 0) {
                 ForEach(Array(Plan.supplements.enumerated()), id: \.element.id) { i, s in
                     let taken = store.isSupplementTaken(s.key)
@@ -336,7 +336,7 @@ struct BreathingCard: View {
     @State private var session: BreathingSlot?
     var body: some View {
         Card {
-            SectionTitle("🌬️ Breathing Schedule")
+            SectionTitle("Breathing Schedule")
             Text("Tap a session to be guided through it.").font(.system(size: 12)).foregroundStyle(Theme.muted).padding(.bottom, 4)
             VStack(spacing: 0) {
                 ForEach(Array(Plan.breathing.enumerated()), id: \.element.id) { i, b in

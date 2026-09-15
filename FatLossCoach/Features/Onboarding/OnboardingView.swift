@@ -238,7 +238,7 @@ struct OnboardingView: View {
         return Group {
             intro(p.name.isEmpty ? "Here's your starting plan." : "\(p.name), here's your starting plan. Everything can be tuned later in Profile.")
             Card {
-                SectionTitle("🎯 Daily targets")
+                SectionTitle("Daily targets")
                 HStack(spacing: 8) {
                     MacroStat(value: "\(t.kcal)", label: "kcal", color: Theme.primary)
                     MacroStat(value: "\(t.protein)g", label: "protein", color: Theme.primary)
@@ -253,7 +253,7 @@ struct OnboardingView: View {
                 if let w = t.waistTarget { row("Waist target", "\(Fmt.num(w)) cm") }
             }
             Card {
-                SectionTitle("📅 Timeline")
+                SectionTitle("Timeline")
                 if t.kgToLose > 0 {
                     Text("\(Fmt.num(t.kgToLose)) kg to lose at ~\(Fmt.num(p.pace.kgPerWeek)) kg/week ≈ \(t.weeksToGoal) weeks")
                         .font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.text)
@@ -265,7 +265,7 @@ struct OnboardingView: View {
             }
             if !t.notes.isEmpty {
                 Card {
-                    SectionTitle("ℹ️ Tailored for you")
+                    SectionTitle("ℹ Tailored for you")
                     ForEach(t.notes, id: \.self) { n in
                         Text("• \(n)").font(.system(size: 13)).foregroundStyle(Theme.text).lineSpacing(3).padding(.vertical, 2)
                     }
@@ -384,7 +384,7 @@ struct OnboardingView: View {
                 let on = p.stress == n
                 Button { p.stress = n } label: {
                     VStack(spacing: 2) {
-                        Text(["😌", "🙂", "😐", "😣", "🤯"][n - 1]).font(.system(size: 22))
+                        Text(["", "", "", "", ""][n - 1]).font(.system(size: 22))
                         Text(["Calm", "Fine", "Busy", "Stressed", "Burnt out"][n - 1]).font(.system(size: 10, weight: .bold)).foregroundStyle(on ? .white : Theme.muted)
                     }
                     .frame(maxWidth: .infinity).padding(.vertical, 8)

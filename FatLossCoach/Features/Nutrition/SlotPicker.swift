@@ -17,7 +17,7 @@ struct SlotPicker: View {
                         chip(title: m.name, subtitle: store.kcal(slot: m.key) > 0 ? "\(Int(store.kcal(slot: m.key).rounded())) logged" : m.kcal,
                              selected: slot == m.key) { slot = m.key }
                     }
-                    chip(title: "🍽️ Other", subtitle: "no slot", selected: slot == nil) { slot = nil }
+                    chip(title: "Other", subtitle: "no slot", selected: slot == nil) { slot = nil }
                 }
                 .padding(.vertical, 2)
             }
@@ -41,7 +41,7 @@ struct SlotPicker: View {
 }
 
 extension Plan {
-    /// Button label for saving into a slot: "Log as 🌅 Breakfast" or "Add to today's log".
+    /// Button label for saving into a slot: "Log as Breakfast" or "Add to today's log".
     static func logLabel(_ slot: String?) -> String {
         meal(slot).map { "Log as \($0.name)" } ?? "Add to today's log"
     }

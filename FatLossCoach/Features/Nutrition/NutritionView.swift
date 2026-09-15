@@ -38,7 +38,7 @@ struct NutritionView: View {
         let ml = store.waterToday
         let pct = min(Double(ml) / Double(g.waterGoal), 1)
         let isToday = selectedDay == store.today
-        Screen(subtitle: "Fuel your fat loss", title: "Nutrition 🥗") {
+        Screen(subtitle: "Fuel your fat loss", title: "Nutrition") {
             WeekCalendarCard(selected: $selectedDay)
                 .onAppear { flow.day = selectedDay }
                 .onChange(of: selectedDay) { _, d in flow.day = d }
@@ -48,7 +48,7 @@ struct NutritionView: View {
             TimelineView(.periodic(from: .now, by: 60)) { ctx in
                 if Calendar.current.component(.hour, from: ctx.date) >= Plan.kitchenClosesHour {
                     HStack(spacing: 10) {
-                        Text("🌙")
+                        Text("")
                         Text("Kitchen is closed! Drink water or herbal tea instead.")
                     }
                     .font(.system(size: 14, weight: .bold)).foregroundStyle(Color(hex: 0xA0C4FF))
@@ -60,7 +60,7 @@ struct NutritionView: View {
             }
 
             Card {
-                SectionTitle("💧 Water Tracker")
+                SectionTitle("Water Tracker")
                 VStack(spacing: 2) {
                     Text("\(ml)").font(.system(size: 52, weight: .black)).foregroundStyle(Theme.primary)
                     Text("ml out of \(g.waterGoal.formatted())").font(.system(size: 14)).foregroundStyle(Theme.muted)
@@ -79,13 +79,13 @@ struct NutritionView: View {
                 let t = store.totals(on: selectedDay)
                 SectionTitle(isToday ? "Today vs Targets" : "\(WeekCalendarCard.longDay(selectedDay)) vs Targets")
                 VStack(spacing: 10) {
-                    MacroBar(name: "🔥 Calories", value: "\(Int(t.kcal.rounded())) / \(g.kcal) kcal",
+                    MacroBar(name: "Calories", value: "\(Int(t.kcal.rounded())) / \(g.kcal) kcal",
                              fraction: t.kcal / Double(g.kcal), color: t.kcal > Double(g.kcal) ? Theme.red : Theme.primaryLight)
-                    MacroBar(name: "🥩 Protein", value: "\(Int(t.protein.rounded())) / \(g.protein) g",
+                    MacroBar(name: "Protein", value: "\(Int(t.protein.rounded())) / \(g.protein) g",
                              fraction: t.protein / Double(g.protein), color: Theme.primary)
-                    MacroBar(name: "🍚 Carbs", value: "\(Int(t.carbs.rounded())) / \(g.carbs) g",
+                    MacroBar(name: "Carbs", value: "\(Int(t.carbs.rounded())) / \(g.carbs) g",
                              fraction: t.carbs / Double(g.carbs), color: Theme.orange)
-                    MacroBar(name: "🥑 Fat", value: "\(Int(t.fat.rounded())) / \(g.fat) g",
+                    MacroBar(name: "Fat", value: "\(Int(t.fat.rounded())) / \(g.fat) g",
                              fraction: t.fat / Double(g.fat), color: Theme.blue)
                 }
                 Text(isToday ? "\(max(0, g.kcal - Int(t.kcal.rounded()))) kcal left today · target \(g.kcal.formatted()) kcal (−\(g.deficit) deficit)"
@@ -96,7 +96,7 @@ struct NutritionView: View {
                 if isToday, let burned = e.burned {
                     let net = burned - t.kcal
                     HStack(spacing: 6) {
-                        Text("⌚ Burned \(Int(burned)) kcal").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.orange)
+                        Text("Burned \(Int(burned)) kcal").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.orange)
                         Text("·").foregroundStyle(Theme.muted)
                         Text(t.kcal > 0 ? "\(net >= 0 ? "Deficit" : "Surplus") \(Int(abs(net))) kcal so far" : "log meals to see the deficit")
                             .font(.system(size: 12, weight: .bold))
@@ -215,7 +215,7 @@ struct MealScanCard: View {
 
     var body: some View {
         Card {
-            SectionTitle(flow.day == DateKey.key() ? "🍽️ Log a meal" : "🍽️ Log a meal · \(WeekCalendarCard.longDay(flow.day))")
+            SectionTitle(flow.day == DateKey.key() ? "Log a meal" : "Log a meal · \(WeekCalendarCard.longDay(flow.day))")
             Text("Photo, typed search or barcode — each meal below has all three. Photos and descriptions are estimated by the dietitian model; typed foods and barcodes use the USDA / Open Food Facts nutrition databases.")
                 .font(.system(size: 13)).foregroundStyle(Theme.muted).lineSpacing(3)
                 .padding(.bottom, 10)
@@ -322,7 +322,7 @@ struct MealPlanCard: View {
                     if i < Plan.meals.count - 1 { Divider().overlay(Theme.border) }
                 }
             }
-            Text("⏰ Kitchen closes at 9:00 PM — no food after this")
+            Text("Kitchen closes at 9:00 PM — no food after this")
                 .font(.system(size: 12)).foregroundStyle(Theme.orange)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
@@ -386,7 +386,7 @@ struct MealResultSheet: View {
                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     } else {
                         HStack(spacing: 8) {
-                            Text("✨")
+                            Text("")
                             Text("Estimated from your description").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.primary)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -433,7 +433,7 @@ struct MealResultSheet: View {
                     }
 
                     if !analysis.notes.isEmpty {
-                        Text("ℹ️ \(analysis.notes)").font(.system(size: 12)).foregroundStyle(Theme.muted).lineSpacing(3)
+                        Text("ℹ \(analysis.notes)").font(.system(size: 12)).foregroundStyle(Theme.muted).lineSpacing(3)
                     }
 
                     SlotPicker(slot: $slot).padding(.top, 4)
@@ -466,7 +466,7 @@ struct TodayMealsCard: View {
         let meals = store.meals(on: day)
         if !meals.isEmpty {
             Card {
-                SectionTitle(day == store.today ? "🍽️ Eaten today" : "🍽️ Eaten \(WeekCalendarCard.longDay(day))")
+                SectionTitle(day == store.today ? "Eaten today" : "Eaten \(WeekCalendarCard.longDay(day))")
                 VStack(spacing: 0) {
                     ForEach(Array(meals.enumerated()), id: \.element.id) { i, m in
                         HStack {

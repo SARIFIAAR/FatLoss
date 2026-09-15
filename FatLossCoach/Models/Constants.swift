@@ -94,13 +94,13 @@ struct Meal: Identifiable {
 /// Static programme content, ported 1:1 from the web app.
 enum Plan {
     static let habits: [Habit] = [
-        Habit(key: "walk",    label: "Morning Walk 🚶",        time: "30–45 min"),
-        Habit(key: "workout", label: "Workout Done 🏋️",       time: "Mon/Wed/Fri"),
-        Habit(key: "water",   label: "Water 3L 💧",            time: "all day"),
-        Habit(key: "kitchen", label: "Kitchen Closed 9pm 🌙",  time: "9:00 PM"),
-        Habit(key: "breath",  label: "Breathing Exercise 🌬️", time: "any time"),
-        Habit(key: "supps",   label: "Supplements Taken 💊",   time: "D3 · Omega-3 · Mg"),
-        Habit(key: "sleep",   label: "In Bed by 11pm 😴",      time: "11:00 PM"),
+        Habit(key: "walk",    label: "Morning Walk",        time: "30–45 min"),
+        Habit(key: "workout", label: "Workout Done",       time: "Mon/Wed/Fri"),
+        Habit(key: "water",   label: "Water 3L",            time: "all day"),
+        Habit(key: "kitchen", label: "Kitchen Closed 9pm",  time: "9:00 PM"),
+        Habit(key: "breath",  label: "Breathing Exercise", time: "any time"),
+        Habit(key: "supps",   label: "Supplements Taken",   time: "D3 · Omega-3 · Mg"),
+        Habit(key: "sleep",   label: "In Bed by 11pm",      time: "11:00 PM"),
     ]
 
     static let supplements: [Supplement] = [
@@ -130,7 +130,7 @@ enum Plan {
         ]),
         Phase(number: 2, name: "Build", tagline: "Learn the gym", weeks: 4,
               goal: "Three machine-first gym sessions. Learn each movement with light loads and build work capacity.",
-              tip: "Pick a weight you can lift for the top of the range with 2 reps in reserve. Hit the top for 2 sessions → add 2.5 kg.",
+              tip: "Pick a weight you can lift for the top of the range with 2 reps in reserve. Hit the top for 2 sessions add 2.5 kg.",
               workouts: [
             WorkoutDay(day: "Mon", label: "Upper A", tag: "Chest · Back · Shoulders", exercises: [
                 Exercise("Machine Chest Press",    "3×10–12", "Chest, Triceps",        "Machine_Bench_Press"),
@@ -219,27 +219,27 @@ enum Plan {
     }
 
     static let breathing: [BreathingSlot] = [
-        BreathingSlot(icon: "🌅", time: "7:00 AM",           name: "Box Breathing",   detail: "Inhale 4s · Hold 4s · Exhale 4s · Hold 4s — 5 min",
+        BreathingSlot(icon: "", time: "7:00 AM",           name: "Box Breathing",   detail: "Inhale 4s · Hold 4s · Exhale 4s · Hold 4s — 5 min",
                       pattern: [4, 4, 4, 4], minutes: 5,
                       guide: "Sit tall, shoulders down, one hand on your belly. Breathe in through the nose for 4, hold 4, out through the nose for 4, hold 4 — the four equal sides of a box.\n\nThis steadies the nervous system and sharpens focus for the day. If 4 seconds feels long at first, the app will still guide you — just follow the circle and let the breath be quiet, never forced."),
-        BreathingSlot(icon: "💪", time: "Pre-Workout",       name: "Belly Breathing", detail: "Deep diaphragm breaths — 3 min to activate focus",
+        BreathingSlot(icon: "", time: "Pre-Workout",       name: "Belly Breathing", detail: "Deep diaphragm breaths — 3 min to activate focus",
                       pattern: [5, 0, 5, 0], minutes: 3,
                       guide: "Belly (diaphragmatic) breathing: one hand on the chest, one on the belly. As you breathe in for 5 seconds the belly hand should rise more than the chest hand; breathe out for 5 and feel it fall.\n\nIt lowers tension in the neck and shoulders and switches you on before training. Keep the jaw soft and breathe through the nose."),
-        BreathingSlot(icon: "🌙", time: "Evening (craving)", name: "4-7-8 Technique", detail: "Inhale 4s · Hold 7s · Exhale 8s — 3 cycles. Stops cravings.",
+        BreathingSlot(icon: "", time: "Evening (craving)", name: "4-7-8 Technique", detail: "Inhale 4s · Hold 7s · Exhale 8s — 3 cycles. Stops cravings.",
                       pattern: [4, 7, 8, 0], cycles: 4,
                       guide: "Tongue resting behind the top front teeth. Breathe in quietly through the nose for 4, hold for 7, then breathe out fully through the mouth for 8 with a soft whoosh.\n\nThe long hold and exhale calm the stress response that drives evening cravings — do it before opening the fridge. If the 7-second hold is too much at first, hold for as long as is comfortable; the count will still guide you."),
-        BreathingSlot(icon: "😴", time: "Bedtime",           name: "Extended Exhale", detail: "Inhale 4s · Exhale 8s — repeat until drowsy",
+        BreathingSlot(icon: "", time: "Bedtime",           name: "Extended Exhale", detail: "Inhale 4s · Exhale 8s — repeat until drowsy",
                       pattern: [4, 0, 8, 0], minutes: 5,
                       guide: "Lying down, lights low. Breathe in through the nose for 4 and let the breath out slowly for 8 — the exhale is twice the inhale.\n\nA long exhale tells the body it is safe to sleep; better sleep means lower cortisol and easier fat loss. Stop whenever you feel drowsy — there is no need to finish the timer."),
     ]
 
     static let meals: [Meal] = [
-        Meal(key: "breakfast", name: "🌅 Breakfast",          time: "7:00 – 8:30 AM",  targetKcal: 480),
-        Meal(key: "lunch",     name: "☀️ Lunch",              time: "12:30 – 2:00 PM", targetKcal: 560),
-        Meal(key: "snack",     name: "🍎 Snack",              time: "3:30 – 4:30 PM",  targetKcal: 200),
-        Meal(key: "dinner",    name: "🌆 Dinner",             time: "7:00 – 8:00 PM",  targetKcal: 480),
-        Meal(key: "evening",   name: "🌙 Evening (optional)", time: "before 9:00 PM",  targetKcal: 130),
-        Meal(key: "alcohol",   name: "🍷 Alcohol",            time: "log any drinks",  targetKcal: 0),
+        Meal(key: "breakfast", name: "Breakfast",          time: "7:00 – 8:30 AM",  targetKcal: 480),
+        Meal(key: "lunch",     name: "Lunch",              time: "12:30 – 2:00 PM", targetKcal: 560),
+        Meal(key: "snack",     name: "Snack",              time: "3:30 – 4:30 PM",  targetKcal: 200),
+        Meal(key: "dinner",    name: "Dinner",             time: "7:00 – 8:00 PM",  targetKcal: 480),
+        Meal(key: "evening",   name: "Evening (optional)", time: "before 9:00 PM",  targetKcal: 130),
+        Meal(key: "alcohol",   name: "Alcohol",            time: "log any drinks",  targetKcal: 0),
     ]
     static func meal(_ key: String?) -> Meal? { meals.first { $0.key == key } }
 

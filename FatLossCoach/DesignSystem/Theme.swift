@@ -50,12 +50,12 @@ enum Theme {
 }
 
 enum Fmt {
-    /// 105 -> "105", 105.4 -> "105.4"
+    /// 105 ->"105", 105.4 ->"105.4"
     static func num(_ v: Double) -> String {
-        v.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(v)) : String(format: "%.1f", v)
+        v.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(v)) : String(format:"%.1f", v)
     }
     static func parse(_ s: String) -> Double? {
-        Double(s.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: "."))
+        Double(s.trimmingCharacters(in: .whitespaces).replacingOccurrences(of:",", with:"."))
     }
 }
 
@@ -65,11 +65,11 @@ enum Readiness {
         s >= 67 ? Color(hex: 0x43CB00) : s >= 34 ? Theme.orange : Theme.red
     }
     static func label(_ s: Int?) -> String {
-        guard let s else { return "Connect Apple Health" }
-        return s >= 80 ? "Excellent — Push Hard 💪"
-             : s >= 65 ? "Good — Ready to Train"
-             : s >= 45 ? "Moderate — Listen to Body"
-             : "Low — Prioritise Rest 🛌"
+        guard let s else { return"Connect Apple Health" }
+        return s >= 80 ? "Excellent — Push Hard"
+             : s >= 65 ?"Good — Ready to Train"
+             : s >= 45 ?"Moderate — Listen to Body"
+             : "Low — Prioritise Rest"
     }
 }
 
@@ -181,7 +181,7 @@ struct CheckMark: View {
             Circle().fill(done ? Theme.primary : Color.clear)
             Circle().stroke(done ? Theme.primary : Theme.muted, lineWidth: 2)
             if done {
-                Image(systemName: "checkmark")
+                Image(systemName:"checkmark")
                     .font(.system(size: size * 0.45, weight: .heavy))
                     .foregroundStyle(Color(hex: 0x101518))
             }

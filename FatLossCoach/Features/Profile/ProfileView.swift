@@ -8,7 +8,7 @@ struct ProfileView: View {
     @State private var editPlan = false
 
     var body: some View {
-        Screen(subtitle: "Your health profile", title: "Profile ⚙️") {
+        Screen(subtitle: "Your health profile", title: "Profile") {
             headerCard
             PlanQuestionnaireCard(edit: $editPlan)
             GoalsCard()
@@ -77,7 +77,7 @@ struct ProfileView: View {
 
     private var medsCard: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("⚠️ Medications — Important").font(Theme.scoreS).foregroundStyle(Theme.orange)
+            Text("Medications — Important").font(Theme.scoreS).foregroundStyle(Theme.orange)
             Text("**Wellbutrin (Bupropion) 300mg** — Suppresses appetite, boosts dopamine. Do NOT go below 1,200 kcal/day.")
             Text("**Brintellix (Vortioxetine) 20mg** — Weight-neutral. No dietary restrictions.")
             Text("Consult your doctor before any major dietary changes.")
@@ -104,7 +104,7 @@ struct GoalsCard: View {
 
     var body: some View {
         Card {
-            SectionTitle("🎯 Goals")
+            SectionTitle("Goals")
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
                 LabeledField(label: "Start weight (kg)", text: $start)
                 LabeledField(label: "Goal weight (kg)", text: $goal)
@@ -120,7 +120,7 @@ struct GoalsCard: View {
                 if let v = Fmt.parse(steps), v > 0 { g.stepsGoal = Int(v) }
                 if let v = Fmt.parse(water), v > 0 { g.waterGoal = Int(v) }
                 store.data.goals = g
-                store.showToast("Goals saved ✓")
+                store.showToast("Goals saved")
             }
             .buttonStyle(PrimaryButtonStyle(compact: true))
             .padding(.top, 10)
@@ -153,7 +153,7 @@ struct CloudCard: View {
 
     var body: some View {
         Card {
-            SectionTitle("☁️ Cloud Backup & Sync")
+            SectionTitle("Cloud Backup & Sync")
             if !cloud.isConfigured {
                 Text("Cloud sync isn't configured in this build.").font(.system(size: 13)).foregroundStyle(Theme.muted)
             } else if cloud.isSignedIn {
@@ -194,13 +194,13 @@ struct HealthCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("⌚ Apple Watch — Health Sync").font(Theme.scoreS).foregroundStyle(Theme.blue)
+            Text("Apple Watch — Health Sync").font(Theme.scoreS).foregroundStyle(Theme.blue)
                 .padding(.bottom, 8)
             Text(health.lastSync.map { "Last synced \($0.formatted(date: .abbreviated, time: .shortened))" }
                  ?? "Reads steps, resting HR, HRV, respiratory rate and sleep stages straight from Apple Health.")
                 .font(.system(size: 12)).foregroundStyle(Theme.text).lineSpacing(3)
                 .padding(.bottom, 10)
-            Button(health.isSyncing ? "Syncing…" : (health.hasConnected ? "⌚ Sync now" : "⌚ Connect Apple Health")) {
+            Button(health.isSyncing ? "Syncing…" : (health.hasConnected ? "Sync now" : "Connect Apple Health")) {
                 Task {
                     if health.hasConnected { await health.sync(store: store, days: 30) }
                     else { await health.connectAndSync(store: store, days: 30) }
@@ -254,7 +254,7 @@ struct RemindersCard: View {
 
     var body: some View {
         Card {
-            SectionTitle("🔔 Reminders")
+            SectionTitle("Reminders")
             if reminders.permission == .denied {
                 Text("Notifications are off for Fat Loss Coach in iOS Settings.")
                     .font(.system(size: 12)).foregroundStyle(Theme.red)
@@ -264,7 +264,7 @@ struct RemindersCard: View {
 
             Toggle(isOn: binding(\.waterOn)) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("💧 Drink water").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
+                    Text("Drink water").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
                     Text("Every \(intervalLabel(store.data.reminders.waterEveryMinutes)) between \(hourLabel(store.data.reminders.startHour)) and \(hourLabel(store.data.reminders.endHour)); stops once you hit \(store.data.goals.waterGoal.formatted()) ml. Tap a reminder to log a glass.")
                         .font(.system(size: 11)).foregroundStyle(Theme.muted)
                 }
@@ -283,7 +283,7 @@ struct RemindersCard: View {
 
             Toggle(isOn: binding(\.walkOn)) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("🚶 Go for a walk").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
+                    Text("Go for a walk").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
                     Text("Step check-ins with how far you are from \(store.data.goals.stepsGoal.formatted()) steps; skipped once you're there.")
                         .font(.system(size: 11)).foregroundStyle(Theme.muted)
                 }
@@ -351,7 +351,7 @@ struct AutomationCard: View {
 
     var body: some View {
         Card {
-            SectionTitle("🤖 Shortcuts automation (optional)")
+            SectionTitle("Shortcuts automation (optional)")
             Text("Apple Health sync above is automatic. If you also want a Shortcut (e.g. to push State of Mind), have it open this URL:")
                 .font(.system(size: 12)).foregroundStyle(Theme.muted).lineSpacing(3)
             Text(template)
@@ -363,7 +363,7 @@ struct AutomationCard: View {
                 .padding(.vertical, 8)
             Button("Copy URL template") {
                 UIPasteboard.general.string = template
-                store.showToast("Copied ✓")
+                store.showToast("Copied")
             }
             .buttonStyle(PillButtonStyle(color: Theme.blue))
         }
@@ -379,8 +379,8 @@ struct ImportExportCard: View {
 
     var body: some View {
         Card {
-            SectionTitle("📥 Import from the web app")
-            Text("In the old web app open Profile → “Copy my data”, then tap Paste and Import here. Existing entries are merged, nothing is deleted.")
+            SectionTitle("Import from the web app")
+            Text("In the old web app open Profile “Copy my data”, then tap Paste and Import here. Existing entries are merged, nothing is deleted.")
                 .font(.system(size: 12)).foregroundStyle(Theme.muted).lineSpacing(3)
                 .padding(.bottom, 8)
             TextEditor(text: $text)
@@ -397,7 +397,7 @@ struct ImportExportCard: View {
                 Button("Import") {
                     do {
                         let n = try store.importLegacy(text)
-                        result = n > 0 ? "Imported \(n) records ✓" : "Nothing recognised in that text."
+                        result = n > 0 ? "Imported \(n) records" : "Nothing recognised in that text."
                         if n > 0 { text = "" }
                     } catch {
                         result = error.localizedDescription
@@ -411,7 +411,7 @@ struct ImportExportCard: View {
                 Text(result).font(.system(size: 12)).foregroundStyle(Theme.muted).padding(.top, 8)
             }
             Divider().overlay(Theme.border).padding(.vertical, 14)
-            SectionTitle("📤 Export")
+            SectionTitle("Export")
             ShareLink(item: store.exportJSON(), preview: SharePreview("Fat Loss Coach data")) {
                 Label("Share data as JSON", systemImage: "square.and.arrow.up")
                     .font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.primary)
@@ -428,7 +428,7 @@ struct PlanQuestionnaireCard: View {
 
     var body: some View {
         Card {
-            SectionTitle("📋 My plan")
+            SectionTitle("My plan")
             if let p = store.data.intake {
                 Text("\(p.pace.label) pace · \(p.trainingDays) training days · \(p.location.label.lowercased()) · \(p.eatingStyle.label.lowercased()) · \(p.mealsPerDay) meals/day")
                     .font(.system(size: 13)).foregroundStyle(Theme.muted).lineSpacing(3)

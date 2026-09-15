@@ -107,7 +107,7 @@ struct FoodEntrySheet: View {
                             onAIEstimate(query)
                         } label: {
                             HStack(spacing: 10) {
-                                Text("✨")
+                                Text("")
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("Ask AI to estimate “\(query.trimmingCharacters(in: .whitespaces))”")
                                         .font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
