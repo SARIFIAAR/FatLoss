@@ -49,6 +49,43 @@ struct RecoveryDay: Codable, Hashable {
     }
 }
 
+/// A body-composition reading (e.g. from an InBody report photo or manual entry).
+struct BodyCompEntry: Codable, Hashable, Identifiable {
+    var id: String = UUID().uuidString
+    var date: String                 // DateKey
+    var weightKg: Double
+    var bodyFatPct: Double?
+    var fatMassKg: Double?           // fat mass
+    var muscleKg: Double?            // skeletal muscle mass (SMM)
+    var visceralFat: Double?         // InBody visceral fat level (unitless)
+    var bmr: Double?                 // basal metabolic rate from the report
+    var source: String = "manual"   // "inbody" | "manual"
+
+    /// Fat mass falls back to weight × body-fat % when the report only gives the percentage.
+    var fatKg: Double? { fatMassKg ?? (bodyFatPct.map { weightKg * $0 / 100 }) }
+
+    init(id: String = UUID().uuidString, date: String, weightKg: Double, bodyFatPct: Double? = nil,
+         fatMassKg: Double? = nil, muscleKg: Double? = nil, visceralFat: Double? = nil,
+         bmr: Double? = nil, source: String = "manual") {
+        self.id = id; self.date = date; self.weightKg = weightKg; self.bodyFatPct = bodyFatPct
+        self.fatMassKg = fatMassKg; self.muscleKg = muscleKg; self.visceralFat = visceralFat
+        self.bmr = bmr; self.source = source
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id          = c.value(.id,          default: UUID().uuidString)
+        date        = c.value(.date,        default: "")
+        weightKg    = c.value(.weightKg,    default: 0)
+        bodyFatPct  = c.value(.bodyFatPct,  default: nil)
+        fatMassKg   = c.value(.fatMassKg,   default: nil)
+        muscleKg    = c.value(.muscleKg,    default: nil)
+        visceralFat = c.value(.visceralFat, default: nil)
+        bmr         = c.value(.bmr,         default: nil)
+        source      = c.value(.source,      default: "manual")
+    }
+}
+
 /// One Apple Health workout (name, duration, HR summary, minutes per HR zone 1–5).
 struct WorkoutEntry: Codable, Hashable, Identifiable {
     var id: String                    // HKWorkout UUID
@@ -223,6 +260,7 @@ struct AppData: Codable, Hashable {
     var exerciseDone: [String: Set<Int>] = [:]              // was "ex-YYYY-MM-DD-Mon"
     var meals: [String: [MealEntry]] = [:]                  // date -> meals eaten
     var workouts: [String: [WorkoutEntry]] = [:]            // date -> Apple Health workouts
+    var bodyComp: [BodyCompEntry] = []                      // InBody / manual body-composition readings
     var breathing: [String: Set<String>] = [:]              // date -> breathing slots done
     var goals = Goals()
     var program = ProgramState()
@@ -248,6 +286,7 @@ struct AppData: Codable, Hashable {
         exerciseDone = c.value(.exerciseDone, default: [:])
         meals        = c.value(.meals,        default: [:])
         workouts     = c.value(.workouts,     default: [:])
+        bodyComp     = c.value(.bodyComp,     default: [])
         breathing    = c.value(.breathing,    default: [:])
         goals        = c.value(.goals,        default: Goals())
         program      = c.value(.program,      default: ProgramState())
@@ -309,6 +348,10 @@ struct AppData: Codable, Hashable {
             for w in newer { byID[w.id] = w }
             return byID.values.sorted { $0.start < $1.start }
         }
+        var byID: [String: BodyCompEntry] = [:]
+        for e in older.bodyComp { byID[e.id] = e }
+        for e in out.bodyComp { byID[e.id] = e }
+        out.bodyComp = byID.values.sorted { $0.date < $1.date }
         // Settings (goals, programme, reminders) follow their own stamp, not the data stamp.
         let settingsSource = other.settingsUpdatedAt > settingsUpdatedAt ? other : self
         out.goals = settingsSource.goals

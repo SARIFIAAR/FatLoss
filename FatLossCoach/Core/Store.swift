@@ -455,10 +455,28 @@ final class Store {
         data.health[k] = h
     }
 
-    // MARK: Body composition (Hume-style, from a BIA scale via Apple Health)
+    // MARK: Body composition (InBody / manual entries + Apple Health BIA fallback)
 
-    /// Most recent body-fat % and derived fat/lean masses within the last `days`.
-    func bodyComposition(days: Int = 60) -> (bodyFatPct: Double, fatMassKg: Double, leanMassKg: Double, date: String)? {
+    var bodyCompSorted: [BodyCompEntry] { data.bodyComp.sorted { $0.date < $1.date } }
+    var latestBodyComp: BodyCompEntry? { bodyCompSorted.last }
+
+    func addBodyComp(_ e: BodyCompEntry) {
+        data.bodyComp.append(e)
+        // Keep the weight chart in sync so a report also logs weight.
+        if e.weightKg > 0 { _ = logWeight(e.weightKg, on: e.date) }
+        showToast("Body composition saved 📊")
+    }
+
+    func deleteBodyComp(_ id: String) { data.bodyComp.removeAll { $0.id == id } }
+
+    /// Most recent body-fat % and derived fat/lean masses — prefers an InBody/manual entry,
+    /// falls back to Apple Health BIA within the last `days`.
+    func bodyComposition(days: Int = 90) -> (bodyFatPct: Double, fatMassKg: Double, leanMassKg: Double, date: String)? {
+        if let e = latestBodyComp, let bf = e.bodyFatPct ?? (e.fatKg.map { $0 / e.weightKg * 100 }) {
+            let fat = e.fatKg ?? (e.weightKg * bf / 100)
+            let lean = e.muscleKg ?? (e.weightKg - fat)
+            return (bf, fat, lean, e.date)
+        }
         for n in 0..<days {
             let k = DateKey.key(DateKey.daysAgo(n))
             guard let h = data.health[k], let bf = h.bodyFatPct else { continue }

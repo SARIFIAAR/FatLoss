@@ -56,6 +56,7 @@ struct BodyView: View {
                     strainCard.id("strain")
                     vitalsCard.id("week")
                     bodyCompositionCard
+                    BodyCompTrackerCard()
                     impactsCard
                     weekReportCard.id("report")
                 }

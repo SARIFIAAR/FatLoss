@@ -63,6 +63,58 @@ final class MealScanner {
         var slot: String?
     }
 
+    // MARK: InBody / body-composition report scanning
+
+    struct BodyReport: Decodable {
+        let is_report: Bool
+        let weight_kg: Double
+        let body_fat_pct: Double
+        let fat_mass_kg: Double
+        let skeletal_muscle_kg: Double
+        let visceral_fat: Double
+        let bmr_kcal: Double
+        let confidence: String
+        let notes: String
+
+        func entry(date: String) -> BodyCompEntry {
+            func z(_ v: Double) -> Double? { v > 0 ? v : nil }
+            return BodyCompEntry(date: date, weightKg: weight_kg, bodyFatPct: z(body_fat_pct),
+                                 fatMassKg: z(fat_mass_kg), muscleKg: z(skeletal_muscle_kg),
+                                 visceralFat: z(visceral_fat), bmr: z(bmr_kcal), source: "inbody")
+        }
+    }
+
+    static let inbodyEndpoint = URL(string: "https://fatloss-analyzer.fly.dev/inbody")!
+
+    /// Photograph an InBody/Tanita/scale report → parsed body-composition numbers.
+    func analyzeInBody(_ image: UIImage) async throws -> BodyReport {
+        guard let user = Auth.auth().currentUser else { throw ScanError.notSignedIn }
+        guard let jpeg = Self.downscaledJPEG(image, maxSide: 1400) else { throw ScanError.badImage }
+        isAnalyzing = true
+        defer { isAnalyzing = false }
+        let token = try await user.getIDToken()
+        var request = URLRequest(url: Self.inbodyEndpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 90
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(withJSONObject:
+            ["image": jpeg.base64EncodedString(), "mediaType": "image/jpeg"])
+        let data: Data, response: URLResponse
+        do { (data, response) = try await URLSession.shared.data(for: request) }
+        catch { throw ScanError.server("No connection — check your internet and try again.") }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200 else {
+            let msg = (try? JSONDecoder().decode([String: String].self, from: data))?["error"]
+            throw ScanError.server(msg ?? "Analyzer error (\(status)).")
+        }
+        let report = try JSONDecoder().decode(BodyReport.self, from: data)
+        guard report.is_report, report.weight_kg > 0 else {
+            throw ScanError.server("That doesn't look like a body-composition report.")
+        }
+        return report
+    }
+
     func analyze(_ image: UIImage, hint: String? = nil, context: Context? = nil) async throws -> Analysis {
         guard let jpeg = Self.downscaledJPEG(image) else { throw ScanError.badImage }
         return try await post(["image": jpeg.base64EncodedString(), "mediaType": "image/jpeg"], hint: hint, context: context)

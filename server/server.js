@@ -74,6 +74,23 @@ Identify each distinct food or drink in the description. Use the quantities the 
 Identify each distinct food or drink, estimate the portion from visual cues (plate size, utensils, hand, packaging), and estimate calories and macros using standard nutrition databases (USDA). Account for likely cooking oils, dressings and sauces. When unsure, choose the more common preparation and say so in notes. Totals must equal the sum of the items. If the image does not show food or drink, set is_food to false and return empty items with zero totals.`;
 }
 
+const BodyComp = z.object({
+  is_report: z.boolean().describe("false if the photo is not a body-composition report"),
+  weight_kg: z.number().describe("Total body weight in kg (convert from lb if needed)"),
+  body_fat_pct: z.number().describe("Percent body fat (PBF). 0 if not shown"),
+  fat_mass_kg: z.number().describe("Body fat mass in kg. 0 if not shown"),
+  skeletal_muscle_kg: z.number().describe("Skeletal muscle mass (SMM) in kg. 0 if not shown"),
+  visceral_fat: z.number().describe("Visceral fat level (unitless). 0 if not shown"),
+  bmr_kcal: z.number().describe("Basal metabolic rate in kcal. 0 if not shown"),
+  confidence: z.enum(["low", "medium", "high"]),
+  notes: z.string().describe("One sentence on anything ambiguous or converted. Empty if none."),
+});
+
+function bodyPrompt() {
+  return `You are reading a body-composition analysis report (e.g. InBody, Tanita, or a smart-scale summary) from a single photo, for a fat-loss client.
+Extract the printed numbers exactly as shown — do not estimate or invent values. Map them to: total weight, percent body fat (PBF), body fat mass, skeletal muscle mass (SMM), visceral fat level, and basal metabolic rate (BMR). Convert pounds to kilograms if the report is in lb. If a field is not present on the report, return 0 for it. If the photo is not a body-composition report, set is_report to false and return zeros.`;
+}
+
 const ALLOWED_MEDIA = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 
 class HttpError extends Error {
@@ -119,6 +136,40 @@ function readJSON(req) {
     });
     req.on("error", reject);
   });
+}
+
+async function analyzeBody(body) {
+  const image = body?.image;
+  const mediaType = body?.mediaType ?? "image/jpeg";
+  const hasImage = typeof image === "string" && image.length >= 100;
+  if (!hasImage) throw new HttpError(400, "Send a base64 JPEG of the report in `image`.");
+  if (!ALLOWED_MEDIA.has(mediaType)) throw new HttpError(400, `Unsupported mediaType ${mediaType}.`);
+  let response;
+  try {
+    response = await client.beta.messages.create({
+      model: MODEL,
+      max_tokens: 2000,
+      system: bodyPrompt(),
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
+      output_config: { format: zodOutputFormat(BodyComp), effort: "medium" },
+      messages: [{ role: "user", content: [
+        { type: "image", source: { type: "base64", media_type: mediaType, data: image } },
+        { type: "text", text: "Extract the body-composition numbers from this report." },
+      ] }],
+    });
+  } catch (err) {
+    if (err instanceof Anthropic.RateLimitError) throw new HttpError(429, "Busy, try again in a moment.");
+    if (err instanceof Anthropic.APIConnectionError) throw new HttpError(503, "Could not reach the model.");
+    if (err instanceof Anthropic.APIError) { console.error("anthropic", err.status, err.message); throw new HttpError(502, `Model error ${err.status ?? ""}.`); }
+    throw err;
+  }
+  if (response.stop_reason === "refusal") throw new HttpError(422, "The model declined to analyze this image.");
+  const out = response.content.find((b) => b.type === "text")?.text ?? "";
+  const parsed = BodyComp.safeParse(JSON.parse(out));
+  if (!parsed.success) throw new HttpError(502, "Malformed analysis.");
+  return { ...parsed.data, model: response.model,
+           usage: { input: response.usage.input_tokens, output: response.usage.output_tokens } };
 }
 
 async function analyze(body) {
@@ -383,6 +434,21 @@ http.createServer(async (req, res) => {
         return send(res, 200, result);
       } catch (err) {
         logScan({ uid, email, ms: Date.now() - started, ctx: body.context, error: err.message });
+        throw err;
+      }
+    }
+
+    if (req.method === "POST" && url.pathname === "/inbody") {
+      const { uid, email } = await verifyUser(req);
+      const body = await readJSON(req);
+      const started = Date.now();
+      try {
+        const result = await analyzeBody(body);
+        const ms = Date.now() - started;
+        console.log(JSON.stringify({ uid, ms, kind: "inbody", weight: result.weight_kg, model: result.model, usage: result.usage }));
+        return send(res, 200, result);
+      } catch (err) {
+        logScan({ uid, email, ms: Date.now() - started, ctx: { mode: "inbody" }, error: err.message });
         throw err;
       }
     }

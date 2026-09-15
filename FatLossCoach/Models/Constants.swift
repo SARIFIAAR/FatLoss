@@ -239,6 +239,7 @@ enum Plan {
         Meal(key: "snack",     name: "🍎 Snack",              time: "3:30 – 4:30 PM",  targetKcal: 200),
         Meal(key: "dinner",    name: "🌆 Dinner",             time: "7:00 – 8:00 PM",  targetKcal: 480),
         Meal(key: "evening",   name: "🌙 Evening (optional)", time: "before 9:00 PM",  targetKcal: 130),
+        Meal(key: "alcohol",   name: "🍷 Alcohol",            time: "log any drinks",  targetKcal: 0),
     ]
     static func meal(_ key: String?) -> Meal? { meals.first { $0.key == key } }
 
