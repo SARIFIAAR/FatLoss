@@ -187,7 +187,12 @@ blocked for Claude by the permission classifier — the user runs it.
 
 ## Where things stand (2026-09-12)
 
-**Shipped: build 1.0.0 (16) uploaded to TestFlight 2026-09-15 (delivery UUID
+**Shipped: build 1.0.0 (17) uploaded to TestFlight 2026-09-15 (delivery UUID
+`b1d13b17-638d-491a-a5cd-8399e1826224`) — app renamed to HUMANS (CFBundleDisplayName); new app icon
+(circuit-line H, blue→orange gradient) + splash screen (SplashLogo imageset centered on dark navy
+LaunchBackground #06111A). Bundle ID unchanged (com.MyFatLossCoach.app).**
+
+**Shipped earlier: build 1.0.0 (16) uploaded to TestFlight 2026-09-15 (delivery UUID
 `5e6fa5be-f7aa-46e9-9796-5e0b34e6db8d`) — competitor-teardown-inspired Body-tab additions: HRV-based
 Stress tracker + 7-day table; Body Battery (top of tab); acute:chronic workload ratio; expanded
 HealthKit reads (blood glucose, blood pressure, hydration, mindfulness, heart-rate recovery);
