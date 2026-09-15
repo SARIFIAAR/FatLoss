@@ -6,6 +6,8 @@ struct InBodyAnalysisView: View {
     @Environment(Store.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var index: Int
+    @State private var draft: BodyCompEntry?
+    @State private var editingExisting = false
 
     private var entries: [BodyCompEntry] { store.bodyCompSorted }
     private var entry: BodyCompEntry { entries[min(index, entries.count - 1)] }
@@ -36,6 +38,13 @@ struct InBodyAnalysisView: View {
         .background(W.bg.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .onAppear { if index == 0 { index = max(0, entries.count - 1) } }
+        .sheet(item: $draft) { d in
+            BodyCompEntrySheet(entry: d, isFromPhoto: false) { saved in
+                store.addBodyComp(saved)
+                // jump to the newly-saved reading
+                if let i = store.bodyCompSorted.firstIndex(where: { $0.id == saved.id }) { index = i }
+            }
+        }
     }
 
     private var topBar: some View {
@@ -47,7 +56,12 @@ struct InBodyAnalysisView: View {
             Spacer()
             Text("BODY ANALYSIS").font(W.label(13)).kerning(1.5).foregroundStyle(W.text)
             Spacer()
-            Color.clear.frame(width: 36, height: 36)
+            Button {
+                draft = BodyCompEntry(date: store.today, weightKg: store.currentWeight ?? 0)
+            } label: {
+                Image(systemName: "plus").font(.system(size: 16, weight: .bold)).foregroundStyle(W.vibrant)
+                    .frame(width: 36, height: 36).background(W.card).clipShape(Circle())
+            }
         }
         .padding(.top, 8)
     }
@@ -58,10 +72,21 @@ struct InBodyAnalysisView: View {
                 Image(systemName: "chevron.left").foregroundStyle(index > 0 ? W.blue : W.card2)
             }.disabled(index == 0)
             Spacer()
-            Text(prettyDate(entry.date)).font(W.label(13)).foregroundStyle(W.text)
-            if entry.source == "inbody" {
-                Text("InBody").font(W.label(9)).foregroundStyle(W.muted)
-                    .padding(.horizontal, 6).padding(.vertical, 2).background(W.card2).clipShape(Capsule())
+            Menu {
+                Button { draft = entry } label: { Label("Edit this reading", systemImage: "pencil") }
+                Button(role: .destructive) {
+                    let id = entry.id; store.deleteBodyComp(id)
+                    index = max(0, min(index, store.bodyCompSorted.count - 1))
+                } label: { Label("Delete", systemImage: "trash") }
+            } label: {
+                HStack(spacing: 5) {
+                    Text(prettyDate(entry.date)).font(W.label(13)).foregroundStyle(W.text)
+                    if entry.source == "inbody" {
+                        Text("InBody").font(W.label(9)).foregroundStyle(W.muted)
+                            .padding(.horizontal, 6).padding(.vertical, 2).background(W.card2).clipShape(Capsule())
+                    }
+                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(W.muted)
+                }
             }
             Spacer()
             Button { index = min(entries.count - 1, index + 1) } label: {

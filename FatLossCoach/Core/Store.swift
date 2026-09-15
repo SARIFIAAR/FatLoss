@@ -474,10 +474,12 @@ final class Store {
     var latestBodyComp: BodyCompEntry? { bodyCompSorted.last }
 
     func addBodyComp(_ e: BodyCompEntry) {
-        data.bodyComp.append(e)
+        // Upsert: replace an entry with the same id (editing), else append (adding/backfilling).
+        if let i = data.bodyComp.firstIndex(where: { $0.id == e.id }) { data.bodyComp[i] = e }
+        else { data.bodyComp.append(e) }
         // Keep the weight chart in sync so a report also logs weight.
         if e.weightKg > 0 { _ = logWeight(e.weightKg, on: e.date) }
-        showToast("Body composition saved 📊")
+        showToast("Body composition saved")
     }
 
     func deleteBodyComp(_ id: String) { data.bodyComp.removeAll { $0.id == id } }
