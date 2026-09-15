@@ -43,10 +43,6 @@ struct BodyCompTrackerCard: View {
     @State private var pendingImage: UIImage?
     @State private var draft: BodyCompEntry?
     @State private var error: String?
-    @State private var metric: Metric = .fat
-
-    enum Metric: String, CaseIterable { case weight = "Weight", fat = "Fat", muscle = "Muscle", pct = "Body Fat %" }
-
     private var entries: [BodyCompEntry] { store.bodyCompSorted }
 
     var body: some View {
@@ -56,14 +52,7 @@ struct BodyCompTrackerCard: View {
                 emptyState
             } else {
                 latestRow
-                Picker("", selection: $metric) {
-                    ForEach(Metric.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .padding(.top, 12)
-                TrendGraph(points: series, unit: unit, color: color)
-                    .frame(height: 130)
-                    .padding(.top, 10)
+                combinedHistory
                 Button { showAnalysis = true } label: {
                     HStack {
                         Text("Full body analysis").font(.system(size: 13, weight: .semibold))
@@ -175,24 +164,88 @@ struct BodyCompTrackerCard: View {
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: Series
+    // MARK: Combined history (Weight · Muscle · Body Fat, all at once)
 
-    private var series: [(date: Date, value: Double)] {
-        entries.compactMap { e in
-            let v: Double?
-            switch metric {
-            case .weight: v = e.weightKg
-            case .fat: v = e.fatKg
-            case .muscle: v = e.muscleKg
-            case .pct: v = e.bodyFatPct
+    private var combinedHistory: some View {
+        let recent = Array(entries.suffix(7))
+        return VStack(spacing: 14) {
+            historyRow("Weight", "kg", W.sleep, recent.map { ($0.weightKg, DateKey.date($0.date)) })
+            historyRow("Skeletal muscle", "kg", W.vibrant, recent.map { ($0.muscleKg, DateKey.date($0.date)) })
+            historyRow("Body fat", "%", W.yellow, recent.map { ($0.bodyFatPct, DateKey.date($0.date)) })
+            dateAxis(recent.compactMap { DateKey.date($0.date) })
+        }
+        .padding(.top, 12)
+    }
+
+    private func historyRow(_ title: String, _ unit: String, _ color: Color,
+                            _ raw: [(Double?, Date?)]) -> some View {
+        let pts: [(x: Int, v: Double)] = raw.enumerated().compactMap { i, r in
+            guard let v = r.0, v > 0, r.1 != nil else { return nil }
+            return (i, v)
+        }
+        let n = max(raw.count, 1)
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title.uppercased()).font(W.label(9)).kerning(0.6).foregroundStyle(W.muted)
+                Text("(\(unit))").font(.system(size: 9)).foregroundStyle(W.muted.opacity(0.7))
+                Spacer()
             }
-            guard let v, let d = DateKey.date(e.date) else { return nil }
-            return (d, v)
+            LabeledLine(points: pts, slots: n, color: color)
+                .frame(height: 46)
         }
     }
-    private var unit: String { metric == .pct ? "%" : "kg" }
-    private var color: Color {
-        switch metric { case .weight: W.sleep; case .fat: W.yellow; case .muscle: W.vibrant; case .pct: W.blue }
+
+    private func dateAxis(_ dates: [Date]) -> some View {
+        let f = DateFormatter(); f.dateFormat = "d MMM"
+        return HStack(spacing: 0) {
+            ForEach(dates.indices, id: \.self) { i in
+                Text(f.string(from: dates[i]))
+                    .font(.system(size: 8)).foregroundStyle(W.muted)
+                    .frame(maxWidth: .infinity)
+                    .minimumScaleFactor(0.7).lineLimit(1)
+            }
+        }
+    }
+}
+
+/// One metric's history as a line with a dot + value label at each test slot (InBody-style).
+struct LabeledLine: View {
+    let points: [(x: Int, v: Double)]   // x = slot index
+    let slots: Int
+    let color: Color
+
+    var body: some View {
+        GeometryReader { geo in
+            let pos = layout(geo.size)
+            ZStack(alignment: .topLeading) {
+                if pos.count > 1 {
+                    Path { p in
+                        for (j, pt) in pos.enumerated() { j == 0 ? p.move(to: pt) : p.addLine(to: pt) }
+                    }.stroke(color, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                }
+                ForEach(pos.indices, id: \.self) { j in
+                    Circle().fill(color).frame(width: 6, height: 6).position(pos[j])
+                    Text(label(points[j].v))
+                        .font(W.score(12)).foregroundStyle(W.text)
+                        .position(x: pos[j].x, y: max(7, pos[j].y - 11))
+                }
+            }
+        }
+    }
+
+    private func layout(_ size: CGSize) -> [CGPoint] {
+        let vals = points.map(\.v)
+        let lo = vals.min() ?? 0, hi = vals.max() ?? 1
+        let span = max(hi - lo, 0.1)
+        let w = size.width, h = size.height - 14
+        return points.map { pt in
+            let x = slots <= 1 ? w/2 : w * (CGFloat(pt.x) + 0.5) / CGFloat(slots)
+            let y = 14 + h - CGFloat((pt.v - lo) / span) * (h - 6) - 3
+            return CGPoint(x: x, y: y)
+        }
+    }
+    private func label(_ v: Double) -> String {
+        v.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(v))" : String(format: "%.1f", v)
     }
 }
 
