@@ -1,6 +1,33 @@
 import SwiftUI
 import PhotosUI
 
+/// Adjust the max HR used for heart-rate zones (defaults to 220 − age).
+struct MaxHRSheet: View {
+    @Environment(Store.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @State private var value: Int = 190
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Maximum heart rate") {
+                    Stepper("\(value) bpm", value: $value, in: 120...220)
+                    Button("Reset to 220 − age (\(220 - (store.data.intake?.age ?? 30)))") {
+                        store.setMaxHR(nil); dismiss()
+                    }
+                }
+            }
+            .navigationTitle("HR Zones")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Save") { store.setMaxHR(value); dismiss() } }
+            }
+            .onAppear { value = store.maxHR }
+        }
+    }
+}
+
 /// Body-composition tracker: trend graph of weight / fat mass / muscle mass over time, plus a
 /// "+" to add a reading by photographing an InBody report (Claude vision) or entering it manually.
 struct BodyCompTrackerCard: View {

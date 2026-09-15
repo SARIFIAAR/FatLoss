@@ -274,6 +274,21 @@ enum BodyMetrics {
         return Int(dev.rounded())
     }
 
+    // MARK: Heart-rate zones
+
+    struct HRZone { let index: Int; let name: String; let lowPct: Int; let highPct: Int
+        func low(_ maxHR: Int) -> Int { maxHR * lowPct / 100 }
+        func high(_ maxHR: Int) -> Int { maxHR * highPct / 100 }
+    }
+
+    static let hrZones: [HRZone] = [
+        HRZone(index: 1, name: "Zone 1 · Easy",     lowPct: 50, highPct: 60),
+        HRZone(index: 2, name: "Zone 2 · Fat burn", lowPct: 60, highPct: 70),
+        HRZone(index: 3, name: "Zone 3 · Aerobic",  lowPct: 70, highPct: 80),
+        HRZone(index: 4, name: "Zone 4 · Threshold",lowPct: 80, highPct: 90),
+        HRZone(index: 5, name: "Zone 5 · Max",      lowPct: 90, highPct: 100),
+    ]
+
     // MARK: Fitness Age (transparent "biological age" estimate)
 
     struct FitnessAge {
@@ -346,6 +361,44 @@ extension Store {
 
     func activeKcalHistory(days: Int = BodyMetrics.baselineDays) -> [Double] {
         (1...days).compactMap { n in data.health[DateKey.key(DateKey.daysAgo(n))]?.activeKcal }
+    }
+
+    struct HealthAlert: Identifiable { let name: String; let value: String; let detail: String; var id: String { name } }
+
+    /// Vitals sitting outside their personal typical range today (for the alerts card + push).
+    func healthAlerts(on key: String? = nil) -> [HealthAlert] {
+        let k = key ?? today
+        let rec = data.recovery[k] ?? RecoveryDay()
+        let health = data.health[k]
+        var out: [HealthAlert] = []
+        func fmt(_ v: Double, _ u: String) -> String { u == "°C" ? String(format: "%.1f °C", v) : "\(Int(v.rounded())) \(u)" }
+        func check(_ name: String, _ value: Double?, _ history: [Double], _ unit: String, high: Bool, low: Bool) {
+            guard let value, let r = BodyMetrics.typicalRange(history) else { return }
+            if high, value > r.high { out.append(HealthAlert(name: name, value: fmt(value, unit), detail: "above your usual \(fmt(r.high, unit))")) }
+            else if low, value < r.low { out.append(HealthAlert(name: name, value: fmt(value, unit), detail: "below your usual \(fmt(r.low, unit))")) }
+        }
+        check("Resting HR", rec.rhr, bodyHistory(\.rhr), "bpm", high: true, low: false)
+        check("HRV", rec.hrv, bodyHistory(\.hrv), "ms", high: false, low: true)
+        check("Respiratory rate", rec.resp, bodyHistory(\.resp), "rpm", high: true, low: false)
+        check("Wrist temp", rec.tempC, bodyHistory(\.tempC), "°C", high: true, low: false)
+        check("Blood oxygen", rec.spo2, bodyHistory(\.spo2), "%", high: false, low: true)
+        check("HR recovery", health?.hrrBpm, healthHistory(\.hrrBpm), "bpm", high: false, low: true)
+        return out
+    }
+
+    /// Max HR: user override if set, else 220 − age (falls back to 190 without a birth year).
+    var maxHR: Int {
+        if let m = data.reminders.maxHrOverride, m > 100 { return m }
+        return 220 - (data.intake?.age ?? 30)
+    }
+
+    /// Minutes spent in each HR zone (1–5) across a day's workouts.
+    func zoneMinutes(on key: String) -> [Double] {
+        var z = [0.0, 0, 0, 0, 0]
+        for w in data.workouts[key] ?? [] {
+            for (i, m) in w.zoneMin.enumerated() where i < 5 { z[i] += m }
+        }
+        return z
     }
 
     /// History for a HealthDay field over the baseline window (for glucose/BP typical ranges).

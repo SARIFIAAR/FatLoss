@@ -57,6 +57,21 @@ final class ReminderManager: NSObject, UNUserNotificationCenterDelegate {
         if let url = URL(string: UIApplication.openNotificationSettingsURLString) { UIApplication.shared.open(url) }
     }
 
+    /// Fire one notification a day when a vital is out of the user's typical range (opt-in).
+    func notifyHealthAlertsIfNeeded() {
+        guard let store, store.data.reminders.healthAlertsPush else { return }
+        let alerts = store.healthAlerts()
+        guard !alerts.isEmpty else { return }
+        let key = "health-alert-notified-\(store.today)"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }   // once per day
+        let content = UNMutableNotificationContent()
+        content.title = alerts.count == 1 ? "A vital is off today" : "\(alerts.count) vitals are off today"
+        content.body = alerts.prefix(3).map { "\($0.name) \($0.value) — \($0.detail)" }.joined(separator: "\n")
+        content.sound = .default
+        center.add(UNNotificationRequest(identifier: "health-alerts", content: content, trigger: nil))
+        UserDefaults.standard.set(true, forKey: key)
+    }
+
     /// Debounced: several triggers in a row (sync + water + foreground) become one re-plan.
     func schedulePlan() {
         planTask?.cancel()

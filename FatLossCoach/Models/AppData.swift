@@ -246,6 +246,8 @@ struct ReminderSettings: Codable, Hashable {
     var endHour = 21                   // no reminders after this hour
     var walkOn = false
     var walkHours: [Int] = [16, 19]    // steps check-ins (skipped once the step goal is reached)
+    var healthAlertsPush = false       // notify when a vital is out of your typical range
+    var maxHrOverride: Int?            // user-set max HR for zones (nil = 220 − age)
 
     init() {}
     init(from decoder: Decoder) throws {
@@ -256,6 +258,8 @@ struct ReminderSettings: Codable, Hashable {
         endHour           = c.value(.endHour,           default: 21)
         walkOn            = c.value(.walkOn,            default: false)
         walkHours         = c.value(.walkHours,         default: [16, 19])
+        healthAlertsPush  = c.value(.healthAlertsPush,  default: false)
+        maxHrOverride     = c.value(.maxHrOverride,     default: nil)
     }
 }
 

@@ -62,6 +62,8 @@ struct BodyView: View {
                     BodyCompTrackerCard()
                     impactsCard
                     weekReportCard.id("report")
+                    hrZonesCard
+                    alertSettingsCard
                 }
                 .padding(.horizontal, 14)
                 .padding(.bottom, 24)
@@ -147,38 +149,73 @@ struct BodyView: View {
         String(Calendar.current.component(.day, from: d))
     }
 
+    // MARK: Heart-rate zones (editable max HR + today's time-in-zone)
+
+    @State private var editingMaxHR = false
+
+    private var hrZonesCard: some View {
+        let maxHR = store.maxHR
+        let mins = store.zoneMinutes(on: dateKey)
+        let peak = max(mins.max() ?? 0, 0.01)
+        return DarkCard {
+            HStack(alignment: .firstTextBaseline) {
+                Text("HEART-RATE ZONES").font(W.label(12)).kerning(1.2).foregroundStyle(W.muted)
+                Spacer()
+                Button { editingMaxHR = true } label: {
+                    Text("max \(maxHR) bpm").font(.system(size: 11)).foregroundStyle(W.blue)
+                }
+            }
+            .padding(.bottom, 8)
+            let colors = [W.sleep, W.vibrant, W.green, W.yellow, W.red]
+            ForEach(BodyMetrics.hrZones, id: \.index) { z in
+                let m = mins[z.index - 1]
+                HStack(spacing: 8) {
+                    Text(z.name).font(.system(size: 12)).foregroundStyle(W.text)
+                        .frame(width: 128, alignment: .leading)
+                    Text("\(z.low(maxHR))–\(z.high(maxHR))").font(.system(size: 10)).foregroundStyle(W.muted)
+                        .frame(width: 56, alignment: .leading)
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(W.card2)
+                            Capsule().fill(colors[z.index - 1])
+                                .frame(width: m > 0 ? max(4, geo.size.width * m / peak) : 0)
+                        }
+                    }
+                    .frame(height: 7)
+                    Text(m > 0 ? "\(Int(m))m" : "–").font(W.score(13)).foregroundStyle(W.text)
+                        .frame(width: 30, alignment: .trailing)
+                }
+                .padding(.vertical, 5)
+            }
+            Text("Zones are % of your max HR. Bars show today's minutes in each zone from workouts.")
+                .font(.system(size: 10)).foregroundStyle(W.muted.opacity(0.7)).padding(.top, 4)
+        }
+        .sheet(isPresented: $editingMaxHR) { MaxHRSheet() }
+    }
+
+    // MARK: Health-alert push toggle
+
+    @ViewBuilder private var alertSettingsCard: some View {
+        @Bindable var s = store
+        DarkCard {
+            Toggle(isOn: Binding(
+                get: { store.data.reminders.healthAlertsPush },
+                set: { store.setHealthAlertsPush($0) }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Alert me to out-of-range vitals").font(.system(size: 14, weight: .semibold)).foregroundStyle(W.text)
+                    Text("A notification when HRV, resting HR, temperature or SpO2 drift outside your typical range.")
+                        .font(.system(size: 11)).foregroundStyle(W.muted)
+                }
+            }
+            .tint(W.vibrant)
+        }
+    }
+
     // MARK: Health Alerts (out-of-range vitals, Heart-Analyzer style)
 
-    private struct Alert { let name: String; let value: String; let detail: String }
-
-    /// Any vital sitting outside its personal typical range today → a flagged alert.
-    private var alerts: [Alert] {
-        var out: [Alert] = []
-        func check(_ name: String, _ value: Double?, _ history: [Double], _ unit: String, higherRisk: Bool, lowerRisk: Bool) {
-            guard let value, let r = BodyMetrics.typicalRange(history) else { return }
-            if higherRisk, value > r.high {
-                out.append(Alert(name: name, value: fmtVital(value, unit),
-                                 detail: "above your usual \(fmtVital(r.high, unit))"))
-            } else if lowerRisk, value < r.low {
-                out.append(Alert(name: name, value: fmtVital(value, unit),
-                                 detail: "below your usual \(fmtVital(r.low, unit))"))
-            }
-        }
-        check("Resting HR", scores.day.rhr, store.bodyHistory(\.rhr), "bpm", higherRisk: true, lowerRisk: false)
-        check("HRV", scores.day.hrv, store.bodyHistory(\.hrv), "ms", higherRisk: false, lowerRisk: true)
-        check("Respiratory rate", scores.day.resp, store.bodyHistory(\.resp), "rpm", higherRisk: true, lowerRisk: false)
-        check("Wrist temp", scores.day.tempC, store.bodyHistory(\.tempC), "°C", higherRisk: true, lowerRisk: false)
-        check("Blood oxygen", scores.day.spo2, store.bodyHistory(\.spo2), "%", higherRisk: false, lowerRisk: true)
-        check("HR recovery", scores.health?.hrrBpm, store.healthHistory(\.hrrBpm), "bpm", higherRisk: false, lowerRisk: true)
-        return out
-    }
-
-    private func fmtVital(_ v: Double, _ unit: String) -> String {
-        unit == "°C" ? String(format: "%.1f °C", v) : "\(Int(v.rounded())) \(unit)"
-    }
-
     @ViewBuilder private var healthAlertsCard: some View {
-        let list = alerts
+        let list = store.healthAlerts(on: dateKey)
         if !list.isEmpty {
             DarkCard {
                 HStack(spacing: 8) {

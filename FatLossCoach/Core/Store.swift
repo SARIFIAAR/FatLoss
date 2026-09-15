@@ -199,6 +199,9 @@ final class Store {
     }
     func resetWater() { data.water[today] = 0; onWaterChange?() }
 
+    func setHealthAlertsPush(_ on: Bool) { data.reminders.healthAlertsPush = on }
+    func setMaxHR(_ bpm: Int?) { data.reminders.maxHrOverride = bpm }
+
     // MARK: Weight & waist
 
     var currentWeight: Double? { data.weightLogs.max { $0.date < $1.date }?.value }
