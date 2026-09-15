@@ -60,16 +60,27 @@ struct BodyCompEntry: Codable, Hashable, Identifiable {
     var visceralFat: Double?         // InBody visceral fat level (unitless)
     var bmr: Double?                 // basal metabolic rate from the report
     var source: String = "manual"   // "inbody" | "manual"
+    // Fuller InBody sheet fields (all optional)
+    var totalBodyWaterL: Double?     // total body water (L)
+    var visceralFatArea: Double?     // visceral fat area (cm²)
+    var inbodyScore: Double?         // InBody score (points)
+    var proteinKg: Double?
+    var mineralKg: Double?
+    var segmentalLean: [Double]?     // lean % of ideal: [right arm, left arm, trunk, right leg, left leg]
 
     /// Fat mass falls back to weight × body-fat % when the report only gives the percentage.
     var fatKg: Double? { fatMassKg ?? (bodyFatPct.map { weightKg * $0 / 100 }) }
 
     init(id: String = UUID().uuidString, date: String, weightKg: Double, bodyFatPct: Double? = nil,
          fatMassKg: Double? = nil, muscleKg: Double? = nil, visceralFat: Double? = nil,
-         bmr: Double? = nil, source: String = "manual") {
+         bmr: Double? = nil, source: String = "manual", totalBodyWaterL: Double? = nil,
+         visceralFatArea: Double? = nil, inbodyScore: Double? = nil, proteinKg: Double? = nil,
+         mineralKg: Double? = nil, segmentalLean: [Double]? = nil) {
         self.id = id; self.date = date; self.weightKg = weightKg; self.bodyFatPct = bodyFatPct
         self.fatMassKg = fatMassKg; self.muscleKg = muscleKg; self.visceralFat = visceralFat
-        self.bmr = bmr; self.source = source
+        self.bmr = bmr; self.source = source; self.totalBodyWaterL = totalBodyWaterL
+        self.visceralFatArea = visceralFatArea; self.inbodyScore = inbodyScore
+        self.proteinKg = proteinKg; self.mineralKg = mineralKg; self.segmentalLean = segmentalLean
     }
 
     init(from decoder: Decoder) throws {
@@ -83,6 +94,12 @@ struct BodyCompEntry: Codable, Hashable, Identifiable {
         visceralFat = c.value(.visceralFat, default: nil)
         bmr         = c.value(.bmr,         default: nil)
         source      = c.value(.source,      default: "manual")
+        totalBodyWaterL = c.value(.totalBodyWaterL, default: nil)
+        visceralFatArea = c.value(.visceralFatArea, default: nil)
+        inbodyScore     = c.value(.inbodyScore,     default: nil)
+        proteinKg       = c.value(.proteinKg,       default: nil)
+        mineralKg       = c.value(.mineralKg,       default: nil)
+        segmentalLean   = c.value(.segmentalLean,   default: nil)
     }
 }
 

@@ -38,6 +38,7 @@ struct BodyCompTrackerCard: View {
     @State private var showAdd = false
     @State private var showCamera = false
     @State private var showManual = false
+    @State private var showAnalysis = false
     @State private var pickerItem: PhotosPickerItem?
     @State private var pendingImage: UIImage?
     @State private var draft: BodyCompEntry?
@@ -63,8 +64,19 @@ struct BodyCompTrackerCard: View {
                 TrendGraph(points: series, unit: unit, color: color)
                     .frame(height: 130)
                     .padding(.top, 10)
+                Button { showAnalysis = true } label: {
+                    HStack {
+                        Text("Full body analysis").font(.system(size: 13, weight: .semibold))
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold))
+                    }
+                    .foregroundStyle(W.blue)
+                    .padding(.top, 12)
+                }
             }
         }
+        .fullScreenCover(isPresented: $showAnalysis) { InBodyAnalysisView() }
+        .onAppear { if UserDefaults.standard.bool(forKey: "openAnalysis") { showAnalysis = true } }
         .confirmationDialog("Add body composition", isPresented: $showAdd, titleVisibility: .visible) {
             Button("Scan InBody report") {
                 if UIImagePickerController.isSourceTypeAvailable(.camera) { showCamera = true }
@@ -245,6 +257,7 @@ struct BodyCompEntrySheet: View {
     let isFromPhoto: Bool
     let onSave: (BodyCompEntry) -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var day: Date = Date()
 
     var body: some View {
         NavigationStack {
@@ -252,21 +265,35 @@ struct BodyCompEntrySheet: View {
                 if isFromPhoto {
                     Section { Text("Read from your report — check the numbers and save.").font(.system(size: 13)) }
                 }
-                Section("Measurements") {
+                Section("Date") {
+                    // Backfill historical InBody tests by setting the measurement date.
+                    DatePicker("Measured on", selection: $day, in: ...Date(), displayedComponents: .date)
+                }
+                Section("Core") {
                     field("Weight (kg)", value: $entry.weightKg)
                     optField("Body fat (%)", value: $entry.bodyFatPct)
                     optField("Fat mass (kg)", value: $entry.fatMassKg)
                     optField("Skeletal muscle (kg)", value: $entry.muscleKg)
-                    optField("Visceral fat", value: $entry.visceralFat)
                     optField("BMR (kcal)", value: $entry.bmr)
+                }
+                Section("InBody detail (optional)") {
+                    optField("Visceral fat level", value: $entry.visceralFat)
+                    optField("Visceral fat area (cm²)", value: $entry.visceralFatArea)
+                    optField("Total body water (L)", value: $entry.totalBodyWaterL)
+                    optField("Protein (kg)", value: $entry.proteinKg)
+                    optField("Mineral (kg)", value: $entry.mineralKg)
+                    optField("InBody score", value: $entry.inbodyScore)
                 }
             }
             .navigationTitle("Body Composition")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear { day = DateKey.date(entry.date) ?? Date() }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { onSave(entry); dismiss() }.disabled(entry.weightKg <= 0)
+                    Button("Save") {
+                        var e = entry; e.date = DateKey.key(day); onSave(e); dismiss()
+                    }.disabled(entry.weightKg <= 0)
                 }
             }
         }
