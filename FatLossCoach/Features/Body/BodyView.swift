@@ -279,7 +279,32 @@ struct BodyView: View {
                         Text("−\(b.drained) spent").font(.system(size: 11)).foregroundStyle(W.muted)
                     }
                 }
+                Rectangle().fill(W.divider).frame(height: 1).padding(.vertical, 10)
+                Text("Your energy in the tank right now — it fills with sleep and recovery, and drains with strain and stress.")
+                    .font(.system(size: 11)).foregroundStyle(W.muted)
+                HStack(spacing: 6) {
+                    Image(systemName: batteryAdvice(b).icon).font(.system(size: 12)).foregroundStyle(batteryColor(b.zone))
+                    Text(batteryAdvice(b).text).font(.system(size: 12, weight: .semibold)).foregroundStyle(W.text)
+                }
+                .padding(.top, 6)
             }
+        }
+    }
+
+    /// Level-based recommendation, nuanced by what drained the battery (poor sleep vs hard training).
+    private func batteryAdvice(_ b: BodyMetrics.BodyBattery) -> (icon: String, text: String) {
+        let poorlyRested = b.charge < 60          // woke up under-charged → sleep was the limiter
+        switch b.zone {
+        case .high:
+            return ("bolt.fill", "Fully charged — a great day to train hard or push your goals.")
+        case .medium:
+            return poorlyRested
+                ? ("bed.double.fill", "Moderate — you woke a little low. Aim for an earlier night to top up.")
+                : ("figure.walk", "Moderate energy — train, but keep it steady rather than all-out.")
+        case .low:
+            return poorlyRested
+                ? ("bed.double.fill", "Running low, mostly from short sleep — prioritise rest and an early night.")
+                : ("leaf.fill", "Depleted from today's load — go easy: light movement and recover.")
         }
     }
 
@@ -624,14 +649,12 @@ struct BodyView: View {
         }
     }
 
+    // HRV / resting HR / respiratory rate / sleep live on the Recovery card (their home);
+    // the Health Monitor owns the remaining vitals so nothing is listed twice.
     private var monitorRows: [AnyView] {
         var rows: [AnyView] = [
-            AnyView(monitorRow("HRV", scores.day.hrv, "ms", store.bodyHistory(\.hrv))),
-            AnyView(monitorRow("Resting HR", scores.day.rhr, "bpm", store.bodyHistory(\.rhr))),
-            AnyView(monitorRow("Respiratory rate", scores.day.resp, "rpm", store.bodyHistory(\.resp))),
             AnyView(monitorRow("Wrist temp", scores.day.tempC, "°C", store.bodyHistory(\.tempC))),
             AnyView(monitorRow("Blood oxygen", scores.day.spo2, "%", store.bodyHistory(\.spo2))),
-            AnyView(monitorRow("Sleep", scores.day.sleepH, "h", store.bodyHistory(\.sleepH))),
         ]
         if scores.health?.hrrBpm != nil {   // higher HRR = fitter, so a low reading is the concern
             rows.append(AnyView(monitorRow("HR recovery (1 min)", scores.health?.hrrBpm, "bpm",
