@@ -348,6 +348,14 @@ extension Store {
         (1...days).compactMap { n in data.health[DateKey.key(DateKey.daysAgo(n))]?.activeKcal }
     }
 
+    /// History for a HealthDay field over the baseline window (for glucose/BP typical ranges).
+    func healthHistory(_ keyPath: KeyPath<HealthDay, Double?>, days: Int = BodyMetrics.baselineDays) -> [Double] {
+        (1...days).compactMap { n in
+            let v = data.health[DateKey.key(DateKey.daysAgo(n))]?[keyPath: keyPath]
+            return (v ?? 0) > 0 ? v : nil
+        }
+    }
+
     /// Daily strain load (0–21) for the 28 days ending at `key`, most-recent first — for ACWR.
     func dailyLoads(endingAt key: String, capKcal: Double, capTrimp: Double) -> [Double] {
         guard let end = DateKey.date(key) else { return [] }

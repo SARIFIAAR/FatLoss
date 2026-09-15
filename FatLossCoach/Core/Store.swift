@@ -442,7 +442,8 @@ final class Store {
     func setHealth(steps: Int? = nil, restingHR: Double? = nil,
                    activeKcal: Double? = nil, basalKcal: Double? = nil,
                    bodyFatPct: Double? = nil, leanMassKg: Double? = nil, vo2Max: Double? = nil,
-                   on day: String? = nil) {
+                   glucoseMgDl: Double? = nil, bpSystolic: Double? = nil, bpDiastolic: Double? = nil,
+                   hrrBpm: Double? = nil, on day: String? = nil) {
         let k = day ?? today
         var h = data.health[k] ?? HealthDay()
         if let steps { h.steps = steps }
@@ -452,7 +453,16 @@ final class Store {
         if let bodyFatPct { h.bodyFatPct = bodyFatPct }
         if let leanMassKg { h.leanMassKg = leanMassKg }
         if let vo2Max { h.vo2Max = vo2Max }
+        if let glucoseMgDl { h.glucoseMgDl = glucoseMgDl }
+        if let bpSystolic { h.bpSystolic = bpSystolic }
+        if let bpDiastolic { h.bpDiastolic = bpDiastolic }
+        if let hrrBpm { h.hrrBpm = hrrBpm }
         data.health[k] = h
+    }
+
+    /// Apple Health hydration fills a day only if the user hasn't logged more water manually.
+    func setHydrationFromHealth(_ ml: Int, on day: String) {
+        if (data.water[day] ?? 0) < ml { data.water[day] = ml }
     }
 
     // MARK: Body composition (InBody / manual entries + Apple Health BIA fallback)

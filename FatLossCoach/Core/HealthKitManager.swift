@@ -22,9 +22,13 @@ final class HealthKitManager {
         let ids: [HKQuantityTypeIdentifier] = [.stepCount, .restingHeartRate, .heartRateVariabilitySDNN, .respiratoryRate,
                                                .activeEnergyBurned, .basalEnergyBurned,
                                                .oxygenSaturation, .appleSleepingWristTemperature, .heartRate,
-                                               .bodyFatPercentage, .leanBodyMass, .bodyMass, .vo2Max]
+                                               .bodyFatPercentage, .leanBodyMass, .bodyMass, .vo2Max,
+                                               // Metabolic & cardiovascular extras (glucose, BP, hydration)
+                                               .bloodGlucose, .bloodPressureSystolic, .bloodPressureDiastolic,
+                                               .dietaryWater, .heartRateRecoveryOneMinute]
         for id in ids { if let t = HKObjectType.quantityType(forIdentifier: id) { set.insert(t) } }
         if let sleep = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) { set.insert(sleep) }
+        if let mind = HKObjectType.categoryType(forIdentifier: .mindfulSession) { set.insert(mind) }
         set.insert(HKObjectType.workoutType())
         return set
     }
@@ -97,6 +101,19 @@ final class HealthKitManager {
             let mlKgMin = HKUnit.literUnit(with: .milli).unitDivided(by: HKUnit.gramUnit(with: .kilo).unitMultiplied(by: .minute()))
             let vo2 = try await dailyStats(.vo2Max, .discreteAverage, unit: mlKgMin, days: days)
             for (d, v) in vo2 where v > 0 { store.setHealth(vo2Max: v, on: DateKey.key(d)) }
+            // Metabolic & cardiovascular extras.
+            let mgPerDL = HKUnit.gramUnit(with: .milli).unitDivided(by: .literUnit(with: .deci))
+            let glucose = try await dailyStats(.bloodGlucose, .discreteAverage, unit: mgPerDL, days: days)
+            let sys = try await dailyStats(.bloodPressureSystolic, .discreteAverage, unit: .millimeterOfMercury(), days: days)
+            let dia = try await dailyStats(.bloodPressureDiastolic, .discreteAverage, unit: .millimeterOfMercury(), days: days)
+            let water = try await dailyStats(.dietaryWater, .cumulativeSum, unit: .literUnit(with: .milli), days: days)
+            for (d, v) in glucose where v > 0 { store.setHealth(glucoseMgDl: v, on: DateKey.key(d)) }
+            for (d, v) in sys where v > 0 { store.setHealth(bpSystolic: v, on: DateKey.key(d)) }
+            for (d, v) in dia where v > 0 { store.setHealth(bpDiastolic: v, on: DateKey.key(d)) }
+            for (d, v) in water where v > 0 { store.setHydrationFromHealth(Int(v.rounded()), on: DateKey.key(d)) }
+            // Heart-rate recovery: 1-minute HR drop after a workout — higher = fitter.
+            let hrr = try await dailyStats(.heartRateRecoveryOneMinute, .discreteMax, unit: perMinute, days: days)
+            for (d, v) in hrr where v > 0 { store.setHealth(hrrBpm: v, on: DateKey.key(d)) }
             lastSync = Date()
             let todaySteps = steps.first { DateKey.key($0.key) == store.today }?.value ?? 0
             let todayBurn = store.healthToday?.burnedKcal

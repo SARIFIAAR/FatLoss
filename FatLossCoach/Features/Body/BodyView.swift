@@ -49,6 +49,7 @@ struct BodyView: View {
                 VStack(spacing: 12) {
                     header
                     calendarStrip
+                    healthAlertsCard
                     bodyBatteryCard
                     gaugeRow
                     if scores.recovery == nil { calibratingCard }
@@ -144,6 +145,66 @@ struct BodyView: View {
     }
     private func dayNum(_ d: Date) -> String {
         String(Calendar.current.component(.day, from: d))
+    }
+
+    // MARK: Health Alerts (out-of-range vitals, Heart-Analyzer style)
+
+    private struct Alert { let name: String; let value: String; let detail: String }
+
+    /// Any vital sitting outside its personal typical range today → a flagged alert.
+    private var alerts: [Alert] {
+        var out: [Alert] = []
+        func check(_ name: String, _ value: Double?, _ history: [Double], _ unit: String, higherRisk: Bool, lowerRisk: Bool) {
+            guard let value, let r = BodyMetrics.typicalRange(history) else { return }
+            if higherRisk, value > r.high {
+                out.append(Alert(name: name, value: fmtVital(value, unit),
+                                 detail: "above your usual \(fmtVital(r.high, unit))"))
+            } else if lowerRisk, value < r.low {
+                out.append(Alert(name: name, value: fmtVital(value, unit),
+                                 detail: "below your usual \(fmtVital(r.low, unit))"))
+            }
+        }
+        check("Resting HR", scores.day.rhr, store.bodyHistory(\.rhr), "bpm", higherRisk: true, lowerRisk: false)
+        check("HRV", scores.day.hrv, store.bodyHistory(\.hrv), "ms", higherRisk: false, lowerRisk: true)
+        check("Respiratory rate", scores.day.resp, store.bodyHistory(\.resp), "rpm", higherRisk: true, lowerRisk: false)
+        check("Wrist temp", scores.day.tempC, store.bodyHistory(\.tempC), "°C", higherRisk: true, lowerRisk: false)
+        check("Blood oxygen", scores.day.spo2, store.bodyHistory(\.spo2), "%", higherRisk: false, lowerRisk: true)
+        check("HR recovery", scores.health?.hrrBpm, store.healthHistory(\.hrrBpm), "bpm", higherRisk: false, lowerRisk: true)
+        return out
+    }
+
+    private func fmtVital(_ v: Double, _ unit: String) -> String {
+        unit == "°C" ? String(format: "%.1f °C", v) : "\(Int(v.rounded())) \(unit)"
+    }
+
+    @ViewBuilder private var healthAlertsCard: some View {
+        let list = alerts
+        if !list.isEmpty {
+            DarkCard {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 14)).foregroundStyle(W.yellow)
+                    Text("HEALTH ALERTS").font(W.label(11)).kerning(1).foregroundStyle(W.yellow)
+                    Spacer()
+                    Text("\(list.count)").font(W.label(11)).foregroundStyle(W.muted)
+                }
+                .padding(.bottom, 8)
+                DividedRows(rows: list.map { a in
+                    AnyView(
+                        HStack {
+                            Circle().fill(W.red).frame(width: 8, height: 8)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(a.name).font(.system(size: 13)).foregroundStyle(W.text)
+                                Text(a.detail).font(.system(size: 11)).foregroundStyle(W.muted)
+                            }
+                            Spacer()
+                            Text(a.value).font(W.score(16)).foregroundStyle(W.red)
+                        }
+                        .padding(.vertical, 8)
+                    )
+                })
+            }
+        }
     }
 
     // MARK: Body Battery (top of screen)
@@ -522,15 +583,46 @@ struct BodyView: View {
     private var vitalsCard: some View {
         DarkCard {
             CardTitle("Health Monitor", "vs your typical range", chevron: false) {}
-            DividedRows(rows: [
-                AnyView(monitorRow("HRV", scores.day.hrv, "ms", store.bodyHistory(\.hrv))),
-                AnyView(monitorRow("Resting HR", scores.day.rhr, "bpm", store.bodyHistory(\.rhr))),
-                AnyView(monitorRow("Respiratory rate", scores.day.resp, "rpm", store.bodyHistory(\.resp))),
-                AnyView(monitorRow("Wrist temp", scores.day.tempC, "°C", store.bodyHistory(\.tempC))),
-                AnyView(monitorRow("Blood oxygen", scores.day.spo2, "%", store.bodyHistory(\.spo2))),
-                AnyView(monitorRow("Sleep", scores.day.sleepH, "h", store.bodyHistory(\.sleepH))),
-            ])
+            DividedRows(rows: monitorRows)
         }
+    }
+
+    private var monitorRows: [AnyView] {
+        var rows: [AnyView] = [
+            AnyView(monitorRow("HRV", scores.day.hrv, "ms", store.bodyHistory(\.hrv))),
+            AnyView(monitorRow("Resting HR", scores.day.rhr, "bpm", store.bodyHistory(\.rhr))),
+            AnyView(monitorRow("Respiratory rate", scores.day.resp, "rpm", store.bodyHistory(\.resp))),
+            AnyView(monitorRow("Wrist temp", scores.day.tempC, "°C", store.bodyHistory(\.tempC))),
+            AnyView(monitorRow("Blood oxygen", scores.day.spo2, "%", store.bodyHistory(\.spo2))),
+            AnyView(monitorRow("Sleep", scores.day.sleepH, "h", store.bodyHistory(\.sleepH))),
+        ]
+        if scores.health?.hrrBpm != nil {   // higher HRR = fitter, so a low reading is the concern
+            rows.append(AnyView(monitorRow("HR recovery (1 min)", scores.health?.hrrBpm, "bpm",
+                                           store.healthHistory(\.hrrBpm))))
+        }
+        // Optional metabolic/cardio rows — only appear once a source (CGM, BP cuff) writes to Health.
+        if scores.health?.glucoseMgDl != nil {
+            rows.append(AnyView(monitorRow("Blood glucose", scores.health?.glucoseMgDl, "mg/dL",
+                                           store.healthHistory(\.glucoseMgDl))))
+        }
+        if let sys = scores.health?.bpSystolic, let dia = scores.health?.bpDiastolic {
+            rows.append(AnyView(bpRow(sys: sys, dia: dia)))
+        }
+        return rows
+    }
+
+    /// Blood pressure shown as systolic/diastolic with a simple normal/elevated dot (≤120/80 normal).
+    private func bpRow(sys: Double, dia: Double) -> some View {
+        let normal = sys <= 120 && dia <= 80
+        return HStack {
+            Circle().fill(normal ? W.green : sys <= 130 ? W.yellow : W.red).frame(width: 8, height: 8)
+            Text("Blood pressure").font(.system(size: 13)).foregroundStyle(W.text)
+            Spacer()
+            Text("normal ≤120/80").font(.system(size: 11)).foregroundStyle(W.muted)
+            Text("\(Int(sys.rounded()))/\(Int(dia.rounded()))")
+                .font(W.score(17)).foregroundStyle(W.text).frame(minWidth: 48, alignment: .trailing)
+        }
+        .padding(.vertical, 9)
     }
 
     private func monitorRow(_ name: String, _ value: Double?, _ unit: String, _ history: [Double]) -> some View {

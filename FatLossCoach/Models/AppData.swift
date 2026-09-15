@@ -133,6 +133,10 @@ struct HealthDay: Codable, Hashable {
     var bodyFatPct: Double?      // from a BIA band/scale via Apple Health
     var leanMassKg: Double?      // lean body mass from the same source
     var vo2Max: Double?          // ml/kg/min, Apple Health (Watch cardio fitness)
+    var glucoseMgDl: Double?     // avg blood glucose mg/dL (CGM / glucometer via Health)
+    var bpSystolic: Double?      // avg systolic mmHg
+    var bpDiastolic: Double?     // avg diastolic mmHg
+    var hrrBpm: Double?          // 1-min heart-rate recovery (bpm drop after a workout)
 
     /// Total energy burned so far that day (nil until the Watch has reported anything).
     var burnedKcal: Double? {
@@ -141,20 +145,28 @@ struct HealthDay: Codable, Hashable {
     }
 
     init(steps: Int = 0, restingHR: Double? = nil, activeKcal: Double? = nil, basalKcal: Double? = nil,
-         bodyFatPct: Double? = nil, leanMassKg: Double? = nil, vo2Max: Double? = nil) {
+         bodyFatPct: Double? = nil, leanMassKg: Double? = nil, vo2Max: Double? = nil,
+         glucoseMgDl: Double? = nil, bpSystolic: Double? = nil, bpDiastolic: Double? = nil,
+         hrrBpm: Double? = nil) {
         self.steps = steps; self.restingHR = restingHR; self.activeKcal = activeKcal; self.basalKcal = basalKcal
         self.bodyFatPct = bodyFatPct; self.leanMassKg = leanMassKg; self.vo2Max = vo2Max
+        self.glucoseMgDl = glucoseMgDl; self.bpSystolic = bpSystolic; self.bpDiastolic = bpDiastolic
+        self.hrrBpm = hrrBpm
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        steps      = c.value(.steps,      default: 0)
-        restingHR  = c.value(.restingHR,  default: nil)
-        activeKcal = c.value(.activeKcal, default: nil)
-        basalKcal  = c.value(.basalKcal,  default: nil)
-        bodyFatPct = c.value(.bodyFatPct, default: nil)
-        leanMassKg = c.value(.leanMassKg, default: nil)
-        vo2Max     = c.value(.vo2Max,     default: nil)
+        steps       = c.value(.steps,       default: 0)
+        restingHR   = c.value(.restingHR,   default: nil)
+        activeKcal  = c.value(.activeKcal,  default: nil)
+        basalKcal   = c.value(.basalKcal,   default: nil)
+        bodyFatPct  = c.value(.bodyFatPct,  default: nil)
+        leanMassKg  = c.value(.leanMassKg,  default: nil)
+        vo2Max      = c.value(.vo2Max,      default: nil)
+        glucoseMgDl = c.value(.glucoseMgDl, default: nil)
+        bpSystolic  = c.value(.bpSystolic,  default: nil)
+        bpDiastolic = c.value(.bpDiastolic, default: nil)
+        hrrBpm      = c.value(.hrrBpm,      default: nil)
     }
 }
 
