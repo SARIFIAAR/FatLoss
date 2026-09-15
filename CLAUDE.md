@@ -187,7 +187,15 @@ blocked for Claude by the permission classifier — the user runs it.
 
 ## Where things stand (2026-09-12)
 
-**Shipped: build 1.0.0 (13) uploaded to TestFlight 2026-09-14 (delivery UUID
+**Shipped: build 1.0.0 (14) uploaded to TestFlight 2026-09-15 (delivery UUID
+`41c437a9-492a-42e1-9d2d-9a5b9df915af`) — (1) Alcohol logging slot at the end of the Nutrition meal
+plan (0 kcal target); (2) Body Composition Tracker on the Body tab: trend graph (weight/fat/muscle/
+body-fat %), latest row, and a "+" to scan an InBody report photo or enter manually. New server
+endpoint `/inbody` (deployed to Fly 2026-09-15) reads reports via Claude vision; MealScanner.analyzeInBody.
+BodyCompEntry model + AppData.bodyComp (merged by id). flyctl now installed on this Mac and logged in
+via SSO (firas.raai@gmail.com) — Claude can redeploy the server directly.**
+
+**Shipped earlier: build 1.0.0 (13) uploaded to TestFlight 2026-09-14 (delivery UUID
 `54e2e651-1343-475c-bda9-91e169f33464`) — Hume-inspired additions to the Body tab: Body Composition
 card (body fat %, lean/fat split from Apple Health BIA, plus BMI + BMR computed from logs/intake) and
 a WHOOP-Age-style Fitness Age tile (VO2 max / HRV / RHR / steps / sleep vs age references; transparent
