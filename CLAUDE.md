@@ -187,7 +187,14 @@ blocked for Claude by the permission classifier — the user runs it.
 
 ## Where things stand (2026-09-12)
 
-**Shipped: build 1.0.0 (17) uploaded to TestFlight 2026-09-15 (delivery UUID
+**Shipped: build 1.0.0 (18) uploaded to TestFlight 2026-09-15 (delivery UUID
+`32fb3e5f-7cf8-4eca-aadf-020e4db2ccbc`) — Body-tab consolidation (each vital has one home) + Body
+Battery explainer & level-based advice; non-Body screens de-emoji'd (tofu boxes removed) + cleaner
+empty states; full InBody-style body analysis view (Body Score, obesity range bars, composition,
+segmental lean, 8-test history trends) with add/edit/delete + historical date backfill from inside
+the view; BodyCompEntry expanded (body water, visceral area, InBody score, protein, mineral, segmental).**
+
+**Shipped earlier: build 1.0.0 (17) uploaded to TestFlight 2026-09-15 (delivery UUID
 `b1d13b17-638d-491a-a5cd-8399e1826224`) — app renamed to HUMANS (CFBundleDisplayName); new app icon
 (circuit-line H, blue→orange gradient) + splash screen (SplashLogo imageset centered on dark navy
 LaunchBackground #06111A). Bundle ID unchanged (com.MyFatLossCoach.app).**
