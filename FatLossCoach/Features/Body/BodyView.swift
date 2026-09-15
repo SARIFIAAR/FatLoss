@@ -408,7 +408,7 @@ struct BodyView: View {
             Rectangle().fill(W.divider).frame(height: 1).padding(.vertical, 10)
             Text("LAST 7 DAYS").font(W.label(9)).kerning(0.8).foregroundStyle(W.muted)
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 6)
-            ForEach((0..<7).reversed(), id: \.self) { n in
+            ForEach(0..<7, id: \.self) { n in            // today first, going back a week
                 let day = DateKey.daysAgo(n)
                 let s = store.bodyDay(DateKey.key(day)).stress
                 HStack(spacing: 10) {
