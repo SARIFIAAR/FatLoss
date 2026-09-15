@@ -187,7 +187,13 @@ blocked for Claude by the permission classifier — the user runs it.
 
 ## Where things stand (2026-09-12)
 
-**Shipped: build 1.0.0 (14) uploaded to TestFlight 2026-09-15 (delivery UUID
+**Shipped: build 1.0.0 (15) uploaded to TestFlight 2026-09-15 (delivery UUID
+`92b78d60-21f1-4701-9fc2-b649852b0518`) — Stress tracker on the Body tab: an HRV-based 0-100
+autonomic-load score (HRV suppression 60% / resting-HR rise 25% / respiratory-rate rise 15% vs a
+28-day baseline; zones Calm/Balanced/Elevated) with driver bars and its own Last-7-Days table.
+BodyMetrics.stress; BodyDayScores.stress. Grounded in the HRV-stress consensus, labelled non-medical.**
+
+**Shipped earlier: build 1.0.0 (14) uploaded to TestFlight 2026-09-15 (delivery UUID
 `41c437a9-492a-42e1-9d2d-9a5b9df915af`) — (1) Alcohol logging slot at the end of the Nutrition meal
 plan (0 kcal target); (2) Body Composition Tracker on the Body tab: trend graph (weight/fat/muscle/
 body-fat %), latest row, and a "+" to scan an InBody report photo or enter manually. New server
