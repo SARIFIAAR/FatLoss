@@ -49,6 +49,7 @@ struct BodyView: View {
                 VStack(spacing: 12) {
                     header
                     calendarStrip
+                    bodyBatteryCard
                     gaugeRow
                     if scores.recovery == nil { calibratingCard }
                     recoveryCard
@@ -143,6 +144,45 @@ struct BodyView: View {
     }
     private func dayNum(_ d: Date) -> String {
         String(Calendar.current.component(.day, from: d))
+    }
+
+    // MARK: Body Battery (top of screen)
+
+    private func batteryColor(_ zone: BodyMetrics.BodyBattery.Zone) -> Color {
+        switch zone { case .high: W.green; case .medium: W.yellow; case .low: W.red }
+    }
+
+    @ViewBuilder private var bodyBatteryCard: some View {
+        if let b = scores.battery {
+            DarkCard {
+                HStack(alignment: .center, spacing: 14) {
+                    // battery glyph with fill
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 6).stroke(W.muted.opacity(0.4), lineWidth: 2)
+                            .frame(width: 54, height: 26)
+                        RoundedRectangle(cornerRadius: 3).fill(batteryColor(b.zone))
+                            .frame(width: max(4, 48 * Double(b.level) / 100), height: 20)
+                            .padding(.leading, 3)
+                    }
+                    .overlay(alignment: .trailing) {
+                        RoundedRectangle(cornerRadius: 1).fill(W.muted.opacity(0.4))
+                            .frame(width: 3, height: 10).offset(x: 4)
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("BODY BATTERY").font(W.label(10)).kerning(1).foregroundStyle(W.muted)
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                            Text("\(b.level)").font(W.score(30)).foregroundStyle(batteryColor(b.zone))
+                            Text(b.label).font(.system(size: 13)).foregroundStyle(W.muted)
+                        }
+                    }
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("+\(b.charge) charged").font(.system(size: 11)).foregroundStyle(W.green)
+                        Text("−\(b.drained) spent").font(.system(size: 11)).foregroundStyle(W.muted)
+                    }
+                }
+            }
+        }
     }
 
     // MARK: Gauges
@@ -401,11 +441,55 @@ struct BodyView: View {
                 statCell("Total burn", scores.health?.burnedKcal.map { "\(Int($0))" } ?? "–")
             }
             .padding(.top, 12)
+            workloadRow
             if !scores.workouts.isEmpty {
                 DividedRows(topPadding: 8, rows: scores.workouts.map { w in AnyView(workoutRow(w)) })
             }
         }
         .onTapGesture { pillar = .strain }
+    }
+
+    private func workloadColor(_ zone: BodyMetrics.Workload.Zone) -> Color {
+        switch zone {
+        case .detraining: W.sleep
+        case .sweetSpot: W.green
+        case .high: W.yellow
+        case .danger: W.red
+        }
+    }
+
+    /// Acute:chronic workload ratio — 7-day load vs 28-day, with a sweet-spot band (0.8–1.3).
+    @ViewBuilder private var workloadRow: some View {
+        if let wl = scores.workload {
+            VStack(spacing: 6) {
+                Rectangle().fill(W.divider).frame(height: 1).padding(.top, 10)
+                HStack(alignment: .firstTextBaseline) {
+                    Text("TRAINING LOAD").font(W.label(10)).kerning(1).foregroundStyle(W.muted)
+                    Spacer()
+                    Text(wl.label).font(.system(size: 11)).foregroundStyle(workloadColor(wl.zone))
+                }
+                .padding(.top, 8)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(String(format: "%.2f", wl.ratio)).font(W.score(24)).foregroundStyle(workloadColor(wl.zone))
+                    Text("acute : chronic").font(.system(size: 11)).foregroundStyle(W.muted)
+                    Spacer()
+                    Text("7d \(Int(wl.acute.rounded())) · 28d \(Int(wl.chronic.rounded()))")
+                        .font(.system(size: 11)).foregroundStyle(W.muted)
+                }
+                // ratio scale 0–2 with the 0.8–1.3 sweet-spot band highlighted
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(W.card2)
+                        Capsule().fill(W.green.opacity(0.25))
+                            .frame(width: geo.size.width * (1.3 - 0.8) / 2.0)
+                            .offset(x: geo.size.width * 0.8 / 2.0)
+                        Circle().fill(workloadColor(wl.zone)).frame(width: 12, height: 12)
+                            .offset(x: min(geo.size.width - 12, max(0, geo.size.width * min(wl.ratio, 2) / 2.0 - 6)))
+                    }
+                }
+                .frame(height: 12)
+            }
+        }
     }
 
     private func workoutRow(_ w: WorkoutEntry) -> some View {

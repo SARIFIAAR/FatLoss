@@ -146,6 +146,64 @@ enum BodyMetrics {
         return Strain(score: min(21, 21 * (1 - exp(-1.2 * x))))
     }
 
+    // MARK: Acute:Chronic Workload Ratio (ACWR)
+
+    struct Workload {
+        var acute: Double               // 7-day avg daily load
+        var chronic: Double             // 28-day avg daily load
+        var ratio: Double               // acute / chronic
+        enum Zone { case detraining, sweetSpot, high, danger }
+        var zone: Zone {
+            ratio < 0.8 ? .detraining : ratio <= 1.3 ? .sweetSpot : ratio <= 1.5 ? .high : .danger
+        }
+        var label: String {
+            switch zone {
+            case .detraining: "Undertraining"
+            case .sweetSpot: "Optimal"
+            case .high: "Ramping up"
+            case .danger: "Overreaching"
+            }
+        }
+    }
+
+    /// Acute:chronic workload ratio from daily loads (most-recent first). Acute = 7-day mean,
+    /// chronic = 28-day mean. 0.8–1.3 is the injury-safe "sweet spot"; >1.5 is spike/overreach.
+    static func workload(dailyLoads: [Double]) -> Workload? {
+        let ld = dailyLoads
+        guard ld.count >= 7 else { return nil }
+        let acute = ld.prefix(7).reduce(0, +) / 7
+        let chronicDays = min(ld.count, 28)
+        let chronic = ld.prefix(chronicDays).reduce(0, +) / Double(chronicDays)
+        guard chronic > 0.1 else { return nil }
+        return Workload(acute: acute, chronic: chronic, ratio: acute / chronic)
+    }
+
+    // MARK: Body Battery (continuous 0–100 energy reserve)
+
+    struct BodyBattery {
+        var level: Int                  // 0–100 current energy
+        var charge: Int                 // how full you woke (morning charge)
+        var drained: Int                // points spent today
+        enum Zone { case low, medium, high }
+        var zone: Zone { level >= 50 ? .high : level >= 25 ? .medium : .low }
+        var label: String { level >= 50 ? "Charged" : level >= 25 ? "Moderate" : "Depleted" }
+    }
+
+    /// Garmin-style energy reserve: you wake with a charge set by recovery + sleep, then drain it
+    /// through the day's strain and stress. Transparent, daily-resolution (no intraday sensor).
+    static func bodyBattery(recovery: Recovery?, sleepPerformance: Double?,
+                            strain: Strain, stress: Stress?) -> BodyBattery? {
+        guard recovery != nil || sleepPerformance != nil else { return nil }
+        let rec = Double(recovery?.score ?? 50)
+        let sleep = sleepPerformance ?? rec
+        let charge = 0.6 * rec + 0.4 * sleep                         // 0–100 morning charge
+        let strainDrain = strain.score / 21 * 45                     // up to ~45 pts
+        let stressDrain = Double(stress?.score ?? 0) / 100 * 15      // up to 15 pts
+        let level = max(3, min(100, charge - strainDrain - stressDrain))
+        return BodyBattery(level: Int(level.rounded()), charge: Int(charge.rounded()),
+                           drained: Int((strainDrain + stressDrain).rounded()))
+    }
+
     /// Edwards TRIMP: minutes in HR zone n weighted by n.
     static func trimp(_ workouts: [WorkoutEntry]) -> Double {
         var total = 0.0
@@ -290,6 +348,20 @@ extension Store {
         (1...days).compactMap { n in data.health[DateKey.key(DateKey.daysAgo(n))]?.activeKcal }
     }
 
+    /// Daily strain load (0–21) for the 28 days ending at `key`, most-recent first — for ACWR.
+    func dailyLoads(endingAt key: String, capKcal: Double, capTrimp: Double) -> [Double] {
+        guard let end = DateKey.date(key) else { return [] }
+        let cal = Calendar.current
+        return (0..<28).map { n in
+            let d = cal.date(byAdding: .day, value: -n, to: end) ?? end
+            let dk = DateKey.key(d)
+            let h = data.health[dk]
+            return BodyMetrics.strain(activeKcal: h?.activeKcal, steps: h?.steps ?? 0,
+                                      workouts: data.workouts[dk] ?? [],
+                                      capKcal: capKcal, capTrimp: capTrimp).score
+        }
+    }
+
     func trimpHistory(days: Int = BodyMetrics.baselineDays) -> [Double] {
         (1...days).map { n in BodyMetrics.trimp(data.workouts[DateKey.key(DateKey.daysAgo(n))] ?? []) }
     }
@@ -331,9 +403,14 @@ extension Store {
                                         hrvHistory: bodyHistory(\.hrv),
                                         rhrHistory: bodyHistory(\.rhr),
                                         respHistory: bodyHistory(\.resp))
+        let battery = BodyMetrics.bodyBattery(recovery: recovery, sleepPerformance: perf,
+                                              strain: strain, stress: stress)
+        let workload = BodyMetrics.workload(dailyLoads: dailyLoads(endingAt: k,
+                                                                   capKcal: capKcal, capTrimp: capTrimp))
         return BodyDayScores(day: rec, health: health, workouts: workouts, recovery: recovery,
                              strain: strain, sleepNeed: need, sleepPerformance: perf,
-                             stress: stress, capKcal: capKcal, capTrimp: capTrimp)
+                             stress: stress, battery: battery, workload: workload,
+                             capKcal: capKcal, capTrimp: capTrimp)
     }
 
     /// Bedtimes of the last `nights` (for the consistency metric).
@@ -409,6 +486,8 @@ struct BodyDayScores {
     var sleepNeed: BodyMetrics.SleepNeed
     var sleepPerformance: Double?
     var stress: BodyMetrics.Stress?
+    var battery: BodyMetrics.BodyBattery?
+    var workload: BodyMetrics.Workload?
     var capKcal: Double = 600
     var capTrimp: Double = 120
 }
