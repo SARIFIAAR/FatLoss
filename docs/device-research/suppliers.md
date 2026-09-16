@@ -123,11 +123,25 @@ request (Option 1→2); contact **Lefu** in parallel (Option 3) as the Hume-grad
 
 ---
 
-## 4. Lefu Healthcare (FitTrack / elink) — TO CONTACT (Hume's ODM)
-- **Who:** Shenzhen ODM behind the Hume app + Body Pod scale (white-label confirmed via teardown).
-- **Web:** lefu.com / fittrack lineage.
-- **Ask:** band + BIA scale **with an open SDK / raw-data (RRI) access, no vendor cloud**. This is the
-  actual manufacturer of "Hume-grade" hardware — the question is whether they'll unlock the data Hume keeps closed.
+## 4. Shenzhen Unique Scales Co., Ltd. (brand "LEFU") — SCALE OEM behind Hume's Body Pod
+- **Corrected identity (2026-09-16):** "lefu.com" was wrong. **LEFU is a brand of Shenzhen Unique Scales
+  Co., Ltd.** — the manufacturer behind Hume's Body Pod scale. App = "Unique Health" (`com.lefu.futula.healthu`).
+- **Address:** 301 & 601, No. 22 Huanping Road, Gaoqiao Community, Pingdi Street, Longgang District,
+  Shenzhen 518117 (same district as Vivistar).
+- **On Alibaba:** ✅ Shenzhen Unique Scales Co., Ltd. — 16 yrs · 4.9★ · 3,731 sold · 8-electrode scale · MOQ 500.
+- **Caveat:** this is the **scale** OEM (8-electrode body composition), **NOT confirmed as the wrist-band ODM**.
+  Hume's band is likely a different ODM; the shared elink/FitTrack app covers both. So this does **not** solve
+  the band/HRV need.
+- **Where it helps:** if HUMANS wants **accurate 8-electrode body composition** (which wrist-BIA like VB9
+  can't do), this + similar SDK scale OEMs are the right suppliers. The app already reads body fat / lean from
+  Apple Health, so any scale that writes to HealthKit or exposes an SDK feeds the Body Composition tracker.
+
+## 5. Scale OEMs with open SDK/API (body composition, Alibaba) — for the scale path
+- **Shenzhen Yolanda Technology** — "SDK Support… 25 body metrics" 8-electrode scale · 10 yrs · 4.8★ · MOQ 1.
+- **Shenzhen Acct Electronics** — "Free API / SDK / APP" body-fat scale · 8 yrs · 4.6★.
+- **Guangdong Welland Technology** — 8-electrode OEM/ODM · big volume (11,320 sold).
+- **Guangdong Transtek Medical** — major scale OEM · 22 yrs.
+- Note: the **band** (raw HRV/RRI) and the **scale** (accurate body comp) are two separate sourcing tracks.
 
 ---
 
