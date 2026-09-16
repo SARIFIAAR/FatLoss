@@ -96,6 +96,41 @@ Legend: ✅ done · ⏳ in progress · ⬜ not started
 
 ---
 
+## Key finding — how WHOOP / Hume actually source hardware (2026-09-16)
+
+There is **no special "Hume chip"** to buy. From the Hume teardown: the Hume app is white-labeled from
+**Lefu Healthcare / FitTrack** (`com.elink.fittrackhealth.pro`, "elink" = Lefu's app arm). The Body Pod
+scale firmware in the package is Lefu's **CF818 family on a Beken BK3432 BLE chip**, OTA'd via **Nordic
+DFU**. The Hume Band rides the same ODM ecosystem (Beken/Nordic-class BLE + optical PPG) — the **same
+tier as Vivistar VB9/VC2**. What makes WHOOP/Hume feel premium is **custom firmware + server-side
+algorithms** — the part HUMANS already owns. And **Hume's band data is locked** (no dev SDK), so cloning
+its hardware gives *worse* access than the Vivistar quotes.
+
+**Reframe of the VB9/VC2 problem:** they don't "not work" on hardware — it's *firmware config*. VC2 already
+provides continuous 25 Hz HR + **raw RRI over open BLE** (the strongest data we've found); its only real
+objections are the screen and night-only SpO2, both firmware/enclosure issues, not sensor issues.
+
+### Options (WHOOP/Hume playbook, adapted)
+1. **Custom firmware on VC2** — ask Vivistar to enable night-windowed/continuous SpO2 + preferred RRI
+   cadence (VB9's "scientific sleep mode" proves configurability). Lowest effort, same supplier.
+2. **Custom screenless build** — "VC2 internals (Nordic + raw RRI) in a VB9 screenless shell." Private-mold
+   request; ODMs do this routinely. Needs MOQ + tooling.
+3. **Go to Lefu directly** — Lefu Healthcare (lefu.com) is the ODM behind Hume. Request their band **with
+   SDK/raw-data access** = Hume-grade hardware minus Hume's lock. Adds a supplier + leverage.
+
+**Recommendation:** keep VC2 (best raw data), treat screen + SpO2-window as a custom-firmware/enclosure
+request (Option 1→2); contact **Lefu** in parallel (Option 3) as the Hume-grade alternative.
+
+---
+
+## 4. Lefu Healthcare (FitTrack / elink) — TO CONTACT (Hume's ODM)
+- **Who:** Shenzhen ODM behind the Hume app + Body Pod scale (white-label confirmed via teardown).
+- **Web:** lefu.com / fittrack lineage.
+- **Ask:** band + BIA scale **with an open SDK / raw-data (RRI) access, no vendor cloud**. This is the
+  actual manufacturer of "Hume-grade" hardware — the question is whether they'll unlock the data Hume keeps closed.
+
+---
+
 ## What we need from any supplier (checklist)
 1. **Raw RRI (beat-to-beat intervals)** exposed via SDK or documented BLE — this is what lets HUMANS compute real RMSSD recovery.
 2. **iOS-native access** (Swift/BLE) with **no dependency on the vendor's app or cloud**.
