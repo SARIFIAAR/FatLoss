@@ -78,6 +78,26 @@ Legend: ✅ done · ⏳ in progress · ⬜ not started
 - [ ] Both: reconfirm the iOS SDK/BLE protocol is **fully local** (no vendor cloud dependency).
 - [ ] MOQ + unit price for a production run (samples ≈ VB9 $36, VC2 $30 from Alibaba listings).
 
+### VB9 custom-firmware path (preferred device — 2026-09-16)
+**Hardware is capable; firmware is the bottleneck.** VB9 internals:
+- **ADI/MAX30001** — medical-grade **ECG + BioZ AFE**. Can output **raw ECG → R-R intervals directly**
+  (ECG-based HRV = gold standard, cleaner than VC2's PPG-derived RRI).
+- **HX3695H** — optical PPG (HR / can give raw PPG).
+- **Actions 3085S4** — BLE MCU (proprietary, locked firmware).
+
+**Can we reflash it ourselves?** No — locked firmware, no source/toolchain/signing; the SDK only reads
+what firmware exposes + sends supported commands. **Only Vivistar can reprogram it** (they already do custom
+firmware — e.g. VB9's night RRI @10 min).
+
+**Custom-firmware ask to Vivistar (VB9):**
+1. Expose **raw R-R intervals** via SDK (from MAX30001 ECG and/or PPG) — not just the bundled "stress" value.
+2. **Continuous / configurable RRI cadence** (not 30-min default).
+3. Optional: expose **raw ECG waveform** (MAX30001 supports it) → a real ECG feature VC2 lacks.
+4. Confirm SDK returns **per-sample RRI** the app can pull.
+
+⚠️ Custom firmware is normally gated behind a **production MOQ**, not a single sample — a commit decision.
+If they'll do it, **VB9 becomes the best option**: preferred screenless size + ECG-grade HRV.
+
 ### Fit assessment (for HUMANS)
 - **VC2** = best data (Nordic chip, 25 Hz continuous HR, **raw RRI over open BLE**, temp ±0.1 °C, respiratory rate). Trade-off: has a screen; SpO2 not night-only without custom firmware.
 - **VB9** = preferred *look* (screenless) and adds wrist BIA body-fat, but HRV is bundled into "stress" and RRI is 30-min by default (10-min only at night in sleep mode), 3–5 day battery.
