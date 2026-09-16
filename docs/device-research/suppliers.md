@@ -34,6 +34,7 @@ Legend: ✅ done · ⏳ in progress · ⬜ not started
 
 ### Current order (sample)
 - **Proforma Invoice issued:** 3× VB9 + 3× VC2 (sample cost + shipping to Dubai, UAE).
+  ⚠️ **We requested 1× each** — PI came back as 3× each. Correct on the PI unless 3 of each is wanted.
 - **Receiver:** Mike Muller, Dubai UAE — *delivery address to be provided.*
 - **Blocking on us:** confirm the PI + send full delivery address.
 - **Then supplier sends:** VB9 SDK documentation + VC2 BLE protocol document → integration can start.
@@ -65,10 +66,16 @@ Legend: ✅ done · ⏳ in progress · ⬜ not started
 | **SpO2 interval** | 15-min or 60-min depending on firmware — *supplier to verify the sample firmware's interval before shipment.* |
 | Night-only config | Standard firmware = 24-hour period; **command-based night-only needs custom firmware.** Test standard first. |
 
-### Open questions / to confirm
-- [ ] VC2 sample firmware SpO2 interval (15 vs 60 min) — supplier verifying.
-- [ ] VB9: can the SDK expose **raw RRI directly** (not only the derived stress value)? Night RRI @10 min is promising — confirm it's readable per-interval.
-- [ ] Both: confirm the iOS SDK/BLE protocol needs **no vendor cloud** (fully local BLE).
+### Confirmations RESOLVED (supplier reply, 2026-09-16)
+- [x] **VC2 integration = documented BLE protocol, NO SDK** (spec sheet's "SDK/API" line was wrong). Provides **raw RRI**. Acceptable.
+- [x] **VB9 iOS SDK is independent of Carefit** — reads device data directly, no vendor app install needed.
+- [x] **Docs on order confirmation** — VB9 SDK docs + VC2 BLE protocol doc will be sent once sample order confirmed.
+
+### Still open / to confirm
+- [ ] **VB9 HRV:** confirmed *bundled inside the "stress" value*, not a standalone raw stream. Still unconfirmed whether it's **RMSSD-based** and readable as an overnight number. Raw RRI is 30-min default (10-min at night in scientific sleep mode).
+- [ ] **VC2 SpO2 interval** on the sample firmware (15 vs 60 min) — supplier verifying before shipment. Requested spec: night 22:00–08:00, one reading every 15–30 min, ideally command-configurable.
+- [ ] **VC2 night-only SpO2** needs **custom firmware** (standard = 24 h). Test standard first.
+- [ ] Both: reconfirm the iOS SDK/BLE protocol is **fully local** (no vendor cloud dependency).
 - [ ] MOQ + unit price for a production run (samples ≈ VB9 $36, VC2 $30 from Alibaba listings).
 
 ### Fit assessment (for HUMANS)
