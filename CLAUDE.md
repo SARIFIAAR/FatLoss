@@ -187,7 +187,12 @@ blocked for Claude by the permission classifier — the user runs it.
 
 ## Where things stand (2026-09-12)
 
-**Shipped: build 1.0.0 (20) uploaded to TestFlight 2026-09-15 (delivery UUID
+**Shipped: build 1.0.0 (21) uploaded to TestFlight 2026-09-16 (delivery UUID
+`96e99b3f-9c53-486a-a8aa-8645058b3621`) — WHOOP-style nap handling: HealthKit sleep clustered into
+sessions (longest = main sleep, other daytime sessions = naps), naps shown separately + credited
+toward sleep need (~70%, capped 1.5h), and a "Log a nap" button that writes to Apple Health.**
+
+**Shipped earlier: build 1.0.0 (20) uploaded to TestFlight 2026-09-15 (delivery UUID
 `27db3e17-5595-45c7-a3f3-c0c3c4328034`) — stress 7-day table reordered to today-first (top).**
 
 **Shipped earlier: build 1.0.0 (19) uploaded to TestFlight 2026-09-15 (delivery UUID
