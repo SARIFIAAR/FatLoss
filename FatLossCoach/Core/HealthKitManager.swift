@@ -47,6 +47,25 @@ final class HealthKitManager {
         await sync(store: store, days: days)
     }
 
+    /// Write a nap to Apple Health (asleep block ending now) so it flows back into the app's sleep data.
+    func logNap(minutes: Int, store: Store) async {
+        guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else { return }
+        do { try await hk.requestAuthorization(toShare: [type], read: readTypes) }
+        catch { lastError = error.localizedDescription; return }
+        let end = Date()
+        let start = end.addingTimeInterval(-Double(minutes) * 60)
+        let sample = HKCategorySample(type: type,
+                                      value: HKCategoryValueSleepAnalysis.asleepCore.rawValue,
+                                      start: start, end: end)
+        do {
+            try await hk.save(sample)
+            await sync(store: store, days: 7)
+            store.showToast("Nap logged · \(minutes) min")
+        } catch {
+            lastError = "Couldn't save the nap: \(error.localizedDescription)"
+        }
+    }
+
     func sync(store: Store, days: Int = 30) async {
         guard isAvailable, !isSyncing else { return }
         isSyncing = true
@@ -89,6 +108,7 @@ final class HealthKitManager {
                     $0.bedTime = n.bedTime ?? $0.bedTime
                     $0.wakeTime = n.wakeTime ?? $0.wakeTime
                     $0.awakeCount = n.awakeCount > 0 ? n.awakeCount : $0.awakeCount
+                    $0.napH = n.nap > 0 ? n.nap : $0.napH
                 }
             }
             let workouts = try await workoutsByDay(days: days)
@@ -160,6 +180,14 @@ final class HealthKitManager {
         var inBed = 0.0                 // explicit inBed samples, else span first-asleep → last-wake
         var bedTime: Date?; var wakeTime: Date?
         var awakeCount = 0
+        var nap = 0.0                   // total daytime nap hours (separate from the main sleep)
+        var napCount = 0
+    }
+
+    /// A contiguous asleep block (segments within 60 min are one session).
+    private struct SleepSession {
+        var start: Date; var end: Date; var deep = 0.0; var rem = 0.0
+        var hours: Double { end.timeIntervalSince(start) / 3600 }
     }
 
     /// Sleep hours bucketed by the morning the sleep ended.
@@ -188,34 +216,60 @@ final class HealthKitManager {
             return a.value.count < b.value.count
         }?.value ?? samples
 
-        var out: [Date: SleepNight] = [:]
         let asleep: Set<Int> = [
             HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue,
             HKCategoryValueSleepAnalysis.asleepCore.rawValue,
             HKCategoryValueSleepAnalysis.asleepDeep.rawValue,
             HKCategoryValueSleepAnalysis.asleepREM.rawValue,
         ]
-        var inBedSpans: [Date: (Double, Date?, Date?)] = [:]   // explicit inBed: hours, first, last
+
+        // Cluster asleep samples into sessions (segments within 60 min = one session).
+        let asleepSamples = best.filter { asleep.contains($0.value) }.sorted { $0.startDate < $1.startDate }
+        var sessions: [SleepSession] = []
+        for s in asleepSamples {
+            let isDeep = s.value == HKCategoryValueSleepAnalysis.asleepDeep.rawValue
+            let isREM = s.value == HKCategoryValueSleepAnalysis.asleepREM.rawValue
+            let dur = s.endDate.timeIntervalSince(s.startDate) / 3600
+            if var last = sessions.last, s.startDate.timeIntervalSince(last.end) < 3600 {
+                last.end = max(last.end, s.endDate)
+                last.deep += isDeep ? dur : 0
+                last.rem += isREM ? dur : 0
+                sessions[sessions.count - 1] = last
+            } else {
+                sessions.append(SleepSession(start: s.startDate, end: s.endDate,
+                                             deep: isDeep ? dur : 0, rem: isREM ? dur : 0))
+            }
+        }
+
+        // Group sessions by the day they ended; the longest is the main sleep, the rest are naps.
+        var out: [Date: SleepNight] = [:]
+        let byDay = Dictionary(grouping: sessions) { cal.startOfDay(for: $0.end) }
+        for (day, daySessions) in byDay {
+            let sorted = daySessions.sorted { $0.hours > $1.hours }
+            guard let main = sorted.first else { continue }
+            var n = SleepNight()
+            n.total = main.hours; n.deep = main.deep; n.rem = main.rem
+            n.bedTime = main.start; n.wakeTime = main.end
+            for nap in sorted.dropFirst() where nap.hours >= 0.25 && nap.hours <= 3 {
+                n.nap += nap.hours; n.napCount += 1
+            }
+            out[day] = n
+        }
+
+        // Awake segments (disturbances) and explicit inBed spans, bucketed to the ending day.
+        var inBedSpans: [Date: (Double, Date?, Date?)] = [:]
         for s in best {
             let night = cal.startOfDay(for: s.endDate)
-            let h = s.endDate.timeIntervalSince(s.startDate) / 3600
-            var n = out[night] ?? SleepNight()
-            if s.value == HKCategoryValueSleepAnalysis.inBed.rawValue {
+            guard out[night] != nil else { continue }
+            if s.value == HKCategoryValueSleepAnalysis.awake.rawValue {
+                out[night]?.awakeCount += 1
+            } else if s.value == HKCategoryValueSleepAnalysis.inBed.rawValue {
                 var span = inBedSpans[night] ?? (0, nil, nil)
-                span.0 += h
+                span.0 += s.endDate.timeIntervalSince(s.startDate) / 3600
                 span.1 = min(span.1 ?? s.startDate, s.startDate)
                 span.2 = max(span.2 ?? s.endDate, s.endDate)
                 inBedSpans[night] = span
-            } else if s.value == HKCategoryValueSleepAnalysis.awake.rawValue {
-                n.awakeCount += 1
-            } else if asleep.contains(s.value) {
-                n.total += h
-                if s.value == HKCategoryValueSleepAnalysis.asleepDeep.rawValue { n.deep += h }
-                if s.value == HKCategoryValueSleepAnalysis.asleepREM.rawValue { n.rem += h }
-                n.bedTime = min(n.bedTime ?? s.startDate, s.startDate)
-                n.wakeTime = max(n.wakeTime ?? s.endDate, s.endDate)
             }
-            out[night] = n
         }
         // In-bed time: explicit samples when present, else the asleep span (includes awake gaps).
         for (night, n) in out {

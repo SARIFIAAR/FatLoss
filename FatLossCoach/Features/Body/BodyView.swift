@@ -504,12 +504,30 @@ struct BodyView: View {
                 if let a = scores.day.awakeCount, a > 0 {
                     sleepChip("DISTURBANCES", "\(a)")
                 }
+                if let nap = scores.day.napH, nap > 0 {
+                    sleepChip("NAP", Self.hm(nap))
+                }
                 Spacer()
             }
             .padding(.top, 10)
             DividedRows(topPadding: 10, rows: needRows)
+            if dayOffset == 0 { logNapButton }
         }
         .onTapGesture { pillar = .sleep }
+    }
+
+    private var logNapButton: some View {
+        Menu {
+            ForEach([15, 20, 30, 45, 60, 90], id: \.self) { m in
+                Button("\(m) min") { Task { await health.logNap(minutes: m, store: store) } }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "plus.circle").font(.system(size: 13))
+                Text("Log a nap").font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundStyle(W.blue).padding(.top, 10)
+        }
     }
 
     private func sleepChip(_ label: String, _ value: String) -> some View {
@@ -523,6 +541,7 @@ struct BodyView: View {
         var rows: [AnyView] = [AnyView(needRow("Baseline", scores.sleepNeed.baseline))]
         if scores.sleepNeed.debt > 0.01 { rows.append(AnyView(needRow("+ Sleep debt", scores.sleepNeed.debt))) }
         if scores.sleepNeed.strainCredit > 0 { rows.append(AnyView(needRow("+ Yesterday's strain", scores.sleepNeed.strainCredit))) }
+        if scores.sleepNeed.napCredit > 0 { rows.append(AnyView(needRow("− Nap credit", scores.sleepNeed.napCredit))) }
         rows.append(AnyView(needRow("Sleep need", scores.sleepNeed.total, bold: true)))
         return rows
     }

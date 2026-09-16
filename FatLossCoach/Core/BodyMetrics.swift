@@ -241,15 +241,18 @@ enum BodyMetrics {
         var baseline: Double
         var debt: Double
         var strainCredit: Double
-        var total: Double { baseline + debt + strainCredit }
+        var napCredit: Double            // a nap pays down the sleep you still need (WHOOP-style)
+        var total: Double { max(baseline * 0.5, baseline + debt + strainCredit - napCredit) }
     }
 
     /// need = baseline + 50 % of the shortfall of the last two nights (capped 2 h)
-    ///        + a credit after high-strain days. Performance = slept / need.
-    static func sleepNeed(baselineH: Double, lastNights: [Double?], yesterdayStrain: Double?) -> SleepNeed {
+    ///        + a credit after high-strain days − a nap credit (~70 % of nap hours, capped 1.5 h).
+    static func sleepNeed(baselineH: Double, lastNights: [Double?], yesterdayStrain: Double?,
+                          napHours: Double? = nil) -> SleepNeed {
         let shortfall = lastNights.prefix(2).compactMap { $0 }.map { max(0, baselineH - $0) }.reduce(0, +)
         let credit: Double = (yesterdayStrain ?? 0) >= 14 ? 0.5 : (yesterdayStrain ?? 0) >= 10 ? 0.25 : 0
-        return SleepNeed(baseline: baselineH, debt: min(2, shortfall * 0.5), strainCredit: credit)
+        let nap = min(1.5, (napHours ?? 0) * 0.7)   // naps are less restorative hour-for-hour
+        return SleepNeed(baseline: baselineH, debt: min(2, shortfall * 0.5), strainCredit: credit, napCredit: nap)
     }
 
     static func sleepPerformance(slept: Double?, need: SleepNeed) -> Double? {
@@ -450,7 +453,8 @@ extension Store {
         }
 
         let lastNights: [Double?] = (1...2).map { data.recovery[DateKey.key(DateKey.daysAgo($0))]?.sleepH }
-        let need = BodyMetrics.sleepNeed(baselineH: 8, lastNights: lastNights, yesterdayStrain: yStrain)
+        let need = BodyMetrics.sleepNeed(baselineH: 8, lastNights: lastNights, yesterdayStrain: yStrain,
+                                         napHours: rec.napH)
         let perf = BodyMetrics.sleepPerformance(slept: rec.sleepH, need: need)
 
         let recovery = BodyMetrics.recovery(day: rec,

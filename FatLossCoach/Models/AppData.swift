@@ -37,6 +37,7 @@ struct RecoveryDay: Codable, Hashable {
     var bedTime: Date?       // first in-bed/asleep sample (consistency)
     var wakeTime: Date?      // last asleep sample end
     var awakeCount: Int?     // awake segments during the night (disturbances)
+    var napH: Double?        // daytime nap hours (separate from the main sleep)
 
     var hasMetrics: Bool { (hrv ?? 0) > 0 || (sleepH ?? 0) > 0 || (rhr ?? 0) > 0 }
     var isEmpty: Bool {
