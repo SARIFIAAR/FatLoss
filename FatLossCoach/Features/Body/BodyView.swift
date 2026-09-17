@@ -49,7 +49,6 @@ struct BodyView: View {
                 VStack(spacing: 12) {
                     header
                     calendarStrip
-                    DesignLabSection()
                     healthAlertsCard
                     bodyBatteryCard
                     gaugeRow
@@ -350,7 +349,7 @@ struct BodyView: View {
     // MARK: Recovery card
 
     private var recoveryCard: some View {
-        DarkCard {
+        DarkCard(accent: scores.recovery.map { $0.zone == .green ? W.green : $0.zone == .yellow ? W.yellow : W.red }) {
             CardTitle("Recovery", scores.recovery.map {
                 $0.zone == .green ? "Primed to push" : $0.zone == .yellow ? "Maintain today" : "Prioritise rest"
             } ?? "Waiting for data") { pillar = .recovery }
@@ -372,7 +371,7 @@ struct BodyView: View {
 
     @ViewBuilder private var stressCard: some View {
         if let st = scores.stress {
-            DarkCard {
+            DarkCard(accent: stressColor(st.zone)) {
                 CardTitle("Stress", st.label, chevron: false) {}
                 HStack(alignment: .firstTextBaseline) {
                     Text("\(st.score)").font(W.score(34)).foregroundStyle(stressColor(st.zone))
@@ -866,13 +865,31 @@ struct BodyView: View {
 // MARK: - Shared dark components
 
 struct DarkCard<Content: View>: View {
+    /// Pass a metric colour to add a soft corner glow (hero cards); nil keeps it calm.
+    var accent: Color? = nil
     @ViewBuilder var content: Content
     var body: some View {
         VStack(alignment: .leading, spacing: 0) { content }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(W.card)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(16)
+            .background {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous).fill(W.card)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(LinearGradient(colors: [.white.opacity(0.05), .clear],
+                                             startPoint: .top, endPoint: .bottom))
+                    if let accent {
+                        Circle().fill(accent.opacity(0.16)).frame(width: 160, height: 160)
+                            .blur(radius: 70).offset(x: -95, y: -70)
+                    }
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(LinearGradient(colors: [.white.opacity(0.12), .white.opacity(0.02)],
+                                           startPoint: .top, endPoint: .bottom), lineWidth: 1)
+            )
     }
 }
 
@@ -983,9 +1000,13 @@ struct RingGauge: View {
     var body: some View {
         VStack(spacing: 6) {
             ZStack {
-                arc(1).stroke(W.card, style: stroke)
+                arc(1).stroke(Color.white.opacity(0.08), style: stroke)
                 arc(max(0.02, min(1, fraction)))
-                    .stroke(color, style: stroke)
+                    .stroke(AngularGradient(gradient: Gradient(colors: [color.opacity(0.5), color]),
+                                            center: .center,
+                                            startAngle: .degrees(135), endAngle: .degrees(135 + 270)),
+                            style: stroke)
+                    .shadow(color: color.opacity(0.55), radius: 6)
                     .animation(.easeOut(duration: 0.6), value: fraction)
                 Text(value).font(W.score(valueSize)).foregroundStyle(W.text)
                     .minimumScaleFactor(0.6).lineLimit(1).padding(.horizontal, 14)
