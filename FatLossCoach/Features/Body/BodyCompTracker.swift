@@ -29,20 +29,12 @@ struct MaxHRSheet: View {
 }
 
 /// Body-composition tracker: trend graph of weight / fat mass / muscle mass over time, plus a
-/// "+" to add a reading by photographing an InBody report (Claude vision) or entering it manually.
+/// "+" to add a reading with manual entry fields.
 struct BodyCompTrackerCard: View {
     @Environment(Store.self) private var store
-    @Environment(MealScanner.self) private var scanner
-    @Environment(CloudSync.self) private var cloud
 
-    @State private var showAdd = false
-    @State private var showCamera = false
-    @State private var showManual = false
     @State private var showAnalysis = false
-    @State private var pickerItem: PhotosPickerItem?
-    @State private var pendingImage: UIImage?
     @State private var draft: BodyCompEntry?
-    @State private var error: String?
     private var entries: [BodyCompEntry] { store.bodyCompSorted }
 
     var body: some View {
@@ -64,59 +56,10 @@ struct BodyCompTrackerCard: View {
                 }
             }
         }
-        .fullScreenCover(isPresented: $showAnalysis) { InBodyAnalysisView() }
+        .fullScreenCover(isPresented: $showAnalysis) { BodyAnalysisView() }
         .onAppear { if UserDefaults.standard.bool(forKey: "openAnalysis") { showAnalysis = true } }
-        .confirmationDialog("Add body composition", isPresented: $showAdd, titleVisibility: .visible) {
-            Button("Scan InBody report") {
-                if UIImagePickerController.isSourceTypeAvailable(.camera) { showCamera = true }
-            }
-            Button("Choose from library") { /* PhotosPicker below opens via binding */ pickerTrigger = true }
-            Button("Enter manually") { draft = BodyCompEntry(date: store.today, weightKg: store.currentWeight ?? 0); showManual = true }
-            Button("Cancel", role: .cancel) {}
-        }
-        .fullScreenCover(isPresented: $showCamera) {
-            CameraPicker { img in showCamera = false; if let img { Task { await scan(img) } } }
-                .ignoresSafeArea()
-        }
-        .photosPicker(isPresented: $pickerTrigger, selection: $pickerItem, matching: .images)
-        .onChange(of: pickerItem) { _, item in
-            guard let item else { return }
-            Task {
-                if let data = try? await item.loadTransferable(type: Data.self), let img = UIImage(data: data) {
-                    await scan(img)
-                }
-                pickerItem = nil
-            }
-        }
         .sheet(item: $draft) { d in
-            BodyCompEntrySheet(entry: d, isFromPhoto: pendingImage != nil) { store.addBodyComp($0); pendingImage = nil }
-        }
-        .overlay {
-            if scanner.isAnalyzing {
-                ZStack {
-                    Color.black.opacity(0.5).ignoresSafeArea()
-                    VStack(spacing: 10) {
-                        ProgressView().tint(.white)
-                        Text("Reading your report…").font(.system(size: 13)).foregroundStyle(.white)
-                    }
-                }
-            }
-        }
-        .alert("Couldn't read that", isPresented: .constant(error != nil)) {
-            Button("OK") { error = nil }
-        } message: { Text(error ?? "") }
-    }
-
-    @State private var pickerTrigger = false
-
-    private func scan(_ image: UIImage) async {
-        pendingImage = image
-        do {
-            let report = try await scanner.analyzeInBody(image)
-            draft = report.entry(date: store.today)      // opens the sheet pre-filled for confirmation
-        } catch {
-            self.error = error.localizedDescription
-            pendingImage = nil
+            BodyCompEntrySheet(entry: d, isFromPhoto: false) { store.addBodyComp($0) }
         }
     }
 
@@ -126,7 +69,7 @@ struct BodyCompTrackerCard: View {
         HStack(alignment: .firstTextBaseline) {
             Text("BODY COMPOSITION TRACKER").font(W.label(12)).kerning(1.0).foregroundStyle(W.muted)
             Spacer()
-            Button { showAdd = true } label: {
+            Button { draft = BodyCompEntry(date: store.today, weightKg: store.currentWeight ?? 0) } label: {
                 Image(systemName: "plus.circle.fill").font(.system(size: 22)).foregroundStyle(W.vibrant)
             }
         }
@@ -137,7 +80,7 @@ struct BodyCompTrackerCard: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Track fat mass, muscle mass and body-fat % over time.")
                 .font(.system(size: 13)).foregroundStyle(W.text)
-            Text("Tap ＋ to photograph an InBody report — it's read automatically — or enter numbers by hand.")
+            Text("Tap ＋ to add a reading — enter your numbers by hand.")
                 .font(.system(size: 11)).foregroundStyle(W.muted)
         }
         .padding(.vertical, 6)
@@ -319,7 +262,7 @@ struct BodyCompEntrySheet: View {
                     Section { Text("Read from your report — check the numbers and save.").font(.system(size: 13)) }
                 }
                 Section("Date") {
-                    // Backfill historical InBody tests by setting the measurement date.
+                    // Backfill historical readings by setting the measurement date.
                     DatePicker("Measured on", selection: $day, in: ...Date(), displayedComponents: .date)
                 }
                 Section("Core") {
@@ -329,13 +272,13 @@ struct BodyCompEntrySheet: View {
                     optField("Skeletal muscle (kg)", value: $entry.muscleKg)
                     optField("BMR (kcal)", value: $entry.bmr)
                 }
-                Section("InBody detail (optional)") {
+                Section("More detail (optional)") {
                     optField("Visceral fat level", value: $entry.visceralFat)
                     optField("Visceral fat area (cm²)", value: $entry.visceralFatArea)
                     optField("Total body water (L)", value: $entry.totalBodyWaterL)
                     optField("Protein (kg)", value: $entry.proteinKg)
                     optField("Mineral (kg)", value: $entry.mineralKg)
-                    optField("InBody score", value: $entry.inbodyScore)
+                    optField("Body score", value: $entry.inbodyScore)
                 }
             }
             .navigationTitle("Body Composition")

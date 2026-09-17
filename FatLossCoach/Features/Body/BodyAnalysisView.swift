@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Full body-composition analysis for one reading — range-bar metric cards + history trends +
-/// segmental lean, in the HUMANS dark design language (original, not an InBody clone).
-struct InBodyAnalysisView: View {
+/// segmental lean, in the HUMANS dark design language.
+struct BodyAnalysisView: View {
     @Environment(Store.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var index: Int
@@ -81,10 +81,6 @@ struct InBodyAnalysisView: View {
             } label: {
                 HStack(spacing: 5) {
                     Text(prettyDate(entry.date)).font(W.label(13)).foregroundStyle(W.text)
-                    if entry.source == "inbody" {
-                        Text("InBody").font(W.label(9)).foregroundStyle(W.muted)
-                            .padding(.horizontal, 6).padding(.vertical, 2).background(W.card2).clipShape(Capsule())
-                    }
                     Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(W.muted)
                 }
             }
