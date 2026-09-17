@@ -37,6 +37,7 @@ struct FatLossCoachApp: App {
                 store.save()
             case .active:
                 reminders.refreshPermission()
+                WidgetSync.publish(from: store)
                 if health.hasConnected {
                     Task { await health.sync(store: store, days: 7); reminders.schedulePlan(); reminders.notifyHealthAlertsIfNeeded() }
                 } else {

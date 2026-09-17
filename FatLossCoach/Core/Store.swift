@@ -91,6 +91,7 @@ final class Store {
         } catch {
             print("Store.save failed: \(error)")
         }
+        WidgetSync.publish(from: self)
     }
 
     func exportJSON() -> String {
