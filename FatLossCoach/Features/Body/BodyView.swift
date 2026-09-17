@@ -39,7 +39,6 @@ struct BodyView: View {
     @State private var pillar: Pillar?
     @State private var impacts: [BehaviorImpact] = []
     @State private var week: WeekReport?
-    @State private var showMore = false
 
     private var dateKey: String { DateKey.key(DateKey.daysAgo(dayOffset)) }
     private var scores: BodyDayScores { store.bodyDay(dateKey) }
@@ -67,14 +66,11 @@ struct BodyView: View {
                     vitalsCard.id("week")
                     bodyCompositionCard
                     BodyCompTrackerCard()
-                    // Deep analysis — collapsed by default to keep the scroll tight.
-                    moreToggle
-                    if showMore {
-                        impactsCard
-                        weekReportCard.id("report")
-                        hrZonesCard
-                        alertSettingsCard
-                    }
+                    // Deep analysis — always visible.
+                    impactsCard
+                    weekReportCard.id("report")
+                    hrZonesCard
+                    alertSettingsCard
                 }
                 .padding(.horizontal, 14)
                 .padding(.bottom, 24)
@@ -396,23 +392,6 @@ struct BodyView: View {
             Text(c.body).font(.system(size: 13)).foregroundStyle(W.muted)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 3)
-        }
-    }
-
-    private var moreToggle: some View {
-        Button { withAnimation(.easeInOut(duration: 0.2)) { showMore.toggle() } } label: {
-            HStack(spacing: 6) {
-                Text(showMore ? "Hide insights" : "More insights")
-                    .font(W.label(13)).foregroundStyle(W.vibrant)
-                Image(systemName: showMore ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 11, weight: .bold)).foregroundStyle(W.vibrant)
-                Spacer()
-                if !showMore {
-                    Text("Impacts · Week · HR zones · Alerts")
-                        .font(.system(size: 11)).foregroundStyle(W.muted)
-                }
-            }
-            .padding(.vertical, 6)
         }
     }
 
