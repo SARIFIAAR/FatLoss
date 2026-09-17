@@ -49,6 +49,7 @@ struct BodyView: View {
                 VStack(spacing: 12) {
                     header
                     calendarStrip
+                    DesignLabSection()
                     healthAlertsCard
                     bodyBatteryCard
                     gaugeRow
