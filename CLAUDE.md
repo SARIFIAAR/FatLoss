@@ -187,7 +187,34 @@ blocked for Claude by the permission classifier — the user runs it.
 
 ## Where things stand (2026-09-17)
 
-**Built, committed (`d32896e`, pushed), not yet shipped — home-screen widget.** New WidgetKit
+**Shipped: build 1.0.0 (22) uploaded to TestFlight 2026-09-17 (delivery UUID
+`60b97ccf-84bf-4f7a-b92d-34572d033725`) — the home-screen widget below.**
+
+**Provisioning workaround learned this build (App Groups + new extension bundle ID).** Automatic
+signing via CLI is broken on this Mac: `xcodebuild -allowProvisioningUpdates -authenticationKeyPath …`
+fails with "Authentication failed: bearer token … expired" for the *provisioning* service, even though
+the SAME ASC API key authenticates fine for the ASC REST API (listing builds, bundleIds, profiles,
+certificates all return 200 with a hand-signed ES256 JWT). So Xcode cannot register/refresh profiles
+for the new App Group. The working path (all doable from Claude):
+1. User registers in the Developer portal: App Group `group.com.MyFatLossCoach.app`, enables App Groups
+   on `com.MyFatLossCoach.app`, and registers `com.MyFatLossCoach.app.HumansWidget` with the group —
+   App Groups are NOT in the ASC API, so this step is portal-only. Assign the group to BOTH App IDs
+   (the profile must list `group.com.MyFatLossCoach.app`, not just the pre-existing typely group).
+2. Create App Store profiles via the ASC REST API (POST /v1/profiles, profileType IOS_APP_STORE,
+   bundleId + distribution cert `6ZT8ZLTZ65` = the keychain identity "Apple Distribution: Infinion
+   Apps FZ-LLC (9F2G8CQ45J)"), download `profileContent`, install to
+   `~/Library/MobileDevice/Provisioning Profiles/<uuid>.mobileprovision`. Helper JS: `/tmp/asc.mjs`
+   (token+api) and `/tmp/mkprofiles.mjs` this session.
+3. Set **manual** signing on the two Release configs only (CODE_SIGN_STYLE=Manual, CODE_SIGN_IDENTITY
+   "Apple Distribution", PROVISIONING_PROFILE_SPECIFIER = the profile names), `archive` (NOT
+   `CODE_SIGNING_ALLOWED=NO` — that strips entitlements; must sign at archive so HealthKit/App Group/
+   Sign-In bake in), then `-exportArchive` with an ExportOptions plist (signingStyle manual,
+   provisioningProfiles map for both bundle IDs), then `altool --upload-app --apiKey F32V65ACX6`.
+4. Verify the IPA entitlements before upload: `codesign -d --entitlements :-` on the .app AND the
+   .appex must show `com.apple.security.application-groups → group.com.MyFatLossCoach.app`.
+   Afterward, `git checkout` the pbxproj to restore automatic signing (manual edits stay uncommitted).
+
+**Home-screen widget (this build).** New WidgetKit
 app-extension target **HumansWidgetExtension** (bundle `com.MyFatLossCoach.app.HumansWidget`) shows the
 day's headline body KPIs — Recovery (ring), Strain, Sleep, Body Battery — in systemSmall + systemMedium,
 in the HUMANS dark theme. Data path avoids HealthKit in the extension: the app and widget share App
@@ -200,9 +227,9 @@ synced group makes Xcode both process it as INFOPLIST_FILE and Copy-Resources it
 produce … Info.plist"). Note: this Xcode rejects the `PBXFileSystemSynchronizedBuildFileMembershipExceptions`
 class, so exclude files by keeping them out of the synced folder, not via an exceptions object.
 Verified: app+widget build for the sim, `.appex` embeds in `FatLossCoach.app/PlugIns/`, and a launched
-app writes the shared snapshot that the widget's group can read. **To ship as build 22:** bump
-`CURRENT_PROJECT_VERSION` in the app **and** widget configs (all four), then archive — automatic signing
-must register the App Group on both bundle IDs (`-allowProvisioningUpdates`, first archive may take a beat).
+app writes the shared snapshot that the widget's group can read. Shipped in build 22 (see the
+provisioning workaround above — remember to bump `CURRENT_PROJECT_VERSION` in ALL FOUR configs, app +
+widget, when shipping).
 
 ## Where things stand (2026-09-12)
 
