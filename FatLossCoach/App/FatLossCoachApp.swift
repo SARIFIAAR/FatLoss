@@ -77,6 +77,7 @@ struct ContentView: View {
         }
         .tint(Theme.primary)
         .preferredColorScheme(.dark)
+        .onReceive(NotificationCenter.default.publisher(for: .openBody)) { _ in tab = 5 }
         .overlay(alignment: .top) {
             if let t = store.toast {
                 ToastView(text: t)

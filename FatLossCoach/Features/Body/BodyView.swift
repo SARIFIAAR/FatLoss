@@ -358,26 +358,7 @@ struct BodyView: View {
     // MARK: Coach (daily narrative guidance from today's scores)
 
     /// Plain-language headline + body derived from the day's recovery/strain/sleep.
-    private var coach: (headline: String, body: String) {
-        guard let rec = scores.recovery else {
-            return ("Building your baseline",
-                    "Wear your watch to bed for a few nights and your daily guidance will appear here.")
-        }
-        let debt = scores.sleepNeed.total - (scores.day.sleepH ?? scores.sleepNeed.total)
-        let sleepLine = debt > 1 ? " You're carrying some sleep debt — an earlier night would help."
-                                 : ""
-        switch rec.zone {
-        case .green:
-            return ("Primed to push",
-                    "Recovery is strong today — a great day to train hard. Aim for the higher end of your strain target and fuel well." + sleepLine)
-        case .yellow:
-            return ("Train with intent",
-                    "You're balanced. A moderate session is ideal — keep effort controlled and protect tonight's sleep." + sleepLine)
-        case .red:
-            return ("Prioritise rest",
-                    "Recovery is low. Keep strain light — your body wants fuel and sleep, not another hard demand. Pushing now would feel harder and set you back." + sleepLine)
-        }
-    }
+    private var coach: (headline: String, body: String) { DayCoach.message(scores) }
 
     private var coachCard: some View {
         let c = coach

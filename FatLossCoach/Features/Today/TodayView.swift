@@ -17,10 +17,10 @@ struct TodayView: View {
 
     var body: some View {
         Screen(subtitle: dateLine, title: greeting) {
+            DaySummaryCard()
             PhaseStrip()
             TargetsCard()
             WatchCard()
-            RecoveryCard()
             HabitsCard()
             WaterCard()
             SupplementsCard()
@@ -174,53 +174,59 @@ struct WatchCard: View {
     }
 }
 
-struct RecoveryCard: View {
+/// The day at a glance: coaching line + the four headline scores (tap → Body) + mood.
+/// Replaces the old "Recovery & Readiness" card (which duplicated the Body dashboard).
+struct DaySummaryCard: View {
     @Environment(Store.self) private var store
-    private let moods = ["", "", "", "", ""]
+    private let moodIcons = ["cloud.rain.fill", "cloud.fill", "cloud.sun.fill", "sun.max.fill", "sparkles"]
+    private let moodColors: [Color] = [Theme.red, Theme.orange, Theme.orange, Theme.primaryLight, Theme.primary]
 
     var body: some View {
+        let s = store.bodyDay()
+        let c = DayCoach.message(s)
+        let recColor = s.recovery.map { Readiness.color($0.score) } ?? Theme.muted
         let rec = store.recoveryToday
-        let score = Store.readiness(rec)
-        let color = score.map(Readiness.color) ?? Theme.muted
-        Card {
-            SectionTitle("Recovery & Readiness")
-            VStack(spacing: 4) {
-                Text(score.map { String($0) } ?? "–")
-                    .font(.system(size: 52, weight: .black)).foregroundStyle(color)
-                Text(Readiness.label(score).uppercased())
-                    .font(.system(size: 11, weight: .bold)).kerning(0.5).foregroundStyle(Theme.muted)
-                ProgressBar(value: Double(score ?? 0) / 100, height: 10, fill: AnyShapeStyle(color))
-                    .padding(.top, 6)
+        Card(accent: s.recovery.map { Readiness.color($0.score) }) {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles").font(.system(size: 12)).foregroundStyle(Theme.primary)
+                Text("YOUR DAY").font(.system(size: 11, weight: .bold)).kerning(1.2).foregroundStyle(Theme.muted)
+                Spacer()
+                Button { NotificationCenter.default.post(name: .openBody, object: nil) } label: {
+                    HStack(spacing: 3) {
+                        Text("Details").font(.system(size: 12, weight: .bold))
+                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold))
+                    }.foregroundStyle(Theme.primary)
+                }
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 4)
+            Text(c.headline).font(.system(size: 18, weight: .heavy)).foregroundStyle(Theme.text).padding(.top, 8)
+            Text(c.body).font(.system(size: 13)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true).padding(.top, 3)
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
-                RecStat(label: "HRV ms", value: rec.hrv.map { "\(Int($0.rounded()))" })
-                RecStat(label: "Sleep", value: rec.sleepH.map { String(format: "%.1fh", $0) })
-                RecStat(label: "Rest HR", value: rec.rhr.map { "\(Int($0.rounded()))" })
-                RecStat(label: "Deep", value: rec.deepH.map { String(format: "%.1fh", $0) })
-                RecStat(label: "REM", value: rec.remH.map { String(format: "%.1fh", $0) })
-                RecStat(label: "Resp/min", value: rec.resp.map { "\(Int($0.rounded()))" })
+            Button { NotificationCenter.default.post(name: .openBody, object: nil) } label: {
+                HStack(spacing: 8) {
+                    scoreChip("Recovery", s.recovery.map { "\($0.score)" } ?? "–", recColor)
+                    scoreChip("Strain", s.strain.score > 0 ? String(format: "%.1f", s.strain.score) : "–", Theme.blue)
+                    scoreChip("Sleep", s.sleepPerformance.map { "\(Int($0.rounded()))%" } ?? "–", Theme.blue)
+                    scoreChip("Battery", s.battery.map { "\($0.level)" } ?? "–", Theme.primary)
+                }
+                .padding(.top, 12)
             }
-            .padding(.top, 10)
+            .buttonStyle(.plain)
 
             Divider().overlay(Theme.border).padding(.vertical, 12)
-
             HStack {
                 Text("Today's Mood").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.text)
                 Spacer()
-                HStack(spacing: 4) {
+                HStack(spacing: 6) {
                     ForEach(1...5, id: \.self) { m in
                         let sel = rec.mood == m
                         Button { store.setMood(m) } label: {
-                            Text(moods[m - 1])
-                                .font(.system(size: 22))
-                                .padding(.vertical, 3).padding(.horizontal, 5)
-                                .background(sel ? Theme.primary.opacity(0.1) : Color.clear)
-                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(sel ? Theme.primary : Color.clear, lineWidth: 2.5))
+                            Image(systemName: moodIcons[m - 1])
+                                .font(.system(size: 17))
+                                .foregroundStyle(sel ? moodColors[m - 1] : Theme.muted)
+                                .frame(width: 34, height: 30)
+                                .background(sel ? moodColors[m - 1].opacity(0.15) : Color.clear,
+                                            in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                         }
                         .buttonStyle(.plain)
                     }
@@ -228,20 +234,15 @@ struct RecoveryCard: View {
             }
         }
     }
-}
 
-struct RecStat: View {
-    let label: String
-    let value: String?
-    var body: some View {
-        VStack(spacing: 2) {
-            Text(value ?? "–").font(Theme.scoreM).foregroundStyle(Theme.primary)
-            Text(label).font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.muted)
+    private func scoreChip(_ label: String, _ value: String, _ color: Color) -> some View {
+        VStack(spacing: 3) {
+            Text(value).font(Theme.score(22)).foregroundStyle(color).minimumScaleFactor(0.6).lineLimit(1)
+            Text(label.uppercased()).font(.system(size: 9, weight: .bold)).kerning(0.5).foregroundStyle(Theme.muted)
         }
         .frame(maxWidth: .infinity)
-        .padding(10)
-        .background(Theme.bg)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.vertical, 10)
+        .background(Theme.card2, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 

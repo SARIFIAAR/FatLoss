@@ -119,14 +119,32 @@ struct TopBar: View {
 
 struct Card<Content: View>: View {
     var padding: CGFloat = 16
+    /// Optional metric colour → soft corner glow (hero cards). Matches Body's DarkCard.
+    var accent: Color? = nil
     @ViewBuilder var content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) { content }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(padding)
-            .background(Theme.card)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.card)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(LinearGradient(colors: [.white.opacity(0.05), .clear],
+                                             startPoint: .top, endPoint: .bottom))
+                    if let accent {
+                        Circle().fill(accent.opacity(0.16)).frame(width: 160, height: 160)
+                            .blur(radius: 70).offset(x: -95, y: -70)
+                    }
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(LinearGradient(colors: [.white.opacity(0.12), .white.opacity(0.02)],
+                                           startPoint: .top, endPoint: .bottom), lineWidth: 1)
+            )
     }
 }
 
