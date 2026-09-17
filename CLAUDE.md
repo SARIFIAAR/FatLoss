@@ -185,6 +185,25 @@ blocked for Claude by the permission classifier — the user runs it.
   water/walk reminders,
   Shortcuts URL template, import from web app, JSON export, version/build footer.
 
+## Where things stand (2026-09-17)
+
+**Built, committed (`d32896e`, pushed), not yet shipped — home-screen widget.** New WidgetKit
+app-extension target **HumansWidgetExtension** (bundle `com.MyFatLossCoach.app.HumansWidget`) shows the
+day's headline body KPIs — Recovery (ring), Strain, Sleep, Body Battery — in systemSmall + systemMedium,
+in the HUMANS dark theme. Data path avoids HealthKit in the extension: the app and widget share App
+Group `group.com.MyFatLossCoach.app`; `Core/WidgetSync.swift` computes `store.bodyDay()` and writes a
+small `humans-widget.json` snapshot (called from `Store.save()` and on scene `.active`), then
+`WidgetCenter.reloadAllTimelines()`; the widget's `BodyKPIs.load()` reads that file. Support files
+(Info.plist with `NSExtensionPointIdentifier = com.apple.widgetkit-extension`, entitlements) live in
+`HumansWidgetConfig/` **outside** the folder-synced `HumansWidget/` group — putting Info.plist inside a
+synced group makes Xcode both process it as INFOPLIST_FILE and Copy-Resources it ("Multiple commands
+produce … Info.plist"). Note: this Xcode rejects the `PBXFileSystemSynchronizedBuildFileMembershipExceptions`
+class, so exclude files by keeping them out of the synced folder, not via an exceptions object.
+Verified: app+widget build for the sim, `.appex` embeds in `FatLossCoach.app/PlugIns/`, and a launched
+app writes the shared snapshot that the widget's group can read. **To ship as build 22:** bump
+`CURRENT_PROJECT_VERSION` in the app **and** widget configs (all four), then archive — automatic signing
+must register the App Group on both bundle IDs (`-allowProvisioningUpdates`, first archive may take a beat).
+
 ## Where things stand (2026-09-12)
 
 **Shipped: build 1.0.0 (21) uploaded to TestFlight 2026-09-16 (delivery UUID
