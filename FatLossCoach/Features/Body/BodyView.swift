@@ -39,6 +39,7 @@ struct BodyView: View {
     @State private var pillar: Pillar?
     @State private var impacts: [BehaviorImpact] = []
     @State private var week: WeekReport?
+    @State private var showMore = false
 
     private var dateKey: String { DateKey.key(DateKey.daysAgo(dayOffset)) }
     private var scores: BodyDayScores { store.bodyDay(dateKey) }
@@ -49,21 +50,31 @@ struct BodyView: View {
                 VStack(spacing: 12) {
                     header
                     calendarStrip
-                    healthAlertsCard
-                    bodyBatteryCard
-                    gaugeRow
+                    // Guidance first — what today's numbers mean for you.
+                    coachCard
                     if scores.recovery == nil { calibratingCard }
+                    healthAlertsCard
+                    // At-a-glance summary.
+                    gaugeRow
+                    // Readiness cluster.
                     recoveryCard
+                    bodyBatteryCard
                     stressCard.id("stress")
+                    // Sleep & load.
                     sleepCard
                     strainCard.id("strain")
+                    // Vitals & composition.
                     vitalsCard.id("week")
                     bodyCompositionCard
                     BodyCompTrackerCard()
-                    impactsCard
-                    weekReportCard.id("report")
-                    hrZonesCard
-                    alertSettingsCard
+                    // Deep analysis — collapsed by default to keep the scroll tight.
+                    moreToggle
+                    if showMore {
+                        impactsCard
+                        weekReportCard.id("report")
+                        hrZonesCard
+                        alertSettingsCard
+                    }
                 }
                 .padding(.horizontal, 14)
                 .padding(.bottom, 24)
@@ -347,6 +358,63 @@ struct BodyView: View {
     }
 
     // MARK: Recovery card
+
+    // MARK: Coach (daily narrative guidance from today's scores)
+
+    /// Plain-language headline + body derived from the day's recovery/strain/sleep.
+    private var coach: (headline: String, body: String) {
+        guard let rec = scores.recovery else {
+            return ("Building your baseline",
+                    "Wear your watch to bed for a few nights and your daily guidance will appear here.")
+        }
+        let debt = scores.sleepNeed.total - (scores.day.sleepH ?? scores.sleepNeed.total)
+        let sleepLine = debt > 1 ? " You're carrying some sleep debt — an earlier night would help."
+                                 : ""
+        switch rec.zone {
+        case .green:
+            return ("Primed to push",
+                    "Recovery is strong today — a great day to train hard. Aim for the higher end of your strain target and fuel well." + sleepLine)
+        case .yellow:
+            return ("Train with intent",
+                    "You're balanced. A moderate session is ideal — keep effort controlled and protect tonight's sleep." + sleepLine)
+        case .red:
+            return ("Prioritise rest",
+                    "Recovery is low. Keep strain light — your body wants fuel and sleep, not another hard demand. Pushing now would feel harder and set you back." + sleepLine)
+        }
+    }
+
+    private var coachCard: some View {
+        let c = coach
+        return DarkCard(accent: scores.recovery.map { W.recoveryColor($0.zone) }) {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles").font(.system(size: 12)).foregroundStyle(W.vibrant)
+                Text("YOUR DAY").font(W.label(11)).kerning(1.2).foregroundStyle(W.muted)
+                Spacer()
+            }
+            Text(c.headline).font(.system(size: 18, weight: .heavy)).foregroundStyle(W.text)
+                .padding(.top, 8)
+            Text(c.body).font(.system(size: 13)).foregroundStyle(W.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 3)
+        }
+    }
+
+    private var moreToggle: some View {
+        Button { withAnimation(.easeInOut(duration: 0.2)) { showMore.toggle() } } label: {
+            HStack(spacing: 6) {
+                Text(showMore ? "Hide insights" : "More insights")
+                    .font(W.label(13)).foregroundStyle(W.vibrant)
+                Image(systemName: showMore ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 11, weight: .bold)).foregroundStyle(W.vibrant)
+                Spacer()
+                if !showMore {
+                    Text("Impacts · Week · HR zones · Alerts")
+                        .font(.system(size: 11)).foregroundStyle(W.muted)
+                }
+            }
+            .padding(.vertical, 6)
+        }
+    }
 
     private var recoveryCard: some View {
         DarkCard(accent: scores.recovery.map { $0.zone == .green ? W.green : $0.zone == .yellow ? W.yellow : W.red }) {
