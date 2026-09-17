@@ -59,8 +59,8 @@ struct BodyAnalysisView: View {
             Button {
                 draft = BodyCompEntry(date: store.today, weightKg: store.currentWeight ?? 0)
             } label: {
-                Image(systemName: "plus").font(.system(size: 16, weight: .bold)).foregroundStyle(W.vibrant)
-                    .frame(width: 36, height: 36).background(W.card).clipShape(Circle())
+                Image(systemName: "plus.circle.fill").font(.system(size: 22)).foregroundStyle(W.vibrant)
+                    .frame(width: 36, height: 36)
             }
         }
         .padding(.top, 8)

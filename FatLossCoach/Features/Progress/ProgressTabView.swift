@@ -4,6 +4,7 @@ import Charts
 struct ProgressTabView: View {
     @Environment(Store.self) private var store
     @State private var showWaist = false
+    @State private var showWeight = false
 
     var body: some View {
         let g = store.data.goals
@@ -46,13 +47,28 @@ struct ProgressTabView: View {
         .sheet(isPresented: $showWaist) {
             LogValueSheet(title: "Log Waist Circumference", placeholder: "e.g. 102 cm") { store.logWaist($0) }
         }
+        .sheet(isPresented: $showWeight) {
+            LogValueSheet(title: "Log Today's Weight", placeholder: "e.g. 105.4") { store.logWeight($0) }
+        }
+    }
+
+    /// Uppercased section title with a standard "+" add button on the right.
+    private func addTitle(_ title: String, color: Color, action: @escaping () -> Void) -> some View {
+        HStack {
+            Text(title.uppercased()).font(.system(size: 12, weight: .bold)).kerning(0.8).foregroundStyle(Theme.muted)
+            Spacer()
+            Button(action: action) {
+                Image(systemName: "plus.circle.fill").font(.system(size: 20)).foregroundStyle(color)
+            }
+        }
+        .padding(.bottom, 10)
     }
 
     private var goalCard: some View {
         let g = store.data.goals
         let w = store.currentWeight ?? g.startWeight
         return Card {
-            SectionTitle("Weight Goal")
+            addTitle("Weight Goal", color: Theme.primary) { showWeight = true }
             HStack(alignment: .firstTextBaseline) {
                 Text("\(Fmt.num(w)) kg").font(.system(size: 28, weight: .black)).foregroundStyle(Theme.primary)
                 Spacer()
@@ -77,14 +93,13 @@ struct ProgressTabView: View {
     private var waistCard: some View {
         let g = store.data.goals
         return Card {
-            SectionTitle("Waist Circumference")
+            addTitle("Waist Circumference", color: Theme.orange) { showWaist = true }
             HStack {
                 Text(store.currentWaist.map { "\(Fmt.num($0)) cm" } ?? "– cm")
                     .font(.system(size: 28, weight: .black)).foregroundStyle(Theme.orange)
                 Text("Target: <\(Fmt.num(g.waistTarget)) cm").font(.system(size: 13)).foregroundStyle(Theme.muted)
                     .padding(.leading, 6)
                 Spacer()
-                Button("+ Log") { showWaist = true }.buttonStyle(PillButtonStyle())
             }
             .padding(.bottom, 8)
             LineChartView(points: store.waistSeries(days: 30), color: Theme.orange, days: 30, unit: "cm")

@@ -596,7 +596,7 @@ struct BodyView: View {
             }
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: "plus.circle").font(.system(size: 13))
+                Image(systemName: "plus.circle.fill").font(.system(size: 13))
                 Text("Log a nap").font(.system(size: 13, weight: .semibold))
             }
             .foregroundStyle(W.blue).padding(.top, 10)

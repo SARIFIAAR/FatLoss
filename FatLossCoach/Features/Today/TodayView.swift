@@ -2,8 +2,6 @@ import SwiftUI
 
 struct TodayView: View {
     @Environment(Store.self) private var store
-    @State private var showWeight = false
-    @State private var showWaist = false
     // Profile lost its tab slot (Body took it); it lives in a sheet behind the gear now.
     @State private var showProfile = UserDefaults.standard.integer(forKey: "startTab") == 4
 
@@ -25,13 +23,6 @@ struct TodayView: View {
             WaterCard()
             SupplementsCard()
             BreathingCard()
-            HStack(spacing: 10) {
-                Button("+ Log Weight") { showWeight = true }
-                    .buttonStyle(PrimaryButtonStyle())
-                Button("Log Waist") { showWaist = true }
-                    .buttonStyle(PrimaryButtonStyle(color: Theme.orange))
-            }
-            .padding(.top, 4)
         }
         .overlay(alignment: .topTrailing) {
             Button { showProfile = true } label: {
@@ -45,12 +36,6 @@ struct TodayView: View {
             .padding(.top, 4)
         }
         .sheet(isPresented: $showProfile) { ProfileView() }
-        .sheet(isPresented: $showWeight) {
-            LogValueSheet(title: "Log Today's Weight", placeholder: "e.g. 105.4") { store.logWeight($0) }
-        }
-        .sheet(isPresented: $showWaist) {
-            LogValueSheet(title: "Log Waist Circumference", placeholder: "e.g. 102 cm") { store.logWaist($0) }
-        }
     }
 }
 
