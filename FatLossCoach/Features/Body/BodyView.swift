@@ -39,6 +39,7 @@ struct BodyView: View {
     @State private var pillar: Pillar?
     @State private var impacts: [BehaviorImpact] = []
     @State private var week: WeekReport?
+    @State private var metricDetail: MetricDetail?
 
     private var dateKey: String { DateKey.key(DateKey.daysAgo(dayOffset)) }
     private var scores: BodyDayScores { store.bodyDay(dateKey) }
@@ -93,8 +94,17 @@ struct BodyView: View {
         }
         .background(W.bg.ignoresSafeArea())
         .preferredColorScheme(.dark)
+        .sheet(item: $metricDetail) { MetricDetailView(d: $0) }
         .fullScreenCover(item: $pillar) { p in
             PillarDetailView(pillar: p, dayOffset: dayOffset)
+        }
+        .onAppear {
+            // Debug: `-metricDetail stress|battery` opens that trend detail on launch (screenshots).
+            switch UserDefaults.standard.string(forKey: "metricDetail") {
+            case "stress": metricDetail = stressDetail
+            case "battery": metricDetail = batteryDetail
+            default: break
+            }
         }
     }
 
@@ -257,6 +267,21 @@ struct BodyView: View {
         switch zone { case .high: W.green; case .medium: W.yellow; case .low: W.red }
     }
 
+    private var batteryDetail: MetricDetail? {
+        guard let b = scores.battery else { return nil }
+        let bars: [TrendBar] = (0..<30).reversed().map { n in
+            let s = store.bodyDay(DateKey.key(DateKey.daysAgo(n)))
+            let v = s.battery.map { Double($0.level) } ?? 0
+            let c = s.battery.map { batteryColor($0.zone) } ?? W.card2
+            return TrendBar(daysAgo: n, value: v, color: c)
+        }
+        return MetricDetail(
+            title: "Body Battery", heroValue: "\(b.level)", heroSub: b.label,
+            color: batteryColor(b.zone), fraction: Double(b.level) / 100,
+            rows: [("Current level", "\(b.level)%"), ("Charged", "+\(b.charge)"), ("Spent", "−\(b.drained)")],
+            bars: bars, trendMax: 100, trendSub: "battery level", note: nil)
+    }
+
     @ViewBuilder private var bodyBatteryCard: some View {
         if let b = scores.battery {
             DarkCard {
@@ -295,6 +320,8 @@ struct BodyView: View {
                 }
                 .padding(.top, 6)
             }
+            .contentShape(Rectangle())
+            .onTapGesture { metricDetail = batteryDetail }
         }
     }
 
@@ -397,6 +424,22 @@ struct BodyView: View {
         switch zone { case .calm: W.green; case .balanced: W.yellow; case .elevated: W.red }
     }
 
+    private var stressDetail: MetricDetail? {
+        guard let st = scores.stress else { return nil }
+        let bars: [TrendBar] = (0..<30).reversed().map { n in
+            let s = store.bodyDay(DateKey.key(DateKey.daysAgo(n)))
+            let v = s.stress.map { Double($0.score) } ?? 0
+            let c = s.stress.map { stressColor($0.zone) } ?? W.card2
+            return TrendBar(daysAgo: n, value: v, color: c)
+        }
+        return MetricDetail(
+            title: "Stress", heroValue: "\(st.score)", heroSub: st.label,
+            color: stressColor(st.zone), fraction: Double(st.score) / 100,
+            rows: [("Score", "\(st.score) / 100"), ("State", st.label)],
+            bars: bars, trendMax: 100, trendSub: "stress score",
+            note: "HRV-based estimate of autonomic load vs your 28-day baseline. Not a medical measurement.")
+    }
+
     @ViewBuilder private var stressCard: some View {
         if let st = scores.stress {
             DarkCard(accent: stressColor(st.zone)) {
@@ -427,6 +470,8 @@ struct BodyView: View {
                 Text("HRV-based estimate of autonomic (sympathetic) load vs your 28-day baseline. Not a medical measurement.")
                     .font(.system(size: 10)).foregroundStyle(W.muted.opacity(0.7)).padding(.top, 6)
             }
+            .contentShape(Rectangle())
+            .onTapGesture { metricDetail = stressDetail }
         }
     }
 
