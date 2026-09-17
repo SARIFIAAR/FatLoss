@@ -130,6 +130,66 @@ final class Store {
         data.habits[today] = set
     }
 
+    // MARK: Custom habits (user-defined trackers)
+
+    var habitDefs: [HabitDef] { data.habitDefs }
+
+    /// Give a fresh install three sensible starter habits; never re-seeds once the user has curated.
+    func seedDefaultHabitsIfNeeded() {
+        guard !data.didSeedHabits, data.habitDefs.isEmpty else { return }
+        data.habitDefs = [
+            HabitDef(metric: .steps,   colorHex: 0x43CB00),
+            HabitDef(metric: .water,   colorHex: 0x4CA9E8),
+            HabitDef(metric: .protein, colorHex: 0xA96CF0),
+        ]
+        data.didSeedHabits = true
+    }
+
+    func addHabit(_ def: HabitDef) {
+        data.habitDefs.append(def); data.didSeedHabits = true
+        showToast("Habit added")
+    }
+    func updateHabit(_ def: HabitDef) {
+        if let i = data.habitDefs.firstIndex(where: { $0.id == def.id }) { data.habitDefs[i] = def }
+    }
+    func deleteHabit(_ id: String) { data.habitDefs.removeAll { $0.id == id } }
+
+    /// Today's value for a habit — auto metrics read existing data, manual ones read the log.
+    func habitValue(_ def: HabitDef, on day: String? = nil) -> Double {
+        let k = day ?? today
+        switch def.metric {
+        case .steps:            return Double(data.health[k]?.steps ?? 0)
+        case .caloriesBurned:   return data.health[k]?.burnedKcal ?? 0
+        case .caloriesConsumed: return (data.meals[k] ?? []).reduce(0) { $0 + $1.kcal }
+        case .protein:          return (data.meals[k] ?? []).reduce(0) { $0 + $1.protein }
+        case .water:            return Double(data.water[k] ?? 0)
+        case .sleepDuration:    return data.recovery[k]?.sleepH ?? 0
+        case .workoutCount:     return Double((data.workouts[k] ?? []).count)
+        default:                return data.habitLog[k]?[def.id] ?? 0     // manual
+        }
+    }
+
+    func logHabit(_ def: HabitDef, value: Double, on day: String? = nil) {
+        let k = day ?? today
+        var m = data.habitLog[k] ?? [:]
+        m[def.id] = value
+        data.habitLog[k] = m
+    }
+
+    func habitProgress(_ def: HabitDef, on day: String? = nil) -> Double {
+        guard def.goal > 0 else { return habitValue(def, on: day) > 0 ? 1 : 0 }
+        return min(1, habitValue(def, on: day) / def.goal)
+    }
+    func habitMet(_ def: HabitDef, on day: String? = nil) -> Bool {
+        def.goal > 0 ? habitValue(def, on: day) >= def.goal : habitValue(def, on: day) > 0
+    }
+    /// Consecutive days (ending today) the habit's goal was met.
+    func habitStreak(_ def: HabitDef) -> Int {
+        var n = 0
+        while habitMet(def, on: DateKey.key(DateKey.daysAgo(n))) { n += 1; if n > 400 { break } }
+        return n
+    }
+
     // MARK: Onboarding
 
     /// Save the questionnaire and derive goals, first weight/waist entries and reminder hours from it.

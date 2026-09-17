@@ -296,6 +296,9 @@ struct AppData: Codable, Hashable {
     var workouts: [String: [WorkoutEntry]] = [:]            // date -> Apple Health workouts
     var bodyComp: [BodyCompEntry] = []                      // InBody / manual body-composition readings
     var breathing: [String: Set<String>] = [:]              // date -> breathing slots done
+    var habitDefs: [HabitDef] = []                          // customizable habit definitions
+    var habitLog: [String: [String: Double]] = [:]          // date -> habitId -> logged value (manual)
+    var didSeedHabits = false                               // starter habits seeded once
     var goals = Goals()
     var program = ProgramState()
     var reminders = ReminderSettings()
@@ -322,6 +325,9 @@ struct AppData: Codable, Hashable {
         workouts     = c.value(.workouts,     default: [:])
         bodyComp     = c.value(.bodyComp,     default: [])
         breathing    = c.value(.breathing,    default: [:])
+        habitDefs    = c.value(.habitDefs,    default: [])
+        habitLog     = c.value(.habitLog,     default: [:])
+        didSeedHabits = c.value(.didSeedHabits, default: false)
         goals        = c.value(.goals,        default: Goals())
         program      = c.value(.program,      default: ProgramState())
         reminders    = c.value(.reminders,    default: ReminderSettings())
@@ -364,6 +370,15 @@ struct AppData: Codable, Hashable {
         out.supplements.merge(older.supplements) { $0.union($1) }
         out.exerciseDone.merge(older.exerciseDone) { $0.union($1) }
         out.breathing.merge(older.breathing) { $0.union($1) }
+        // Habit definitions: union by id (the newer snapshot's version wins on conflict).
+        var defsByID: [String: HabitDef] = [:]
+        for d in older.habitDefs { defsByID[d.id] = d }
+        for d in out.habitDefs { defsByID[d.id] = d }
+        out.habitDefs = defsByID.values.sorted { $0.createdAt < $1.createdAt }
+        out.didSeedHabits = out.didSeedHabits || older.didSeedHabits
+        for (day, vals) in older.habitLog {
+            out.habitLog[day] = out.habitLog[day]?.merging(vals) { newer, _ in newer } ?? vals
+        }
         out.overload.merge(older.overload) { newer, old in
             var byDate: [String: ExerciseLog] = [:]
             for l in old { byDate[l.date] = l }

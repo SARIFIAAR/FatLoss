@@ -231,34 +231,6 @@ struct DaySummaryCard: View {
     }
 }
 
-struct HabitsCard: View {
-    @Environment(Store.self) private var store
-    var body: some View {
-        Card {
-            SectionTitle("Today's Habits")
-            VStack(spacing: 0) {
-                ForEach(Array(Plan.habits.enumerated()), id: \.element.id) { i, h in
-                    let done = store.isHabitDone(h.key)
-                    Button { store.toggleHabit(h.key) } label: {
-                        HStack(spacing: 12) {
-                            CheckMark(done: done)
-                            Text(h.label)
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundStyle(done ? Theme.muted : Theme.text)
-                                .strikethrough(done, color: Theme.muted)
-                            Spacer()
-                            Text(store.habitTime(h)).font(.system(size: 12)).foregroundStyle(Theme.muted)
-                        }
-                        .padding(.vertical, 10)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    if i < Plan.habits.count - 1 { Divider().overlay(Theme.border) }
-                }
-            }
-        }
-    }
-}
 
 struct WaterCard: View {
     @Environment(Store.self) private var store
