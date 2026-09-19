@@ -142,6 +142,40 @@ final class Store {
     }
     func celebrate(_ text: String) { celebration = text }
 
+    // MARK: Caffeine / coffee (a recovery/stress signal, not a meal)
+
+    func caffeineEntries(on day: String? = nil) -> [CaffeineEntry] {
+        (data.caffeine[day ?? today] ?? []).sorted { $0.time < $1.time }
+    }
+    /// Today's totals: espresso-shot equivalents, caffeine mg, and drink count.
+    func caffeineToday(on day: String? = nil) -> (shots: Double, mg: Double, count: Int) {
+        let list = caffeineEntries(on: day)
+        return (list.reduce(0) { $0 + $1.shots }, list.reduce(0) { $0 + $1.mg }, list.count)
+    }
+    func logCoffee(_ p: CoffeePreset, on day: String? = nil) {
+        let k = day ?? today
+        var list = data.caffeine[k] ?? []
+        list.append(CaffeineEntry(date: k, name: p.name, shots: p.shots, mg: p.mg))
+        data.caffeine[k] = list
+        showToast("\(p.name) logged")
+    }
+    func removeLastCoffee(on day: String? = nil) {
+        let k = day ?? today
+        guard var list = data.caffeine[k], !list.isEmpty else { return }
+        list.removeLast()
+        if list.isEmpty { data.caffeine.removeValue(forKey: k) } else { data.caffeine[k] = list }
+    }
+    func deleteCoffee(_ entry: CaffeineEntry) {
+        let k = entry.date
+        guard var list = data.caffeine[k] else { return }
+        list.removeAll { $0.id == entry.id }
+        if list.isEmpty { data.caffeine.removeValue(forKey: k) } else { data.caffeine[k] = list }
+    }
+    /// Latest caffeine intake time today, and whether any was late (after 14:00) — for the sleep/stress signal.
+    func lateCaffeineToday() -> Bool {
+        caffeineEntries().contains { Calendar.current.component(.hour, from: $0.time) >= 14 && $0.mg >= 30 }
+    }
+
     // MARK: Nutrition — diet program & recipes
 
     var nutritionPlan: DietProgram? { ProgramCatalog.by(id: data.nutritionPlanId) }

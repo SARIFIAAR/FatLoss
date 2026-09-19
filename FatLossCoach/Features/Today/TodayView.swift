@@ -21,6 +21,7 @@ struct TodayView: View {
             WatchCard()
             HabitsCard()
             WaterCard()
+            CoffeeCard()
             SupplementsCard()
             BreathingCard()
         }
