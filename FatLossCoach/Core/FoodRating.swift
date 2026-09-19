@@ -16,8 +16,10 @@ enum FoodRating {
         }
     }
 
-    /// Score a meal from its macros. Returns nil for trivial/zero-calorie entries.
-    static func grade(kcal: Double, protein: Double, carbs: Double, fat: Double) -> Grade? {
+    /// Score a meal from its macros. When fibre / sugar / sodium / sat-fat are known, they refine
+    /// the grade (6-signal), otherwise it falls back to the 3-signal macro heuristic.
+    static func grade(kcal: Double, protein: Double, carbs: Double, fat: Double,
+                      fibre: Double? = nil, sugar: Double? = nil, sodium: Double? = nil, satFat: Double? = nil) -> Grade? {
         guard kcal >= 20 else { return nil }
         let proteinKcal = protein * 4
         let fatKcal = fat * 9
@@ -36,6 +38,25 @@ enum FoodRating {
         if kcal >= 700 { score -= 0.5 }
         // Reasonable protein floor bonus
         if protein >= 25 { score += 0.5 }
+
+        // Extra nutrients, scored per 100 kcal (only when the data is present).
+        let per100 = kcal / 100
+        if let fibre, per100 > 0 {                    // fibre is good
+            let f = fibre / per100
+            if f >= 3 { score += 1 } else if f >= 1.5 { score += 0.5 }
+        }
+        if let sugar, per100 > 0 {                    // added/total sugar is bad
+            let s = sugar / per100
+            if s >= 12 { score -= 1 } else if s >= 6 { score -= 0.5 }
+        }
+        if let sodium, per100 > 0 {                   // sodium mg per 100 kcal
+            let na = sodium / per100
+            if na >= 400 { score -= 1 } else if na >= 250 { score -= 0.5 }
+        }
+        if let satFat, per100 > 0 {                   // saturated fat is bad
+            let sf = satFat / per100
+            if sf >= 5 { score -= 1 } else if sf >= 3 { score -= 0.5 }
+        }
 
         let clamped = max(1, min(5, score.rounded()))
         switch clamped {

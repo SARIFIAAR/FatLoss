@@ -224,6 +224,10 @@ struct FoodEntrySheet: View {
                     Button(Plan.logLabel(slot)) {
                         var e = MealEntry(date: date, name: mealName, kcal: total.kcal, protein: total.protein,
                                           carbs: total.carbs, fat: total.fat,
+                                          fibre: total.fibre > 0 ? total.fibre : nil,
+                                          sugar: total.sugar > 0 ? total.sugar : nil,
+                                          sodium: total.sodium > 0 ? total.sodium : nil,
+                                          satFat: total.satFat > 0 ? total.satFat : nil,
                                           items: basket.map { FoodItem(name: $0.food.name, portion: $0.portionLabel, grams: $0.grams,
                                                                        kcal: $0.macros.kcal, protein: $0.macros.protein,
                                                                        carbs: $0.macros.carbs, fat: $0.macros.fat) },

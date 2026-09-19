@@ -8,11 +8,30 @@ import FirebaseAuth
 final class FoodSearch {
     struct Macros: Codable, Hashable {
         var kcal: Double = 0, protein: Double = 0, carbs: Double = 0, fat: Double = 0
+        var fibre: Double = 0, sugar: Double = 0, sodium: Double = 0, satFat: Double = 0   // per unit; sodium in mg
         func scaled(_ factor: Double) -> Macros {
-            Macros(kcal: kcal * factor, protein: protein * factor, carbs: carbs * factor, fat: fat * factor)
+            Macros(kcal: kcal * factor, protein: protein * factor, carbs: carbs * factor, fat: fat * factor,
+                   fibre: fibre * factor, sugar: sugar * factor, sodium: sodium * factor, satFat: satFat * factor)
         }
         static func + (a: Macros, b: Macros) -> Macros {
-            Macros(kcal: a.kcal + b.kcal, protein: a.protein + b.protein, carbs: a.carbs + b.carbs, fat: a.fat + b.fat)
+            Macros(kcal: a.kcal + b.kcal, protein: a.protein + b.protein, carbs: a.carbs + b.carbs, fat: a.fat + b.fat,
+                   fibre: a.fibre + b.fibre, sugar: a.sugar + b.sugar, sodium: a.sodium + b.sodium, satFat: a.satFat + b.satFat)
+        }
+        init(kcal: Double = 0, protein: Double = 0, carbs: Double = 0, fat: Double = 0,
+             fibre: Double = 0, sugar: Double = 0, sodium: Double = 0, satFat: Double = 0) {
+            self.kcal = kcal; self.protein = protein; self.carbs = carbs; self.fat = fat
+            self.fibre = fibre; self.sugar = sugar; self.sodium = sodium; self.satFat = satFat
+        }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            kcal = (try? c.decode(Double.self, forKey: .kcal)) ?? 0
+            protein = (try? c.decode(Double.self, forKey: .protein)) ?? 0
+            carbs = (try? c.decode(Double.self, forKey: .carbs)) ?? 0
+            fat = (try? c.decode(Double.self, forKey: .fat)) ?? 0
+            fibre = (try? c.decode(Double.self, forKey: .fibre)) ?? 0
+            sugar = (try? c.decode(Double.self, forKey: .sugar)) ?? 0
+            sodium = (try? c.decode(Double.self, forKey: .sodium)) ?? 0
+            satFat = (try? c.decode(Double.self, forKey: .satFat)) ?? 0
         }
     }
     struct Serving: Codable, Hashable, Identifiable {

@@ -238,6 +238,10 @@ struct MealEntry: Codable, Hashable, Identifiable {
     var protein: Double
     var carbs: Double
     var fat: Double
+    var fibre: Double? = nil         // grams; enables a richer food rating when present
+    var sugar: Double? = nil         // grams
+    var sodium: Double? = nil        // mg
+    var satFat: Double? = nil        // grams
     var items: [FoodItem] = []
     var confidence: String? = nil    // low / medium / high
     var notes: String? = nil

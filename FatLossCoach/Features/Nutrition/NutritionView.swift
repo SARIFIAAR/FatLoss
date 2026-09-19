@@ -493,7 +493,8 @@ struct TodayMealsCard: View {
                 VStack(spacing: 0) {
                     ForEach(Array(meals.enumerated()), id: \.element.id) { i, m in
                         HStack {
-                            if let g = FoodRating.grade(kcal: m.kcal, protein: m.protein, carbs: m.carbs, fat: m.fat) {
+                            if let g = FoodRating.grade(kcal: m.kcal, protein: m.protein, carbs: m.carbs, fat: m.fat,
+                                                        fibre: m.fibre, sugar: m.sugar, sodium: m.sodium, satFat: m.satFat) {
                                 FoodRatingBadge(grade: g).padding(.trailing, 4)
                             }
                             VStack(alignment: .leading, spacing: 2) {

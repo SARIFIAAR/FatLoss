@@ -219,7 +219,8 @@ async function analyze(body) {
 
 // ---- USDA FoodData Central search --------------------------------------------------------------
 
-const NUTRIENT = { kcal: [1008, 2048, 2047], protein: [1003], carbs: [1005], fat: [1004] };
+const NUTRIENT = { kcal: [1008, 2048, 2047], protein: [1003], carbs: [1005], fat: [1004],
+                   fibre: [1079, 2033], sugar: [2000, 1063], sodium: [1093], satFat: [1258] };
 const foodCache = new Map(); // query -> { at, foods }
 const FOOD_CACHE_TTL = 6 * 60 * 60 * 1000;
 
@@ -238,6 +239,8 @@ function normaliseFood(f) {
   const per100 = {
     kcal: nutrient(f.foodNutrients, NUTRIENT.kcal), protein: nutrient(f.foodNutrients, NUTRIENT.protein),
     carbs: nutrient(f.foodNutrients, NUTRIENT.carbs), fat: nutrient(f.foodNutrients, NUTRIENT.fat),
+    fibre: nutrient(f.foodNutrients, NUTRIENT.fibre), sugar: nutrient(f.foodNutrients, NUTRIENT.sugar),
+    sodium: nutrient(f.foodNutrients, NUTRIENT.sodium), satFat: nutrient(f.foodNutrients, NUTRIENT.satFat),
   };
   const servings = [];
   if (branded && f.servingSize > 0 && /^(g|grm|ml|mlt)$/i.test(f.servingSizeUnit ?? "")) {
@@ -308,7 +311,9 @@ function offFood(p, code) {
   const num = (k) => (typeof n[k] === "number" ? n[k] : Number(n[k]) || 0);
   let kcal = num("energy-kcal_100g");
   if (!kcal && num("energy_100g")) kcal = num("energy_100g") / 4.184;
-  const per100 = { kcal, protein: num("proteins_100g"), carbs: num("carbohydrates_100g"), fat: num("fat_100g") };
+  const per100 = { kcal, protein: num("proteins_100g"), carbs: num("carbohydrates_100g"), fat: num("fat_100g"),
+    fibre: num("fiber_100g"), sugar: num("sugars_100g"),
+    sodium: num("sodium_100g") ? num("sodium_100g") * 1000 : num("salt_100g") * 400, satFat: num("saturated-fat_100g") };
   if (!per100.kcal && !per100.protein) return null;
   const servings = [];
   const sg = Number(p.serving_quantity);
