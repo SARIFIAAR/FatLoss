@@ -4,37 +4,54 @@ import SwiftUI
 /// Auto metrics (steps/water/protein/…) fill from existing data; manual ones are logged by tapping.
 struct HabitsCard: View {
     @Environment(Store.self) private var store
-    @State private var showAdd = false
+    @State private var showAll = false
+    @State private var showLibrary = false
     @State private var logging: HabitDef?
 
     var body: some View {
         Card {
-            HStack {
-                Text("HABITS").font(.system(size: 12, weight: .bold)).kerning(0.8).foregroundStyle(Theme.muted)
-                Spacer()
-                Button { showAdd = true } label: {
-                    Image(systemName: "plus.circle.fill").font(.system(size: 20)).foregroundStyle(Theme.primary)
-                }
-            }
-            .padding(.bottom, 6)
-
-            if store.habitDefs.isEmpty {
-                Text("Tap ＋ to add a habit — steps, water, protein, meditation and more.")
-                    .font(.system(size: 13)).foregroundStyle(Theme.muted).padding(.vertical, 6)
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(store.habitDefs.enumerated()), id: \.element.id) { i, def in
-                        HabitRow(def: def) { logging = def }
-                        if i < store.habitDefs.count - 1 { Divider().overlay(Theme.border) }
+            Button { showAll = true } label: {
+                HStack {
+                    Text("HABITS").font(.system(size: 12, weight: .bold)).kerning(0.8).foregroundStyle(Theme.muted)
+                    Spacer()
+                    if !store.habitDefs.isEmpty {
+                        Text("See all").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.primary)
+                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.primary)
+                    } else {
+                        Button { showLibrary = true } label: {
+                            Image(systemName: "plus.circle.fill").font(.system(size: 20)).foregroundStyle(Theme.primary)
+                        }.buttonStyle(.plain)
                     }
                 }
             }
+            .buttonStyle(.plain)
+            .padding(.bottom, 6)
+
+            if store.habitDefs.isEmpty {
+                Button { showLibrary = true } label: {
+                    Text("Add your first habit — steps, water, meditate, read and more.")
+                        .font(.system(size: 13)).foregroundStyle(Theme.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
+                }.buttonStyle(.plain)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(store.habitDefs.prefix(5).enumerated()), id: \.element.id) { i, def in
+                        HabitRow(def: def) { logging = def }
+                        if i < min(store.habitDefs.count, 5) - 1 { Divider().overlay(Theme.border) }
+                    }
+                }
+                if store.habitDefs.count > 5 {
+                    Text("+\(store.habitDefs.count - 5) more").font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.muted).padding(.top, 8)
+                }
+            }
         }
-        .sheet(isPresented: $showAdd) { AddHabitSheet { store.addHabit($0) } }
+        .sheet(isPresented: $showAll) { HabitsScreen() }
+        .sheet(isPresented: $showLibrary) { HabitLibrarySheet() }
         .sheet(item: $logging) { HabitLogSheet(def: $0) }
         .onAppear {
             store.seedDefaultHabitsIfNeeded()
-            if UserDefaults.standard.bool(forKey: "addHabit") { showAdd = true }   // debug/screenshots
+            if UserDefaults.standard.bool(forKey: "addHabit") { showLibrary = true }   // debug/screenshots
         }
     }
 }
@@ -48,7 +65,7 @@ private struct HabitRow: View {
         let value = store.habitValue(def)
         let prog = store.habitProgress(def)
         let met = store.habitMet(def)
-        Button { if !def.metric.isAuto { onLog() } } label: {
+        Button { if def.metric == .checkIn { store.toggleHabitCheckIn(def) } else if !def.metric.isAuto { onLog() } } label: {
             HStack(spacing: 12) {
                 ZStack {
                     Circle().fill(def.color.opacity(0.18)).frame(width: 34, height: 34)

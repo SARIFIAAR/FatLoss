@@ -267,6 +267,13 @@ final class Store {
         }
     }
 
+    /// Toggle a simple check-in habit done/undone for the day.
+    func toggleHabitCheckIn(_ def: HabitDef, on day: String? = nil) {
+        let k = day ?? today
+        let done = habitMet(def, on: k)
+        logHabit(def, value: done ? 0 : max(1, def.goal), on: k)
+    }
+
     func logHabit(_ def: HabitDef, value: Double, on day: String? = nil) {
         let k = day ?? today
         let wasMet = habitMet(def, on: k)
