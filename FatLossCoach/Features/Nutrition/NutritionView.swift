@@ -15,6 +15,7 @@ final class ScanFlow {
     var typedStartsWithBarcode = false
     var showVoice = false                  // spoken meal description → AI text analysis
     var showAIChat = false                 // unified multimodal AI composer (text/voice/photo)
+    var fromAIChat = false                 // the pending result came via the AI composer
     var showCompare = false                // barcode compare (two products)
 
     struct PendingMeal: Identifiable {
@@ -76,6 +77,7 @@ struct NutritionView: View {
         .sheet(item: $flow.pending) { p in
             MealResultSheet(image: p.image, analysis: p.analysis, slot: p.slot, date: flow.day) { entry in
                 store.addMeal(entry)
+                if flow.fromAIChat { store.noteAILog(); flow.fromAIChat = false }
                 flow.pending = nil
             }
         }
@@ -92,8 +94,8 @@ struct NutritionView: View {
             VoiceMealSheet { text in Task { await analyze(text: text) } }
         }
         .sheet(isPresented: $flow.showAIChat) {
-            AIMealComposer(onText: { text in Task { await analyze(text: text) } },
-                           onImage: { img in Task { await analyze(img) } })
+            AIMealComposer(onText: { text in flow.fromAIChat = true; Task { await analyze(text: text) } },
+                           onImage: { img in flow.fromAIChat = true; Task { await analyze(img) } })
         }
         .sheet(isPresented: $flow.showCompare) { BarcodeCompareView() }
     }
@@ -101,6 +103,7 @@ struct NutritionView: View {
     @ViewBuilder
     private func diaryContent(g: Goals, ml: Int, pct: Double, isToday: Bool, flow: ScanFlow) -> some View {
         @Bindable var flow = flow
+        AINudgeBanner { flow.slot = nil; flow.error = nil; flow.showAIChat = true }
         ActivePlanBanner()
         FastingCard()
         DiarySummaryCard(day: selectedDay)

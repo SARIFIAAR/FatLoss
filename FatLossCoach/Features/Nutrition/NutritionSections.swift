@@ -30,6 +30,39 @@ struct SegmentedTabs<T: Hashable & Identifiable>: View {
     }
 }
 
+/// One-time nudge to adopt "Log with AI" as the fast default (dismissible).
+struct AINudgeBanner: View {
+    @Environment(Store.self) private var store
+    let onTap: () -> Void
+    @AppStorage("aiNudgeDismissed") private var dismissed = false
+
+    var body: some View {
+        // Show until the user dismisses it or has clearly adopted AI (3+ AI logs).
+        if !dismissed && store.aiLogCount < 3 {
+            Button(action: onTap) {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle().fill(Theme.primary.opacity(0.18)).frame(width: 34, height: 34)
+                        Image(systemName: "sparkles").font(.system(size: 15)).foregroundStyle(Theme.primary)
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Log faster with AI").font(.system(size: 14, weight: .heavy)).foregroundStyle(Theme.text)
+                        Text("Snap a photo or just say what you ate — one tap.").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    }
+                    Spacer()
+                    Button { dismissed = true } label: {
+                        Image(systemName: "xmark").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.muted).padding(6)
+                    }.buttonStyle(.plain)
+                }
+                .padding(12)
+                .background(Theme.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.primary.opacity(0.4), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+}
+
 /// Fasting window card — shown in the Diary when a fasting plan (16:8) is active.
 struct FastingCard: View {
     @Environment(Store.self) private var store

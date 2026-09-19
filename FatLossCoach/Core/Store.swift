@@ -130,6 +130,18 @@ final class Store {
         data.habits[today] = set
     }
 
+    // MARK: AI logging adoption + celebration
+
+    /// Count of meals logged via the AI composer (device-level UX signal, not synced).
+    var aiLogCount: Int { UserDefaults.standard.integer(forKey: "aiLogCount") }
+    func noteAILog() { UserDefaults.standard.set(aiLogCount + 1, forKey: "aiLogCount") }
+
+    /// Bumped to trigger a brief celebration overlay (e.g. hitting a habit/calorie goal).
+    var celebration: String? {
+        didSet { if celebration != nil { Task { try? await Task.sleep(for: .seconds(1.6)); celebration = nil } } }
+    }
+    func celebrate(_ text: String) { celebration = text }
+
     // MARK: Nutrition — diet program & recipes
 
     var nutritionPlan: DietProgram? { ProgramCatalog.by(id: data.nutritionPlanId) }
@@ -196,9 +208,11 @@ final class Store {
 
     func logHabit(_ def: HabitDef, value: Double, on day: String? = nil) {
         let k = day ?? today
+        let wasMet = habitMet(def, on: k)
         var m = data.habitLog[k] ?? [:]
         m[def.id] = value
         data.habitLog[k] = m
+        if !wasMet && habitMet(def, on: k) && (day ?? today) == today { celebrate("\(def.name) done!") }
     }
 
     func habitProgress(_ def: HabitDef, on day: String? = nil) -> Double {

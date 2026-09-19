@@ -85,7 +85,11 @@ struct ContentView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
+        .overlay {
+            if let c = store.celebration { CelebrationView(text: c) }
+        }
         .animation(.spring(duration: 0.3), value: store.toast)
+        .animation(.spring(duration: 0.4), value: store.celebration)
         .task {
             if UserDefaults.standard.bool(forKey: "onboarding") { showOnboarding = true; return }
             guard store.data.intake == nil && store.data.isEmpty else { return }
