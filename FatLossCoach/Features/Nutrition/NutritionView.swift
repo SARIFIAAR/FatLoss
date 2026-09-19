@@ -13,6 +13,7 @@ final class ScanFlow {
     var error: String?
     var showTyped = false                  // FoodEntrySheet (database search / barcode / AI text)
     var typedStartsWithBarcode = false
+    var showVoice = false                  // spoken meal description → AI text analysis
 
     struct PendingMeal: Identifiable {
         let id = UUID()
@@ -84,6 +85,9 @@ struct NutritionView: View {
                 flow.showTyped = false
                 Task { await analyze(text: text) }
             }
+        }
+        .sheet(isPresented: $flow.showVoice) {
+            VoiceMealSheet { text in Task { await analyze(text: text) } }
         }
     }
 
@@ -239,6 +243,12 @@ struct MealScanCard: View {
                 Button { flow.typed(slot: nil, barcode: true) } label: { Label("Barcode", systemImage: "barcode.viewfinder") }
                     .buttonStyle(SecondaryButtonStyle())
             }
+            .padding(.top, 10)
+            .disabled(scanner.isAnalyzing || !cloud.isSignedIn)
+            Button { flow.slot = nil; flow.error = nil; flow.showVoice = true } label: {
+                Label("Say it", systemImage: "mic.fill").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(SecondaryButtonStyle())
             .padding(.top, 10)
             .disabled(scanner.isAnalyzing || !cloud.isSignedIn)
             if scanner.isAnalyzing {

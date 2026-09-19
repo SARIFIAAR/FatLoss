@@ -41,6 +41,10 @@
 	<string>Take a photo of your meal to estimate its calories and macros.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose a meal photo to estimate its calories and macros.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Describe your meal out loud to log it hands-free.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Your spoken meal description is transcribed to text so it can be estimated into calories and macros.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Fat Loss Coach reads your steps, resting heart rate, HRV, respiratory rate and sleep to calculate your daily readiness score and progress charts.</string>
 	<key>NSHealthUpdateUsageDescription</key>
