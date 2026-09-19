@@ -156,9 +156,14 @@ enum PlanBuilder {
         var deficit = p.pace.kgPerWeek * 7700 / 7
         deficit = min(deficit, tdee * 0.25)
         let floor: Double = p.sex == .male ? 1500 : 1200
+        var notes: [String] = []
+        // Mood/anxiety adjustment: ease the deficit ~15% during a rough stretch (gentler, more sustainable).
+        if p.mood == .low || p.anxiety == .often {
+            deficit *= 0.85
+            notes.append("Adjusted for you: your deficit is eased ~15% for a gentler, more sustainable pace during a rough stretch.")
+        }
         var kcal = max(floor, tdee - deficit)
         deficit = tdee - kcal
-        var notes: [String] = []
         if kgToLose == 0 { kcal = tdee; deficit = 0; notes.append("Goal weight is at or above current weight — targets are set to maintenance.") }
         let goalW = kgToLose > 0 ? p.goalWeightKg : w
         var protein = 1.8 * goalW
@@ -176,8 +181,17 @@ enum PlanBuilder {
             notes.append("Because you've had a rough stretch, the plan leans on daily walks, sleep and the breathing sessions — they lift mood as reliably as they help fat loss. Small, consistent wins over big pushes.")
             notes.append("If low mood or anxiety has lasted more than two weeks, talking to a doctor or counsellor is worth it — it's the strongest lever you have.")
         }
-        if !p.medications.trimmingCharacters(in: .whitespaces).isEmpty {
+        let meds = p.medications.lowercased()
+        if !meds.trimmingCharacters(in: .whitespaces).isEmpty {
             notes.append("Some medications change appetite, water retention or energy. Weight is judged on the 7-day trend, not single days, and your doctor should know about any calorie change.")
+            let betaBlocker = ["beta block", "propranolol", "metoprolol", "atenolol", "bisoprolol"].contains { meds.contains($0) }
+            let stimulant = ["adderall", "vyvanse", "ritalin", "stimulant", "modafinil"].contains { meds.contains($0) }
+            if betaBlocker {
+                notes.append("Adjusted for you: your beta-blocker lowers heart rate, so Recovery and HR zones read from your own resting-HR baseline (not a fixed age formula) to stay accurate.")
+            }
+            if stimulant {
+                notes.append("Adjusted for you: stimulant medication can raise resting heart rate — Recovery is judged against your personal 28-day baseline, so it reflects your true readiness, not the meds.")
+            }
         }
         if p.fasting == .ramadan { notes.append("Meals are grouped into the eating window; keep protein in both main meals.") }
         return Targets(bmr: Int(bmr.rounded()), tdee: Int(tdee.rounded()), kcal: Int((kcal / 10).rounded() * 10), deficit: Int(deficit.rounded()),
