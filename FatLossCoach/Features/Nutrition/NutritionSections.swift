@@ -30,6 +30,43 @@ struct SegmentedTabs<T: Hashable & Identifiable>: View {
     }
 }
 
+/// Fasting window card — shown in the Diary when a fasting plan (16:8) is active.
+struct FastingCard: View {
+    @Environment(Store.self) private var store
+    var body: some View {
+        if let p = store.nutritionPlan, let f = p.fasting {
+            Card(accent: p.color) {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle().fill(p.color.opacity(0.18)).frame(width: 40, height: 40)
+                        Image(systemName: "clock.fill").font(.system(size: 17)).foregroundStyle(p.color)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(f.label) fasting").font(.system(size: 15, weight: .heavy)).foregroundStyle(Theme.text)
+                        Text(f.blurb).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    }
+                    Spacer()
+                }
+                if f.eatingWindowHours > 0 {
+                    TimelineView(.periodic(from: .now, by: 60)) { ctx in
+                        let hour = Calendar.current.component(.hour, from: ctx.date)
+                        let start = 12, end = start + f.eatingWindowHours     // default noon → window
+                        let eating = hour >= start && hour < end
+                        HStack(spacing: 6) {
+                            Circle().fill(eating ? p.color : Theme.muted).frame(width: 8, height: 8)
+                            Text(eating ? "Eating window open · closes \(end):00" : (hour < start ? "Fasting · window opens \(start):00" : "Fasting until tomorrow \(start):00"))
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(eating ? Theme.text : Theme.muted)
+                            Spacer()
+                        }
+                        .padding(.top, 10)
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Slim banner shown in the Diary when a diet program is active.
 struct ActivePlanBanner: View {
     @Environment(Store.self) private var store
@@ -72,7 +109,23 @@ struct DiarySummaryCard: View {
         let e = store.energy()
         let burned = isToday ? e.burned : nil
 
+        let lifeScore = LifeScore.score(meals: store.meals(on: day), goals: g)
         Card(accent: over ? Theme.red : Theme.primary) {
+            if let ls = lifeScore {
+                HStack(spacing: 8) {
+                    Text("LIFE SCORE").font(.system(size: 10, weight: .bold)).kerning(0.8).foregroundStyle(Theme.muted)
+                    Text("\(ls)").font(.system(size: 13, weight: .heavy)).foregroundStyle(LifeScore.color(ls))
+                    Text(LifeScore.label(ls)).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                    Spacer()
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Theme.card2)
+                            Capsule().fill(LifeScore.color(ls)).frame(width: max(4, geo.size.width * Double(ls) / 100))
+                        }
+                    }.frame(width: 70, height: 5)
+                }
+                .padding(.bottom, 10)
+            }
             HStack(alignment: .center) {
                 sideStat("EATEN", "\(eaten)", Theme.text)
                 Spacer()
@@ -143,9 +196,11 @@ struct DiarySummaryCard: View {
 struct ProgramSection: View {
     @Environment(Store.self) private var store
     @State private var selected: DietProgram?
+    @State private var recipe: Recipe?
 
     var body: some View {
         VStack(spacing: 12) {
+            if store.nutritionPlan != nil { suggestedDayCard }
             Text("Pick a plan — it sets your macro targets and filters recipes.")
                 .font(.system(size: 13)).foregroundStyle(Theme.muted)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -154,6 +209,38 @@ struct ProgramSection: View {
             }
         }
         .sheet(item: $selected) { ProgramDetailView(program: $0) }
+        .sheet(item: $recipe) { RecipeDetailView(recipe: $0) }
+    }
+
+    private var suggestedDayCard: some View {
+        let plan = store.nutritionPlan
+        let day = RecipeCatalog.suggestedDay(planId: plan?.id, kcalTarget: store.data.goals.kcal)
+        let total = day.reduce(0) { $0 + $1.kcal }
+        return Card(accent: plan?.color) {
+            HStack {
+                Text("TODAY'S SUGGESTED PLAN").font(.system(size: 11, weight: .bold)).kerning(0.8).foregroundStyle(Theme.muted)
+                Spacer()
+                Text("\(total) kcal").font(.system(size: 12, weight: .heavy)).foregroundStyle(plan?.color ?? Theme.primary)
+            }
+            .padding(.bottom, 8)
+            VStack(spacing: 0) {
+                ForEach(Array(day.enumerated()), id: \.element.id) { i, r in
+                    Button { recipe = r } label: {
+                        HStack(spacing: 10) {
+                            Text(r.category.uppercased()).font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.muted).frame(width: 64, alignment: .leading)
+                            Text(r.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text)
+                            Spacer()
+                            Text("\(r.kcal)").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.muted)
+                            Button { store.logRecipe(r, slot: r.category.lowercased()) } label: {
+                                Image(systemName: "plus.circle.fill").font(.system(size: 18)).foregroundStyle(Theme.primary)
+                            }.buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 9).contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                    if i < day.count - 1 { Divider().overlay(Theme.border) }
+                }
+            }
+        }
     }
 
     private func card(_ p: DietProgram) -> some View {

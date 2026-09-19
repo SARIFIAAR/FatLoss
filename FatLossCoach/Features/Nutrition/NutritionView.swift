@@ -14,6 +14,8 @@ final class ScanFlow {
     var showTyped = false                  // FoodEntrySheet (database search / barcode / AI text)
     var typedStartsWithBarcode = false
     var showVoice = false                  // spoken meal description → AI text analysis
+    var showAIChat = false                 // unified multimodal AI composer (text/voice/photo)
+    var showCompare = false                // barcode compare (two products)
 
     struct PendingMeal: Identifiable {
         let id = UUID()
@@ -89,12 +91,18 @@ struct NutritionView: View {
         .sheet(isPresented: $flow.showVoice) {
             VoiceMealSheet { text in Task { await analyze(text: text) } }
         }
+        .sheet(isPresented: $flow.showAIChat) {
+            AIMealComposer(onText: { text in Task { await analyze(text: text) } },
+                           onImage: { img in Task { await analyze(img) } })
+        }
+        .sheet(isPresented: $flow.showCompare) { BarcodeCompareView() }
     }
 
     @ViewBuilder
     private func diaryContent(g: Goals, ml: Int, pct: Double, isToday: Bool, flow: ScanFlow) -> some View {
         @Bindable var flow = flow
         ActivePlanBanner()
+        FastingCard()
         DiarySummaryCard(day: selectedDay)
         WeekCalendarCard(selected: $selectedDay)
             .onAppear { flow.day = selectedDay }
@@ -209,14 +217,23 @@ struct MealScanCard: View {
     var body: some View {
         Card {
             SectionTitle(flow.day == DateKey.key() ? "Log a meal" : "Log a meal · \(WeekCalendarCard.longDay(flow.day))")
-            Text("Photo, typed search or barcode — each meal below has all three. Photos and descriptions are estimated by the dietitian model; typed foods and barcodes use the USDA / Open Food Facts nutrition databases.")
-                .font(.system(size: 13)).foregroundStyle(Theme.muted).lineSpacing(3)
-                .padding(.bottom, 10)
             if !cloud.isSignedIn {
                 Text("Sign in with Apple in the Profile tab to enable meal logging.")
                     .font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.orange)
                     .padding(.bottom, 8)
             }
+            // Primary, AI-first entry (Lifesum-style unified logging).
+            Button { flow.slot = nil; flow.error = nil; flow.showAIChat = true } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles")
+                    Text("Log with AI").font(.system(size: 16, weight: .heavy))
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(PrimaryButtonStyle())
+            .disabled(!cloud.isSignedIn)
+            .padding(.bottom, 10)
+            Text("Or use a specific method:").font(.system(size: 11)).foregroundStyle(Theme.muted).padding(.bottom, 8)
             HStack(spacing: 10) {
                 Button {
                     flow.camera(slot: nil)
@@ -245,10 +262,16 @@ struct MealScanCard: View {
             }
             .padding(.top, 10)
             .disabled(scanner.isAnalyzing || !cloud.isSignedIn)
-            Button { flow.slot = nil; flow.error = nil; flow.showVoice = true } label: {
-                Label("Say it", systemImage: "mic.fill").frame(maxWidth: .infinity)
+            HStack(spacing: 10) {
+                Button { flow.slot = nil; flow.error = nil; flow.showVoice = true } label: {
+                    Label("Say it", systemImage: "mic.fill").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(SecondaryButtonStyle())
+                Button { flow.showCompare = true } label: {
+                    Label("Compare", systemImage: "arrow.left.arrow.right").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(SecondaryButtonStyle())
             }
-            .buttonStyle(SecondaryButtonStyle())
             .padding(.top, 10)
             .disabled(scanner.isAnalyzing || !cloud.isSignedIn)
             if scanner.isAnalyzing {

@@ -82,6 +82,29 @@ struct FoodEntrySheet: View {
                     Text("Search a food or scan its barcode")
                 }
 
+                if query.isEmpty && results.isEmpty {
+                    Section("Quick add · common foods") {
+                        ForEach(CommonFoods.all) { food in
+                            Button {
+                                onLog(MealEntry(date: date, name: "\(food.name) (\(food.serving))",
+                                                kcal: food.kcal, protein: food.protein, carbs: food.carbs, fat: food.fat, slot: slot))
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: food.icon).font(.system(size: 14)).foregroundStyle(Theme.primary).frame(width: 22)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(food.name).font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
+                                        Text("\(food.serving) · P \(Int(food.protein.rounded())) · C \(Int(food.carbs.rounded())) · F \(Int(food.fat.rounded()))")
+                                            .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                                    }
+                                    Spacer()
+                                    Text("\(Int(food.kcal.rounded())) kcal").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.primary)
+                                    Image(systemName: "plus.circle.fill").foregroundStyle(Theme.accent)
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if !results.isEmpty {
                     Section("Results · per 100 g") {
                         ForEach(results) { food in

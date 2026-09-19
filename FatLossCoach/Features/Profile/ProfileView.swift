@@ -296,7 +296,36 @@ struct RemindersCard: View {
                 }
                 .padding(.top, 6)
             }
+
+            Divider().overlay(Theme.border).padding(.vertical, 10)
+            Toggle(isOn: binding(\.mealsOn)) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Log your meals").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
+                    Text("Breakfast, lunch and dinner nudges; each is skipped once you've logged that meal.")
+                        .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                }
+            }
+            .tint(Theme.primary)
+            if store.data.reminders.mealsOn {
+                HStack(spacing: 8) {
+                    picker("Breakfast", selection: mealHour(0), options: hours) { hourLabel($0) }
+                    picker("Lunch", selection: mealHour(1), options: hours) { hourLabel($0) }
+                    picker("Dinner", selection: mealHour(2), options: hours) { hourLabel($0) }
+                }
+                .padding(.top, 6)
+            }
         }
+    }
+
+    private func mealHour(_ index: Int) -> Binding<Int> {
+        Binding(get: { store.data.reminders.mealHours.count > index ? store.data.reminders.mealHours[index] : [8,13,19][index] },
+                set: { v in
+                    var h = store.data.reminders.mealHours
+                    while h.count < 3 { h.append([8,13,19][h.count]) }
+                    h[index] = v
+                    store.data.reminders.mealHours = h
+                    reminders.schedulePlan()
+                })
     }
 
     // MARK: helpers

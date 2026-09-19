@@ -88,8 +88,8 @@ final class ReminderManager: NSObject, UNUserNotificationCenterDelegate {
         guard let store else { return }
         let settings = store.data.reminders
         let pending = await center.pendingNotificationRequests().map(\.identifier)
-        center.removePendingNotificationRequests(withIdentifiers: pending.filter { $0.hasPrefix("water-") || $0.hasPrefix("walk-") })
-        guard settings.waterOn || settings.walkOn, permission == .granted else { return }
+        center.removePendingNotificationRequests(withIdentifiers: pending.filter { $0.hasPrefix("water-") || $0.hasPrefix("walk-") || $0.hasPrefix("meal-") })
+        guard settings.waterOn || settings.walkOn || settings.mealsOn, permission == .granted else { return }
 
         let cal = Calendar.current
         let now = Date()
@@ -142,6 +142,22 @@ final class ReminderManager: NSObject, UNUserNotificationCenterDelegate {
                         requests.append(UNNotificationRequest(identifier: "walk-\(key)-\(hour)",
                                                               content: content, trigger: Self.trigger(fire, cal)))
                     }
+                }
+            }
+            if settings.mealsOn {
+                let names = ["Breakfast", "Lunch", "Dinner"]
+                let loggedCount = isToday ? (store.data.meals[key]?.count ?? 0) : 0
+                for (i, hour) in settings.mealHours.prefix(3).enumerated() {
+                    guard let fire = cal.date(bySettingHour: hour, minute: 0, second: 0, of: day), fire > now else { continue }
+                    // On today, skip a meal nudge once enough meals are already logged.
+                    if isToday && loggedCount > i { continue }
+                    let content = UNMutableNotificationContent()
+                    content.title = "Log your \(names[min(i, 2)].lowercased()) 🍽️"
+                    content.body = "Snap, say or scan it — keep your diary and calorie balance on track."
+                    content.sound = .default
+                    content.threadIdentifier = "meal"
+                    requests.append(UNNotificationRequest(identifier: "meal-\(key)-\(hour)",
+                                                          content: content, trigger: Self.trigger(fire, cal)))
                 }
             }
         }
