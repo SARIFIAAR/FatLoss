@@ -226,12 +226,38 @@ enum CommonFoods {
         CommonFood(id: "porridge", name: "Porridge", serving: "1 bowl", icon: "bowl.fill", kcal: 220, protein: 8, carbs: 33, fat: 5),
     ]
 
-    /// Local, offline substring search over the curated set.
+    /// Local, offline substring search over the curated set + the bundled USDA core (~1,200 foods).
     static func search(_ query: String) -> [CommonFood] {
         let q = query.lowercased().trimmingCharacters(in: .whitespaces)
         guard q.count >= 2 else { return [] }
-        return all.filter { $0.name.lowercased().contains(q) }
+        let curated = all.filter { $0.name.lowercased().contains(q) }
+        var seen = Set(curated.map { $0.name.lowercased() })
+        var out = curated
+        for f in BundledFoods.all where f.name.lowercased().contains(q) && !seen.contains(f.name.lowercased()) {
+            out.append(f); seen.insert(f.name.lowercased())
+            if out.count >= 30 { break }
+        }
+        return out
     }
+}
+
+/// The USDA core (public domain) bundled for instant offline search — built by server/build-fooddb.mjs
+/// into Resources/core-foods.json (per-100g macros incl. fibre/sugar/sodium/sat-fat).
+enum BundledFoods {
+    struct Raw: Decodable {
+        let id: String; let name: String
+        let kcal: Double; let protein: Double; let carbs: Double; let fat: Double
+        let fibre: Double?; let sugar: Double?; let sodium: Double?; let satFat: Double?
+    }
+    static let all: [CommonFood] = {
+        guard let url = Bundle.main.url(forResource: "core-foods", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let rows = try? JSONDecoder().decode([Raw].self, from: data) else { return [] }
+        return rows.map {
+            CommonFood(id: "core-\($0.id)", name: $0.name, serving: "100 g", icon: "fork.knife",
+                       kcal: $0.kcal, protein: $0.protein, carbs: $0.carbs, fat: $0.fat)
+        }
+    }()
 }
 
 // MARK: - Recipes

@@ -9,7 +9,7 @@
 // Claude for a structured nutrition estimate. With FIREBASE_SERVICE_ACCOUNT set, every scan is also logged
 // to Firestore `scans/` and the dashboard can read each user's per-day rows written by the app.
 import http from "node:http";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import Anthropic from "@anthropic-ai/sdk";
@@ -221,6 +221,49 @@ async function analyze(body) {
 
 const NUTRIENT = { kcal: [1008, 2048, 2047], protein: [1003], carbs: [1005], fat: [1004],
                    fibre: [1079, 2033], sugar: [2000, 1063], sodium: [1093], satFat: [1258] };
+// Our own nutrition DB (USDA SR Legacy imported by build-fooddb.mjs + branded lookups cached at runtime).
+let foodDB = null;
+try {
+  const Database = (await import("better-sqlite3")).default;
+  const path = existsSync("data/foods.db") ? "data/foods.db" : "/data/foods.db";
+  if (existsSync(path)) { foodDB = new Database(path); foodDB.pragma("journal_mode = WAL");
+    console.log("food DB:", foodDB.prepare("SELECT COUNT(*) c FROM foods").get().c, "foods"); }
+} catch (e) { console.warn("food DB unavailable:", e.message); }
+
+function rowToFood(r) {
+  return { id: r.id, name: r.name, brand: r.brand, kind: r.kind, category: r.category,
+    per100: { kcal: r.kcal, protein: r.protein, carbs: r.carbs, fat: r.fat,
+              fibre: r.fibre, sugar: r.sugar, sodium: r.sodium, satFat: r.satFat },
+    servings: JSON.parse(r.servings || "[]"), barcode: r.barcode };
+}
+/** Local full-text search of our own DB, ranked: whole-word matches → fewest extra words → verified. */
+function localSearch(query, limit = 25) {
+  if (!foodDB) return [];
+  const q = query.toLowerCase().trim();
+  const rows = foodDB.prepare("SELECT * FROM foods WHERE name_lc LIKE ? LIMIT 300").all(`%${q}%`);
+  const tokens = q.split(/[^a-z0-9]+/).filter((w) => w.length > 1);
+  return rows.map((r) => {
+    const words = r.name_lc.split(/[^a-z0-9]+/).filter(Boolean);
+    const matched = tokens.filter((t) => words.includes(t)).length;
+    const missing = tokens.length - matched;
+    const extra = Math.max(0, words.length - tokens.length);
+    return { f: rowToFood(r), key: missing * 1000 + extra * 10 + (r.verified ? 0 : 1) };
+  }).sort((a, b) => a.key - b.key).slice(0, limit).map((x) => x.f);
+}
+/** Persist a branded/barcode food into our DB so it's owned + offline next time (the moat). */
+function cacheFood(f) {
+  if (!foodDB || !f) return;
+  try {
+    foodDB.prepare(`INSERT OR REPLACE INTO foods
+      (id,name,name_lc,brand,kind,category,kcal,protein,carbs,fat,fibre,sugar,sodium,satFat,servings,barcode,verified)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`).run(
+      f.id ?? `off-${f.barcode}`, f.name, (f.name||"").toLowerCase(), f.brand ?? null, f.kind ?? "branded", f.category ?? null,
+      f.per100.kcal||0, f.per100.protein||0, f.per100.carbs||0, f.per100.fat||0,
+      f.per100.fibre||0, f.per100.sugar||0, f.per100.sodium||0, f.per100.satFat||0,
+      JSON.stringify(f.servings ?? []), f.barcode ?? null);
+  } catch (e) { /* non-fatal */ }
+}
+
 const foodCache = new Map(); // query -> { at, foods }
 const FOOD_CACHE_TTL = 6 * 60 * 60 * 1000;
 
@@ -268,6 +311,9 @@ async function searchFoods(q) {
   if (query.length < 2) return [];
   const cached = foodCache.get(query.toLowerCase());
   if (cached && Date.now() - cached.at < FOOD_CACHE_TTL) return cached.foods;
+  // Our own DB first — instant, owned, offline-capable. Only hit live USDA if it's thin.
+  const local = localSearch(query, 25);
+  if (local.length >= 8) { foodCache.set(query.toLowerCase(), { at: Date.now(), foods: local }); return local; }
   let res;
   try {
     res = await fetch(`https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${encodeURIComponent(USDA_KEY)}`, {
@@ -298,7 +344,11 @@ async function searchFoods(q) {
     return { f, key: missing * 1000 + plain * 100 + extra * 10 + Math.min(i, 9) / 10 };
   }).sort((a, b) => a.key - b.key).map((x) => x.f);
   const branded = foods.filter((f) => f.kind === "branded");
-  const ordered = [...generic.slice(0, 15), ...branded.slice(0, 10)];
+  // Merge our local hits in front of USDA's live results (dedupe by name), and own the new ones.
+  const seen = new Set(local.map((f) => f.name.toLowerCase()));
+  const fresh = [...generic.slice(0, 15), ...branded.slice(0, 10)].filter((f) => !seen.has(f.name.toLowerCase()));
+  fresh.forEach(cacheFood);
+  const ordered = [...local, ...fresh].slice(0, 25);
   foodCache.set(query.toLowerCase(), { at: Date.now(), foods: ordered });
   if (foodCache.size > 500) foodCache.delete(foodCache.keys().next().value);
   return ordered;

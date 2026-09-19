@@ -1,2 +1,8 @@
 node_modules/
 *.log
+# Food DB build inputs (large raw dumps — not committed; foods.db + core-foods.json are)
+data/*.json
+data/*.zip
+data/*.db-wal
+data/*.db-shm
+data/foods.db
