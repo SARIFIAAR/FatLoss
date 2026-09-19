@@ -83,6 +83,29 @@ struct FoodEntrySheet: View {
                 }
 
                 if query.isEmpty && results.isEmpty {
+                    let favorites = store.favoriteMeals
+                    if !favorites.isEmpty {
+                        Section("Favorites ♥ · tap to log") {
+                            ForEach(favorites) { meal in
+                                Button {
+                                    store.repeatMeal(meal, on: date, slot: slot)
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "heart.fill").font(.system(size: 13)).foregroundStyle(Theme.red).frame(width: 22)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(meal.name).font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text).lineLimit(1)
+                                            Text("P \(Int(meal.protein.rounded())) · C \(Int(meal.carbs.rounded())) · F \(Int(meal.fat.rounded()))")
+                                                .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                                        }
+                                        Spacer()
+                                        Text("\(Int(meal.kcal.rounded())) kcal").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.primary)
+                                        Image(systemName: "plus.circle.fill").foregroundStyle(Theme.accent)
+                                    }
+                                }
+                                .swipeActions { Button(role: .destructive) { store.toggleFavorite(meal) } label: { Label("Remove", systemImage: "heart.slash") } }
+                            }
+                        }
+                    }
                     let recent = store.recentMeals()
                     if !recent.isEmpty {
                         Section("Recent meals · tap to log again") {

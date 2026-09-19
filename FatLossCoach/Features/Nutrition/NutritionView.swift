@@ -503,6 +503,12 @@ struct TodayMealsCard: View {
                             }
                             Spacer()
                             Text("\(Int(m.kcal.rounded())) kcal").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.primary)
+                            Button { store.toggleFavorite(m) } label: {
+                                Image(systemName: store.isFavorite(m) ? "heart.fill" : "heart")
+                                    .font(.system(size: 13)).foregroundStyle(store.isFavorite(m) ? Theme.red : Theme.muted)
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.leading, 6)
                             Button { store.repeatMeal(m, on: store.today, slot: m.slot) } label: {
                                 Image(systemName: "arrow.counterclockwise").font(.system(size: 13)).foregroundStyle(Theme.primary)
                             }

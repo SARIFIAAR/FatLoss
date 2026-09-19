@@ -443,6 +443,24 @@ final class Store {
         showToast("\(meal.name) logged · \(Int(meal.kcal.rounded())) kcal 🍽️")
     }
 
+    // MARK: Favorite meals (hearted)
+
+    var favoriteMeals: [MealEntry] { data.favoriteMeals }
+    func isFavorite(_ meal: MealEntry) -> Bool {
+        data.favoriteMeals.contains { $0.name.lowercased() == meal.name.lowercased() }
+    }
+    /// Heart / un-heart a meal. Stored as a template (fresh id, no date).
+    func toggleFavorite(_ meal: MealEntry) {
+        if let i = data.favoriteMeals.firstIndex(where: { $0.name.lowercased() == meal.name.lowercased() }) {
+            data.favoriteMeals.remove(at: i)
+            showToast("Removed from favorites")
+        } else {
+            var m = meal; m.id = UUID().uuidString
+            data.favoriteMeals.append(m)
+            showToast("Added to favorites ♥")
+        }
+    }
+
     /// Distinct recently-logged meals (most recent first, de-duped by name), for one-tap re-logging.
     func recentMeals(limit: Int = 12) -> [MealEntry] {
         var seen = Set<String>()
