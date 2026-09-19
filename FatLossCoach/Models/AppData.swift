@@ -386,11 +386,12 @@ struct AppData: Codable, Hashable {
         out.supplements.merge(older.supplements) { $0.union($1) }
         out.exerciseDone.merge(older.exerciseDone) { $0.union($1) }
         out.breathing.merge(older.breathing) { $0.union($1) }
-        // Habit definitions: union by id (the newer snapshot's version wins on conflict).
-        var defsByID: [String: HabitDef] = [:]
-        for d in older.habitDefs { defsByID[d.id] = d }
-        for d in out.habitDefs { defsByID[d.id] = d }
-        out.habitDefs = defsByID.values.sorted { $0.createdAt < $1.createdAt }
+        // Habit definitions: union by id, order-preserving (keep the newer snapshot's order, then
+        // append any habits only the older copy has). Never re-sort dictionary values — that reshuffles.
+        var mergedDefs = out.habitDefs
+        let mergedIDs = Set(mergedDefs.map(\.id))
+        for d in older.habitDefs where !mergedIDs.contains(d.id) { mergedDefs.append(d) }
+        out.habitDefs = mergedDefs
         out.didSeedHabits = out.didSeedHabits || older.didSeedHabits
         // Favorite meals: union by lowercased name (newer wins).
         var favByName: [String: MealEntry] = [:]

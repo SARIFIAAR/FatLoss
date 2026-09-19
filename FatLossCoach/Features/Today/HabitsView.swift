@@ -111,12 +111,22 @@ private struct HabitRow: View {
 
 struct AddHabitSheet: View {
     @Environment(\.dismiss) private var dismiss
+    let editing: HabitDef?
     let onSave: (HabitDef) -> Void
 
-    @State private var metric: HabitMetric = .steps
-    @State private var freq: HabitFrequency = .daily
-    @State private var goal: Double = HabitMetric.steps.defaultGoal
-    @State private var colorHex: UInt32 = HabitColors.all[0]
+    @State private var metric: HabitMetric
+    @State private var freq: HabitFrequency
+    @State private var goal: Double
+    @State private var colorHex: UInt32
+
+    init(editing: HabitDef? = nil, onSave: @escaping (HabitDef) -> Void) {
+        self.editing = editing
+        self.onSave = onSave
+        _metric = State(initialValue: editing?.metric ?? .steps)
+        _freq = State(initialValue: editing?.frequency ?? .daily)
+        _goal = State(initialValue: editing?.goal ?? HabitMetric.steps.defaultGoal)
+        _colorHex = State(initialValue: editing?.colorHex ?? HabitColors.all[0])
+    }
 
     private let cols = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
 
@@ -162,18 +172,26 @@ struct AddHabitSheet: View {
                 .padding(16)
             }
             .background(Theme.bg)
-            .navigationTitle("Add Habit").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(editing == nil ? "Add Habit" : "Edit Habit").navigationBarTitleDisplayMode(.inline)
             .preferredColorScheme(.dark)
-            .onChange(of: metric) { _, m in goal = m.defaultGoal }
+            .onChange(of: metric) { _, m in if editing == nil { goal = m.defaultGoal } }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button { dismiss() } label: { Image(systemName: "xmark").font(.system(size: 15, weight: .bold)) }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
-                        onSave(HabitDef(metric: metric, frequency: freq, goal: goal, colorHex: colorHex))
+                        if var e = editing {
+                            e.metric = metric; e.frequency = freq; e.goal = goal; e.colorHex = colorHex
+                            onSave(e)
+                        } else {
+                            onSave(HabitDef(metric: metric, frequency: freq, goal: goal, colorHex: colorHex))
+                        }
                         dismiss()
-                    } label: { Image(systemName: "plus.circle.fill").font(.system(size: 20)).foregroundStyle(Theme.primary) }
+                    } label: {
+                        Image(systemName: editing == nil ? "plus.circle.fill" : "checkmark.circle.fill")
+                            .font(.system(size: 20)).foregroundStyle(Theme.primary)
+                    }
                 }
             }
         }

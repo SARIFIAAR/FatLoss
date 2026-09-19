@@ -7,6 +7,7 @@ struct HabitsScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showLibrary = false
     @State private var logging: HabitDef?
+    @State private var editing: HabitDef?
 
     var body: some View {
         NavigationStack {
@@ -16,7 +17,7 @@ struct HabitsScreen: View {
                         emptyState
                     } else {
                         ForEach(store.habitDefs) { def in
-                            HabitFullRow(def: def) { logging = def }
+                            HabitFullRow(def: def, onLog: { logging = def }, onEdit: { editing = def })
                         }
                     }
                     Button { showLibrary = true } label: {
@@ -36,6 +37,7 @@ struct HabitsScreen: View {
             }
             .sheet(isPresented: $showLibrary) { HabitLibrarySheet() }
             .sheet(item: $logging) { HabitLogSheet(def: $0) }
+            .sheet(item: $editing) { def in AddHabitSheet(editing: def) { store.updateHabit($0) } }
         }
     }
 
@@ -55,6 +57,7 @@ private struct HabitFullRow: View {
     @Environment(Store.self) private var store
     let def: HabitDef
     let onLog: () -> Void
+    let onEdit: () -> Void
 
     var body: some View {
         let met = store.habitMet(def)
@@ -82,12 +85,16 @@ private struct HabitFullRow: View {
                 }
                 Spacer()
                 Button { tap() } label: { progressRing(met: met, prog: prog) }.buttonStyle(.plain)
+                Menu {
+                    if def.metric == .checkIn { Button { store.toggleHabitCheckIn(def) } label: { Label(met ? "Undo" : "Mark done", systemImage: met ? "arrow.uturn.backward" : "checkmark") } }
+                    else if !def.metric.isAuto { Button { onLog() } label: { Label("Log value", systemImage: "square.and.pencil") } }
+                    Button { onEdit() } label: { Label("Edit habit", systemImage: "slider.horizontal.3") }
+                    Button(role: .destructive) { store.deleteHabit(def.id) } label: { Label("Delete", systemImage: "trash") }
+                } label: {
+                    Image(systemName: "ellipsis").font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.muted)
+                        .frame(width: 30, height: 30).contentShape(Rectangle())
+                }
             }
-        }
-        .contextMenu {
-            if def.metric == .checkIn { Button { store.toggleHabitCheckIn(def) } label: { Label(met ? "Undo" : "Mark done", systemImage: met ? "arrow.uturn.backward" : "checkmark") } }
-            else if !def.metric.isAuto { Button { onLog() } label: { Label("Log value", systemImage: "square.and.pencil") } }
-            Button(role: .destructive) { store.deleteHabit(def.id) } label: { Label("Delete", systemImage: "trash") }
         }
     }
 
