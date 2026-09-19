@@ -41,7 +41,7 @@ struct ProgressTabView: View {
                     SleepSeries(name: "REM", points: store.recoverySeries(days: 14, \.remH)),
                 ])
             }
-            streakCard
+            HabitProgressCard()
             adherenceCard
         }
         .sheet(isPresented: $showWaist) {
@@ -103,36 +103,6 @@ struct ProgressTabView: View {
             }
             .padding(.bottom, 8)
             LineChartView(points: store.waistSeries(days: 30), color: Theme.orange, days: 30, unit: "cm")
-        }
-    }
-
-    private var streakCard: some View {
-        Card {
-            SectionTitle("Habit Streak — Last 28 Days")
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
-                ForEach((0..<28).reversed(), id: \.self) { back in
-                    let count = store.habitCount(on: DateKey.key(DateKey.daysAgo(back)))
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(streakColor(count))
-                        .aspectRatio(1, contentMode: .fit)
-                }
-            }
-            HStack(spacing: 8) {
-                legend(Theme.border, "0"); legend(Color(hex: 0xB7E4C7), "1-2"); legend(Theme.accent, "3-4"); legend(Theme.primary, "5-6")
-            }
-            .font(.system(size: 11)).foregroundStyle(Theme.muted)
-            .padding(.top, 10)
-        }
-    }
-
-    private func streakColor(_ n: Int) -> Color {
-        n == 0 ? Theme.border : n <= 2 ? Color(hex: 0xB7E4C7) : n <= 4 ? Theme.accent : Theme.primary
-    }
-
-    private func legend(_ c: Color, _ t: String) -> some View {
-        HStack(spacing: 4) {
-            RoundedRectangle(cornerRadius: 2).fill(c).frame(width: 12, height: 12)
-            Text(t)
         }
     }
 

@@ -296,6 +296,24 @@ final class Store {
         while habitMet(def, on: DateKey.key(DateKey.daysAgo(n))) { n += 1; if n > 400 { break } }
         return n
     }
+    /// Longest run of met days over the last `days` (for the "Best" streak label).
+    func habitBestStreak(_ def: HabitDef, days: Int = 180) -> Int {
+        var best = 0, run = 0
+        for n in (0..<days).reversed() {
+            if habitMet(def, on: DateKey.key(DateKey.daysAgo(n))) { run += 1; best = max(best, run) } else { run = 0 }
+        }
+        return best
+    }
+    /// Met/not-met (and whether the day exists) for a habit over the last `days`, oldest→newest.
+    func habitHistory(_ def: HabitDef, days: Int) -> [Bool] {
+        (0..<days).reversed().map { habitMet(def, on: DateKey.key(DateKey.daysAgo($0))) }
+    }
+    /// % of days the habit was met over the last `days`.
+    func habitCompletion(_ def: HabitDef, days: Int = 30) -> Int {
+        let h = habitHistory(def, days: days)
+        guard !h.isEmpty else { return 0 }
+        return Int((Double(h.filter { $0 }.count) / Double(h.count) * 100).rounded())
+    }
 
     // MARK: Onboarding
 
