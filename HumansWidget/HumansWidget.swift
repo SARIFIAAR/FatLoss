@@ -7,6 +7,8 @@ private let appGroupID = "group.com.MyFatLossCoach.app"
 private let widgetFile = "humans-widget.json"
 
 struct BodyKPIs: Codable {
+    var score: Int?
+    var scoreLabel: String = "—"
     var recovery: Int?
     var recoveryLabel: String
     var strain: Double
@@ -18,7 +20,7 @@ struct BodyKPIs: Codable {
     var updated: Date
 
     static let placeholder = BodyKPIs(
-        recovery: 72, recoveryLabel: "Balanced", strain: 11.4, strainLabel: "Moderate",
+        score: 78, scoreLabel: "Strong", recovery: 72, recoveryLabel: "Balanced", strain: 11.4, strainLabel: "Moderate",
         sleepPct: 88, sleepHours: 7.4, battery: 64, stress: 30, updated: .now)
 
     static func load() -> BodyKPIs {
@@ -177,19 +179,50 @@ struct HumansWidgetEntryView: View {
     var entry: Entry
 
     var body: some View {
-        Group {
-            switch family {
-            case .systemSmall: SmallView(k: entry.kpis)
-            default:           MediumView(k: entry.kpis)
-            }
+        switch family {
+        case .accessoryCircular:
+            AccessoryCircularView(k: entry.kpis).containerBackground(.clear, for: .widget)
+        case .accessoryInline:
+            Text("HUMANS \(entry.kpis.score.map(String.init) ?? "–") · \(entry.kpis.scoreLabel)")
+        case .accessoryRectangular:
+            AccessoryRectView(k: entry.kpis).containerBackground(.clear, for: .widget)
+        case .systemSmall:
+            SmallView(k: entry.kpis).containerBackground(for: .widget) { bg }
+        default:
+            MediumView(k: entry.kpis).containerBackground(for: .widget) { bg }
         }
-        .containerBackground(for: .widget) {
-            LinearGradient(colors: [.hCard, .hBG], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+    private var bg: some View {
+        LinearGradient(colors: [.hCard, .hBG], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+}
+
+/// Lock Screen circular gauge — the HUMANS Score.
+struct AccessoryCircularView: View {
+    let k: BodyKPIs
+    var body: some View {
+        Gauge(value: Double(k.score ?? 0), in: 0...100) {
+            Text("HS")
+        } currentValueLabel: {
+            Text("\(k.score ?? 0)")
+        }
+        .gaugeStyle(.accessoryCircular)
+    }
+}
+
+/// Lock Screen rectangular — score + recovery/sleep line.
+struct AccessoryRectView: View {
+    let k: BodyKPIs
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("HUMANS \(k.score.map(String.init) ?? "–") · \(k.scoreLabel)").font(.system(size: 14, weight: .bold))
+            Text("Rec \(k.recovery.map(String.init) ?? "–") · Sleep \(k.sleepPct.map { "\($0)%" } ?? "–") · Strain \(String(format: "%.1f", k.strain))")
+                .font(.system(size: 12)).foregroundStyle(.secondary)
         }
     }
 }
 
-// MARK: - Widget
+// MARK: - Widgets
 
 struct HumansBodyWidget: Widget {
     let kind = "HumansBodyWidget"
@@ -197,9 +230,9 @@ struct HumansBodyWidget: Widget {
         StaticConfiguration(kind: kind, provider: Provider()) { entry in
             HumansWidgetEntryView(entry: entry)
         }
-        .configurationDisplayName("Body")
-        .description("Your recovery, strain, sleep and body battery at a glance.")
-        .supportedFamilies([.systemSmall, .systemMedium])
+        .configurationDisplayName("HUMANS Score")
+        .description("Your daily HUMANS Score, recovery, strain, sleep and body battery.")
+        .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryInline, .accessoryRectangular])
     }
 }
 

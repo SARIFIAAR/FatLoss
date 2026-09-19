@@ -557,6 +557,30 @@ struct BodyDayScores {
     var capTrimp: Double = 120
 }
 
+extension BodyDayScores {
+    /// A single synthesized 0–100 daily wellness number: recovery + sleep + body battery,
+    /// nudged down if the day's strain overshot the recovery-appropriate target. nil until there's data.
+    var humansScore: Int? {
+        var parts: [(Double, Double)] = []   // (value, weight)
+        if let r = recovery { parts.append((Double(r.score), 0.45)) }
+        if let s = sleepPerformance { parts.append((s, 0.30)) }
+        if let b = battery { parts.append((Double(b.level), 0.25)) }
+        guard !parts.isEmpty else { return nil }
+        let wSum = parts.reduce(0) { $0 + $1.1 }
+        var score = parts.reduce(0) { $0 + $1.0 * $1.1 } / wSum
+        // Overtraining penalty: strain well above the recovery-appropriate target.
+        if let r = recovery {
+            let target = BodyMetrics.targetStrain(recovery: r.score)
+            if strain.score > target.upperBound + 2 { score -= 8 }
+        }
+        return max(0, min(100, Int(score.rounded())))
+    }
+    var humansScoreLabel: String {
+        guard let s = humansScore else { return "—" }
+        return s >= 80 ? "Thriving" : s >= 65 ? "Strong" : s >= 45 ? "Steady" : "Recharge"
+    }
+}
+
 struct BehaviorImpact: Identifiable {
     var name: String
     var delta: Double          // percentage points of next-day recovery

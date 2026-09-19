@@ -8,6 +8,8 @@ let humansWidgetFile = "humans-widget.json"
 
 /// The tiny payload the widget renders. Mirrored (by field name) in the widget target's own copy.
 struct HumansWidgetData: Codable {
+    var score: Int?             // synthesized HUMANS Score 0–100
+    var scoreLabel: String = "—"
     var recovery: Int?          // 0–100
     var recoveryLabel: String
     var strain: Double          // 0–21
@@ -19,7 +21,7 @@ struct HumansWidgetData: Codable {
     var updated: Date
 
     static let placeholder = HumansWidgetData(
-        recovery: 72, recoveryLabel: "Balanced", strain: 11.4, strainLabel: "Moderate",
+        score: 78, scoreLabel: "Strong", recovery: 72, recoveryLabel: "Balanced", strain: 11.4, strainLabel: "Moderate",
         sleepPct: 88, sleepHours: 7.4, battery: 64, stress: 30, updated: .now)
 }
 
@@ -39,6 +41,8 @@ enum WidgetSync {
         guard let url = fileURL else { return }   // App Group not provisioned (e.g. plain sim run)
         let s = store.bodyDay()
         let data = HumansWidgetData(
+            score: s.humansScore,
+            scoreLabel: s.humansScoreLabel,
             recovery: s.recovery?.score,
             recoveryLabel: recoveryLabel(s.recovery?.score),
             strain: s.strain.score,

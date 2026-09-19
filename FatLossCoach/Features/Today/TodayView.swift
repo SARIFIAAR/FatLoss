@@ -219,9 +219,31 @@ struct DaySummaryCard: View {
                     }.foregroundStyle(Theme.primary)
                 }
             }
-            Text(c.headline).font(.system(size: 18, weight: .heavy)).foregroundStyle(Theme.text).padding(.top, 8)
-            Text(c.body).font(.system(size: 13)).foregroundStyle(Theme.muted)
-                .fixedSize(horizontal: false, vertical: true).padding(.top, 3)
+            HStack(alignment: .center, spacing: 14) {
+                if let hs = s.humansScore {
+                    ZStack {
+                        Circle().stroke(Color.white.opacity(0.10), lineWidth: 7)
+                        Circle().trim(from: 0, to: max(0.001, Double(hs) / 100))
+                            .stroke(Readiness.color(hs), style: StrokeStyle(lineWidth: 7, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                            .shadow(color: Readiness.color(hs).opacity(0.5), radius: 5)
+                        VStack(spacing: -2) {
+                            Text("\(hs)").font(W.score(26)).foregroundStyle(Theme.text)
+                            Text("SCORE").font(.system(size: 7, weight: .bold)).foregroundStyle(Theme.muted)
+                        }
+                    }
+                    .frame(width: 72, height: 72)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    if s.humansScore != nil {
+                        Text(s.humansScoreLabel).font(.system(size: 12, weight: .heavy)).foregroundStyle(Readiness.color(s.humansScore ?? 0))
+                    }
+                    Text(c.headline).font(.system(size: 17, weight: .heavy)).foregroundStyle(Theme.text)
+                    Text(c.body).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.top, 10)
 
             Button { NotificationCenter.default.post(name: .openBody, object: nil) } label: {
                 HStack(spacing: 8) {

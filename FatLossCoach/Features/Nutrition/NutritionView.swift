@@ -75,7 +75,8 @@ struct NutritionView: View {
             }
         }
         .sheet(item: $flow.pending) { p in
-            MealResultSheet(image: p.image, analysis: p.analysis, slot: p.slot, date: flow.day) { entry in
+            MealResultSheet(image: p.image, analysis: p.analysis, slot: p.slot, date: flow.day,
+                            onAdjust: { fix in flow.pending = nil; flow.fromAIChat = true; Task { await analyze(text: fix) } }) { entry in
                 store.addMeal(entry)
                 if flow.fromAIChat { store.noteAILog(); flow.fromAIChat = false }
                 flow.pending = nil
@@ -388,18 +389,26 @@ struct MealResultSheet: View {
     let image: UIImage?
     let analysis: MealScanner.Analysis
     let onAdd: (MealEntry) -> Void
+    let onAdjust: ((String) -> Void)?
     let date: String
     @State private var slot: String?
+    @State private var portion: Double = 1        // serving multiplier
+    @State private var correction = ""
+    @State private var showCorrection = false
     @Environment(Store.self) private var store
     @Environment(\.dismiss) private var dismiss
 
-    init(image: UIImage?, analysis: MealScanner.Analysis, slot: String? = nil, date: String? = nil, onAdd: @escaping (MealEntry) -> Void) {
+    init(image: UIImage?, analysis: MealScanner.Analysis, slot: String? = nil, date: String? = nil,
+         onAdjust: ((String) -> Void)? = nil, onAdd: @escaping (MealEntry) -> Void) {
         self.image = image
         self.analysis = analysis
         self.onAdd = onAdd
+        self.onAdjust = onAdjust
         self.date = date ?? DateKey.key()
         _slot = State(initialValue: slot)
     }
+
+    private func s(_ v: Double) -> Double { v * portion }
 
     var body: some View {
         NavigationStack {
@@ -433,25 +442,39 @@ struct MealResultSheet: View {
                     }
 
                     HStack(spacing: 8) {
-                        MacroStat(value: "\(Int(analysis.total_kcal.rounded()))", label: "kcal", color: Theme.primary)
-                        MacroStat(value: "\(Int(analysis.total_protein_g.rounded()))g", label: "protein", color: Theme.primary)
-                        MacroStat(value: "\(Int(analysis.total_carbs_g.rounded()))g", label: "carbs", color: Theme.orange)
-                        MacroStat(value: "\(Int(analysis.total_fat_g.rounded()))g", label: "fat", color: Theme.blue)
+                        MacroStat(value: "\(Int(s(analysis.total_kcal).rounded()))", label: "kcal", color: Theme.primary)
+                        MacroStat(value: "\(Int(s(analysis.total_protein_g).rounded()))g", label: "protein", color: Theme.primary)
+                        MacroStat(value: "\(Int(s(analysis.total_carbs_g).rounded()))g", label: "carbs", color: Theme.orange)
+                        MacroStat(value: "\(Int(s(analysis.total_fat_g).rounded()))g", label: "fat", color: Theme.blue)
                     }
                     .padding(.vertical, 12)
                     .background(Theme.bg)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                    // Portion multiplier
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("PORTION").font(.system(size: 10, weight: .bold)).kerning(0.8).foregroundStyle(Theme.muted)
+                        HStack(spacing: 8) {
+                            ForEach([0.5, 1.0, 1.5, 2.0], id: \.self) { p in
+                                Button(p == 1 ? "1×" : (p == 0.5 ? "½×" : "\(p == 1.5 ? "1.5" : "2")×")) { portion = p }
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundStyle(portion == p ? Color(hex: 0x101518) : Theme.text)
+                                    .frame(maxWidth: .infinity).padding(.vertical, 8)
+                                    .background(portion == p ? Theme.primary : Theme.bg, in: Capsule())
+                            }
+                        }
+                    }
 
                     VStack(spacing: 0) {
                         ForEach(Array(analysis.items.enumerated()), id: \.offset) { i, it in
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(it.name).font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
-                                    Text("\(it.portion) · P \(Int(it.protein_g.rounded())) · C \(Int(it.carbs_g.rounded())) · F \(Int(it.fat_g.rounded()))")
+                                    Text("\(it.portion) · P \(Int(s(it.protein_g).rounded())) · C \(Int(s(it.carbs_g).rounded())) · F \(Int(s(it.fat_g).rounded()))")
                                         .font(.system(size: 11)).foregroundStyle(Theme.muted)
                                 }
                                 Spacer()
-                                Text("\(Int(it.kcal.rounded())) kcal").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.primary)
+                                Text("\(Int(s(it.kcal).rounded())) kcal").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.primary)
                             }
                             .padding(.vertical, 9)
                             if i < analysis.items.count - 1 { Divider().overlay(Theme.border) }
@@ -462,10 +485,39 @@ struct MealResultSheet: View {
                         Text("ℹ \(analysis.notes)").font(.system(size: 12)).foregroundStyle(Theme.muted).lineSpacing(3)
                     }
 
+                    // Natural-language correction turn
+                    if onAdjust != nil {
+                        if showCorrection {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("WHAT SHOULD I FIX?").font(.system(size: 10, weight: .bold)).kerning(0.8).foregroundStyle(Theme.muted)
+                                TextField("e.g. it was skimmed milk, no sugar", text: $correction, axis: .vertical)
+                                    .font(.system(size: 14)).foregroundStyle(Theme.text)
+                                    .padding(12).background(Theme.bg, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                Button("Re-estimate") {
+                                    let fix = "The meal was \"\(analysis.meal_name)\". Correction: \(correction.trimmingCharacters(in: .whitespaces))."
+                                    onAdjust?(fix); dismiss()
+                                }
+                                .buttonStyle(PrimaryButtonStyle())
+                                .disabled(correction.trimmingCharacters(in: .whitespaces).isEmpty)
+                            }
+                        } else {
+                            Button { showCorrection = true } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "arrow.uturn.left"); Text("Not quite? Adjust it")
+                                }.font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.blue)
+                                    .frame(maxWidth: .infinity).padding(.vertical, 6)
+                            }
+                        }
+                    }
+
                     SlotPicker(slot: $slot).padding(.top, 4)
 
                     Button(Plan.logLabel(slot)) {
                         var e = analysis.mealEntry(date: date)
+                        if portion != 1 {
+                            e.kcal *= portion; e.protein *= portion; e.carbs *= portion; e.fat *= portion
+                            e.name = portion == 0.5 ? "½ \(e.name)" : "\(portion == 1.5 ? "1.5" : "2")× \(e.name)"
+                        }
                         e.slot = slot
                         onAdd(e)
                     }
