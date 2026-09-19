@@ -31,6 +31,13 @@ struct NutritionView: View {
     @State private var flow = ScanFlow()
     // Debug / screenshots: `-nutritionDay 2026-09-06` opens the tab on that day.
     @State private var selectedDay = UserDefaults.standard.string(forKey: "nutritionDay") ?? DateKey.key()
+    @State private var section: NutritionSection = {
+        switch UserDefaults.standard.string(forKey: "nutritionSection") {
+        case "program": return .program
+        case "recipes": return .recipes
+        default: return .diary
+        }
+    }()
 
     var body: some View {
         @Bindable var flow = flow
@@ -39,75 +46,12 @@ struct NutritionView: View {
         let pct = min(Double(ml) / Double(g.waterGoal), 1)
         let isToday = selectedDay == store.today
         Screen(subtitle: "Fuel your fat loss", title: "Nutrition") {
-            WeekCalendarCard(selected: $selectedDay)
-                .onAppear { flow.day = selectedDay }
-                .onChange(of: selectedDay) { _, d in flow.day = d }
-            MealScanCard(flow: flow)
-            MealPlanCard(flow: flow, day: selectedDay)
-            TodayMealsCard(day: selectedDay)
-            TimelineView(.periodic(from: .now, by: 60)) { ctx in
-                if Calendar.current.component(.hour, from: ctx.date) >= Plan.kitchenClosesHour {
-                    HStack(spacing: 10) {
-                        Text("")
-                        Text("Kitchen is closed! Drink water or herbal tea instead.")
-                    }
-                    .font(.system(size: 14, weight: .bold)).foregroundStyle(Color(hex: 0xA0C4FF))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 14).padding(.horizontal, 16)
-                    .background(Color(hex: 0x1A1A2E))
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                }
-            }
-
-            Card {
-                SectionTitle("Water Tracker")
-                VStack(spacing: 2) {
-                    Text("\(ml)").font(.system(size: 52, weight: .black)).foregroundStyle(Theme.primary)
-                    Text("ml out of \(g.waterGoal.formatted())").font(.system(size: 14)).foregroundStyle(Theme.muted)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.top, 8)
-                WaveView(fraction: pct).padding(.vertical, 10)
-                HStack(spacing: 10) {
-                    Button("+ 250 ml") { store.addWater(250) }.buttonStyle(PrimaryButtonStyle())
-                    Button("+ 500 ml") { store.addWater(500) }.buttonStyle(PrimaryButtonStyle())
-                    Button("Reset") { store.resetWater() }.buttonStyle(SecondaryButtonStyle())
-                }
-            }
-
-            Card {
-                let t = store.totals(on: selectedDay)
-                SectionTitle(isToday ? "Today vs Targets" : "\(WeekCalendarCard.longDay(selectedDay)) vs Targets")
-                VStack(spacing: 10) {
-                    MacroBar(name: "Calories", value: "\(Int(t.kcal.rounded())) / \(g.kcal) kcal",
-                             fraction: t.kcal / Double(g.kcal), color: t.kcal > Double(g.kcal) ? Theme.red : Theme.primaryLight)
-                    MacroBar(name: "Protein", value: "\(Int(t.protein.rounded())) / \(g.protein) g",
-                             fraction: t.protein / Double(g.protein), color: Theme.primary)
-                    MacroBar(name: "Carbs", value: "\(Int(t.carbs.rounded())) / \(g.carbs) g",
-                             fraction: t.carbs / Double(g.carbs), color: Theme.orange)
-                    MacroBar(name: "Fat", value: "\(Int(t.fat.rounded())) / \(g.fat) g",
-                             fraction: t.fat / Double(g.fat), color: Theme.blue)
-                }
-                Text(isToday ? "\(max(0, g.kcal - Int(t.kcal.rounded()))) kcal left today · target \(g.kcal.formatted()) kcal (−\(g.deficit) deficit)"
-                             : (t.kcal > Double(g.kcal) ? "\(Int(t.kcal.rounded()) - g.kcal) kcal over target that day" : "\(g.kcal - Int(t.kcal.rounded())) kcal under target that day"))
-                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
-                    .padding(.top, 10)
-                let e = store.energy()
-                if isToday, let burned = e.burned {
-                    let net = burned - t.kcal
-                    HStack(spacing: 6) {
-                        Text("Burned \(Int(burned)) kcal").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.orange)
-                        Text("·").foregroundStyle(Theme.muted)
-                        Text(t.kcal > 0 ? "\(net >= 0 ? "Deficit" : "Surplus") \(Int(abs(net))) kcal so far" : "log meals to see the deficit")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(t.kcal == 0 ? Theme.muted : net >= Double(g.deficit) ? Theme.primary : net >= 0 ? Theme.blue : Theme.red)
-                    }
-                    .padding(.top, 4)
-                    if let avg = store.averageDeficit(days: 7) {
-                        Text("7-day average \(avg >= 0 ? "deficit" : "surplus") \(Int(abs(avg))) kcal/day · goal \(g.deficit)")
-                            .font(.system(size: 11)).foregroundStyle(Theme.muted)
-                    }
-                }
+            SegmentedTabs(selection: $section,
+                          options: NutritionSection.allCases.map { ($0, $0.rawValue) })
+            switch section {
+            case .program: ProgramSection()
+            case .recipes: RecipesSection()
+            case .diary: diaryContent(g: g, ml: ml, pct: pct, isToday: isToday, flow: flow)
             }
         }
         .fullScreenCover(isPresented: $flow.showCamera) {
@@ -140,6 +84,50 @@ struct NutritionView: View {
                 flow.showTyped = false
                 Task { await analyze(text: text) }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func diaryContent(g: Goals, ml: Int, pct: Double, isToday: Bool, flow: ScanFlow) -> some View {
+        @Bindable var flow = flow
+        DiarySummaryCard(day: selectedDay)
+        WeekCalendarCard(selected: $selectedDay)
+            .onAppear { flow.day = selectedDay }
+            .onChange(of: selectedDay) { _, d in flow.day = d }
+        MealScanCard(flow: flow)
+        MealPlanCard(flow: flow, day: selectedDay)
+        TodayMealsCard(day: selectedDay)
+        Group {
+            TimelineView(.periodic(from: .now, by: 60)) { ctx in
+                if Calendar.current.component(.hour, from: ctx.date) >= Plan.kitchenClosesHour {
+                    HStack(spacing: 10) {
+                        Text("")
+                        Text("Kitchen is closed! Drink water or herbal tea instead.")
+                    }
+                    .font(.system(size: 14, weight: .bold)).foregroundStyle(Color(hex: 0xA0C4FF))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 14).padding(.horizontal, 16)
+                    .background(Color(hex: 0x1A1A2E))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+            }
+
+            Card {
+                SectionTitle("Water Tracker")
+                VStack(spacing: 2) {
+                    Text("\(ml)").font(.system(size: 52, weight: .black)).foregroundStyle(Theme.primary)
+                    Text("ml out of \(g.waterGoal.formatted())").font(.system(size: 14)).foregroundStyle(Theme.muted)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 8)
+                WaveView(fraction: pct).padding(.vertical, 10)
+                HStack(spacing: 10) {
+                    Button("+ 250 ml") { store.addWater(250) }.buttonStyle(PrimaryButtonStyle())
+                    Button("+ 500 ml") { store.addWater(500) }.buttonStyle(PrimaryButtonStyle())
+                    Button("Reset") { store.resetWater() }.buttonStyle(SecondaryButtonStyle())
+                }
+            }
+
         }
     }
 

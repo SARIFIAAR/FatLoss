@@ -299,6 +299,7 @@ struct AppData: Codable, Hashable {
     var habitDefs: [HabitDef] = []                          // customizable habit definitions
     var habitLog: [String: [String: Double]] = [:]          // date -> habitId -> logged value (manual)
     var didSeedHabits = false                               // starter habits seeded once
+    var nutritionPlanId: String? = nil                      // chosen diet program (Nutrition > Program)
     var goals = Goals()
     var program = ProgramState()
     var reminders = ReminderSettings()
@@ -328,6 +329,7 @@ struct AppData: Codable, Hashable {
         habitDefs    = c.value(.habitDefs,    default: [])
         habitLog     = c.value(.habitLog,     default: [:])
         didSeedHabits = c.value(.didSeedHabits, default: false)
+        nutritionPlanId = c.value(.nutritionPlanId, default: nil)
         goals        = c.value(.goals,        default: Goals())
         program      = c.value(.program,      default: ProgramState())
         reminders    = c.value(.reminders,    default: ReminderSettings())

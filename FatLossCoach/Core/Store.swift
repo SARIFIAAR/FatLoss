@@ -130,6 +130,31 @@ final class Store {
         data.habits[today] = set
     }
 
+    // MARK: Nutrition — diet program & recipes
+
+    var nutritionPlan: DietProgram? { ProgramCatalog.by(id: data.nutritionPlanId) }
+
+    /// Start a diet program: sets it active and rewrites the macro targets from its split.
+    func chooseProgram(_ p: DietProgram) {
+        data.nutritionPlanId = p.id
+        let m = p.macros(forKcal: data.goals.kcal)
+        data.goals.protein = m.protein
+        data.goals.carbs = m.carbs
+        data.goals.fat = m.fat
+        settingsModified = Date()
+        showToast("\(p.name) plan started")
+    }
+    func clearNutritionPlan() { data.nutritionPlanId = nil; settingsModified = Date() }
+
+    /// Log a recipe straight to the diary as a meal.
+    func logRecipe(_ r: Recipe, slot: String? = nil, on day: String? = nil) {
+        let entry = MealEntry(date: day ?? today, name: r.name,
+                              kcal: Double(r.kcal), protein: Double(r.protein),
+                              carbs: Double(r.carbs), fat: Double(r.fat), slot: slot)
+        addMeal(entry)
+        showToast("\(r.name) logged")
+    }
+
     // MARK: Custom habits (user-defined trackers)
 
     var habitDefs: [HabitDef] { data.habitDefs }
