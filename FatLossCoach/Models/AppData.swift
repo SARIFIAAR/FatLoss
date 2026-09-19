@@ -309,6 +309,7 @@ struct AppData: Codable, Hashable {
     var didSeedHabits = false                               // starter habits seeded once
     var nutritionPlanId: String? = nil                      // chosen diet program (Nutrition > Program)
     var favoriteMeals: [MealEntry] = []                     // hearted meals for quick re-logging
+    var plannedMeals: [String: [String: String]] = [:]      // date -> slot -> recipeId (persisted meal plan)
     var goals = Goals()
     var program = ProgramState()
     var reminders = ReminderSettings()
@@ -340,6 +341,7 @@ struct AppData: Codable, Hashable {
         didSeedHabits = c.value(.didSeedHabits, default: false)
         nutritionPlanId = c.value(.nutritionPlanId, default: nil)
         favoriteMeals = c.value(.favoriteMeals, default: [])
+        plannedMeals = c.value(.plannedMeals, default: [:])
         goals        = c.value(.goals,        default: Goals())
         program      = c.value(.program,      default: ProgramState())
         reminders    = c.value(.reminders,    default: ReminderSettings())
@@ -393,6 +395,9 @@ struct AppData: Codable, Hashable {
         for m in older.favoriteMeals { favByName[m.name.lowercased()] = m }
         for m in out.favoriteMeals { favByName[m.name.lowercased()] = m }
         out.favoriteMeals = favByName.values.sorted { $0.name < $1.name }
+        for (day, slots) in older.plannedMeals {
+            out.plannedMeals[day] = out.plannedMeals[day]?.merging(slots) { newer, _ in newer } ?? slots
+        }
         for (day, vals) in older.habitLog {
             out.habitLog[day] = out.habitLog[day]?.merging(vals) { newer, _ in newer } ?? vals
         }

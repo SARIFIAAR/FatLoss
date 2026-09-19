@@ -230,10 +230,13 @@ struct ProgramSection: View {
     @Environment(Store.self) private var store
     @State private var selected: DietProgram?
     @State private var recipe: Recipe?
+    @State private var swapping: SlotID?     // slot being swapped
+
+    struct SlotID: Identifiable { let id: String }
 
     var body: some View {
         VStack(spacing: 12) {
-            if store.nutritionPlan != nil { suggestedDayCard }
+            if store.nutritionPlan != nil { planCard }
             Text("Pick a plan — it sets your macro targets and filters recipes.")
                 .font(.system(size: 13)).foregroundStyle(Theme.muted)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -243,35 +246,59 @@ struct ProgramSection: View {
         }
         .sheet(item: $selected) { ProgramDetailView(program: $0) }
         .sheet(item: $recipe) { RecipeDetailView(recipe: $0) }
+        .sheet(item: $swapping) { RecipeSwapSheet(slot: $0.id) }
     }
 
-    private var suggestedDayCard: some View {
+    private var planCard: some View {
         let plan = store.nutritionPlan
-        let day = RecipeCatalog.suggestedDay(planId: plan?.id, kcalTarget: store.data.goals.kcal)
-        let total = day.reduce(0) { $0 + $1.kcal }
+        let slots = Store.planSlots
+        let picked = slots.compactMap { store.plannedRecipe($0) }
+        let total = picked.reduce(0) { $0 + $1.kcal }
         return Card(accent: plan?.color) {
             HStack {
-                Text("TODAY'S SUGGESTED PLAN").font(.system(size: 11, weight: .bold)).kerning(0.8).foregroundStyle(Theme.muted)
+                Text("MY MEAL PLAN").font(.system(size: 11, weight: .bold)).kerning(0.8).foregroundStyle(Theme.muted)
                 Spacer()
-                Text("\(total) kcal").font(.system(size: 12, weight: .heavy)).foregroundStyle(plan?.color ?? Theme.primary)
+                if store.hasPlan { Text("\(total) kcal").font(.system(size: 12, weight: .heavy)).foregroundStyle(plan?.color ?? Theme.primary) }
             }
             .padding(.bottom, 8)
-            VStack(spacing: 0) {
-                ForEach(Array(day.enumerated()), id: \.element.id) { i, r in
-                    Button { recipe = r } label: {
-                        HStack(spacing: 10) {
-                            Text(r.category.uppercased()).font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.muted).frame(width: 64, alignment: .leading)
-                            Text(r.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text)
-                            Spacer()
-                            Text("\(r.kcal)").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.muted)
-                            Button { store.logRecipe(r, slot: r.category.lowercased()) } label: {
-                                Image(systemName: "plus.circle.fill").font(.system(size: 18)).foregroundStyle(Theme.primary)
-                            }.buttonStyle(.plain)
+            if !store.hasPlan {
+                Text("Build a day of meals from your plan — swap any meal, then log with one tap.")
+                    .font(.system(size: 13)).foregroundStyle(Theme.muted).padding(.bottom, 10)
+                Button { store.generatePlan() } label: {
+                    Label("Generate my day", systemImage: "wand.and.stars").frame(maxWidth: .infinity)
+                }.buttonStyle(PrimaryButtonStyle())
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(slots.enumerated()), id: \.offset) { i, slot in
+                        if let r = store.plannedRecipe(slot) {
+                            HStack(spacing: 10) {
+                                Text(slot.uppercased()).font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.muted).frame(width: 62, alignment: .leading)
+                                Button { recipe = r } label: {
+                                    Text(r.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text)
+                                }.buttonStyle(.plain)
+                                Spacer()
+                                Text("\(r.kcal)").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.muted)
+                                Button { swapping = SlotID(id: slot) } label: {
+                                    Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 14)).foregroundStyle(Theme.blue)
+                                }.buttonStyle(.plain).padding(.leading, 4)
+                                Button { store.logRecipe(r, slot: slot.lowercased()) } label: {
+                                    Image(systemName: "plus.circle.fill").font(.system(size: 18)).foregroundStyle(Theme.primary)
+                                }.buttonStyle(.plain)
+                            }
+                            .padding(.vertical, 9)
+                            if i < slots.count - 1 { Divider().overlay(Theme.border) }
                         }
-                        .padding(.vertical, 9).contentShape(Rectangle())
-                    }.buttonStyle(.plain)
-                    if i < day.count - 1 { Divider().overlay(Theme.border) }
+                    }
                 }
+                HStack(spacing: 10) {
+                    Button { store.generatePlan() } label: { Label("Regenerate", systemImage: "wand.and.stars").frame(maxWidth: .infinity) }
+                        .buttonStyle(SecondaryButtonStyle())
+                    Button {
+                        for slot in slots { if let r = store.plannedRecipe(slot) { store.logRecipe(r, slot: slot.lowercased()) } }
+                    } label: { Label("Log all", systemImage: "checklist").frame(maxWidth: .infinity) }
+                        .buttonStyle(PrimaryButtonStyle())
+                }
+                .padding(.top, 12)
             }
         }
     }
@@ -456,6 +483,56 @@ struct RecipesSection: View {
                 }
                 Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.muted)
             }
+        }
+    }
+}
+
+/// Pick a replacement recipe for one meal slot in the plan.
+struct RecipeSwapSheet: View {
+    @Environment(Store.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    let slot: String
+
+    private var options: [Recipe] {
+        var list = RecipeCatalog.all.filter { $0.category == slot }
+        if let plan = store.data.nutritionPlanId {
+            list.sort { ($0.tags.contains(plan) ? 0 : 1) < ($1.tags.contains(plan) ? 0 : 1) }
+        }
+        return list
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 10) {
+                    ForEach(options) { r in
+                        Button {
+                            store.setPlannedMeal(r.id, slot: slot); dismiss()
+                        } label: {
+                            Card {
+                                HStack(spacing: 12) {
+                                    ZStack {
+                                        Circle().fill(r.color.opacity(0.18)).frame(width: 40, height: 40)
+                                        Image(systemName: r.icon).font(.system(size: 17)).foregroundStyle(r.color)
+                                    }
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(r.name).font(.system(size: 15, weight: .heavy)).foregroundStyle(Theme.text)
+                                        Text("\(r.kcal) kcal · \(r.minutes) min").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                                    }
+                                    Spacer()
+                                    if store.plannedRecipe(slot)?.id == r.id {
+                                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.primary)
+                                    }
+                                }
+                            }
+                        }.buttonStyle(.plain)
+                    }
+                }.padding(16)
+            }
+            .background(Theme.bg)
+            .navigationTitle("Swap \(slot)").navigationBarTitleDisplayMode(.inline)
+            .preferredColorScheme(.dark)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
         }
     }
 }

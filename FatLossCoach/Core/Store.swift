@@ -158,6 +158,33 @@ final class Store {
     }
     func clearNutritionPlan() { data.nutritionPlanId = nil; settingsModified = Date() }
 
+    // MARK: Persisted meal plan (per-day, per-slot; syncs via AppData)
+
+    static let planSlots = ["Breakfast", "Lunch", "Dinner", "Snack"]
+
+    /// The saved recipe for a slot on a day, if any.
+    func plannedRecipe(_ slot: String, on day: String? = nil) -> Recipe? {
+        RecipeCatalog.by(id: data.plannedMeals[day ?? today]?[slot] ?? "")
+    }
+    var hasPlan: Bool { !(data.plannedMeals[today]?.isEmpty ?? true) }
+
+    /// Generate (and persist) a suggested day for the active program to hit the calorie target.
+    func generatePlan(on day: String? = nil) {
+        let k = day ?? today
+        let recipes = RecipeCatalog.suggestedDay(planId: data.nutritionPlanId, kcalTarget: data.goals.kcal)
+        var slots: [String: String] = [:]
+        for r in recipes { slots[r.category] = r.id }
+        data.plannedMeals[k] = slots
+        showToast("Meal plan ready")
+    }
+    func setPlannedMeal(_ recipeId: String, slot: String, on day: String? = nil) {
+        let k = day ?? today
+        var slots = data.plannedMeals[k] ?? [:]
+        slots[slot] = recipeId
+        data.plannedMeals[k] = slots
+    }
+    func clearPlan(on day: String? = nil) { data.plannedMeals[day ?? today] = nil }
+
     /// Log a recipe straight to the diary as a meal.
     func logRecipe(_ r: Recipe, slot: String? = nil, on day: String? = nil) {
         let entry = MealEntry(date: day ?? today, name: r.name,
