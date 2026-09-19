@@ -28,4 +28,6 @@ enum DayCoach {
 extension Notification.Name {
     /// Posted by the Today summary to jump to the Body tab.
     static let openBody = Notification.Name("openBody")
+    /// Posted by the Today nutrition card to jump to the Nutrition tab.
+    static let openNutrition = Notification.Name("openNutrition")
 }

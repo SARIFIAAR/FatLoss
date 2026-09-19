@@ -30,6 +30,32 @@ struct SegmentedTabs<T: Hashable & Identifiable>: View {
     }
 }
 
+/// Slim banner shown in the Diary when a diet program is active.
+struct ActivePlanBanner: View {
+    @Environment(Store.self) private var store
+    var body: some View {
+        if let p = store.nutritionPlan {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle().fill(p.color.opacity(0.2)).frame(width: 30, height: 30)
+                    Image(systemName: p.icon).font(.system(size: 13)).foregroundStyle(p.color)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("\(p.name) plan").font(.system(size: 13, weight: .heavy)).foregroundStyle(Theme.text)
+                    Text("C \(p.carbPct)% · P \(p.proteinPct)% · F \(p.fatPct)%")
+                        .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                }
+                Spacer()
+                Text("ACTIVE").font(.system(size: 9, weight: .heavy)).foregroundStyle(Color(hex: 0x101518))
+                    .padding(.horizontal, 7).padding(.vertical, 3).background(p.color, in: Capsule())
+            }
+            .padding(12)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(p.color.opacity(0.4), lineWidth: 1))
+        }
+    }
+}
+
 /// Diary top summary — Lifesum-style calorie ring ("calories left") + eaten/burned + macro bars.
 struct DiarySummaryCard: View {
     @Environment(Store.self) private var store
@@ -305,6 +331,9 @@ struct RecipesSection: View {
                         .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted).padding(.top, 2)
                 }
                 Spacer()
+                if let g = FoodRating.grade(kcal: Double(r.kcal), protein: Double(r.protein), carbs: Double(r.carbs), fat: Double(r.fat)) {
+                    FoodRatingBadge(grade: g)
+                }
                 Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.muted)
             }
         }

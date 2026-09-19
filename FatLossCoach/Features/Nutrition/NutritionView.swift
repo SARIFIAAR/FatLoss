@@ -90,6 +90,7 @@ struct NutritionView: View {
     @ViewBuilder
     private func diaryContent(g: Goals, ml: Int, pct: Double, isToday: Bool, flow: ScanFlow) -> some View {
         @Bindable var flow = flow
+        ActivePlanBanner()
         DiarySummaryCard(day: selectedDay)
         WeekCalendarCard(selected: $selectedDay)
             .onAppear { flow.day = selectedDay }
@@ -458,6 +459,9 @@ struct TodayMealsCard: View {
                 VStack(spacing: 0) {
                     ForEach(Array(meals.enumerated()), id: \.element.id) { i, m in
                         HStack {
+                            if let g = FoodRating.grade(kcal: m.kcal, protein: m.protein, carbs: m.carbs, fat: m.fat) {
+                                FoodRatingBadge(grade: g).padding(.trailing, 4)
+                            }
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(m.name).font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
                                 Text("\(Plan.meal(m.slot).map { $0.name + " · " } ?? "")\(m.time.formatted(date: .omitted, time: .shortened)) · P \(Int(m.protein.rounded())) · C \(Int(m.carbs.rounded())) · F \(Int(m.fat.rounded()))")

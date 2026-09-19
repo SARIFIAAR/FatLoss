@@ -75,20 +75,56 @@ struct TargetsCard: View {
     var body: some View {
         let g = store.data.goals
         let t = store.totals()
-        let eaten = t.kcal > 0
-        Card {
-            SectionTitle(eaten ? "Today · eaten / target" : "Daily Targets")
-            HStack(spacing: 8) {
-                MacroStat(value: eaten ? "\(Int(t.kcal.rounded()))/\(g.kcal)" : "\(g.kcal)", label: "kcal", color: Theme.primary)
-                MacroStat(value: eaten ? "\(Int(t.protein.rounded()))/\(g.protein)g" : "\(g.protein)g", label: "protein", color: Theme.primary)
-                MacroStat(value: eaten ? "\(Int(t.carbs.rounded()))/\(g.carbs)g" : "\(g.carbs)g", label: "carbs", color: Theme.orange)
-                MacroStat(value: eaten ? "\(Int(t.fat.rounded()))/\(g.fat)g" : "\(g.fat)g", label: "fat", color: Theme.blue)
+        let eaten = Int(t.kcal.rounded())
+        let over = eaten > g.kcal
+        let left = abs(g.kcal - eaten)
+        let frac = g.kcal > 0 ? min(1, t.kcal / Double(g.kcal)) : 0
+        Button { NotificationCenter.default.post(name: .openNutrition, object: nil) } label: {
+            Card(accent: over ? Theme.red : Theme.primary) {
+                HStack {
+                    Text("NUTRITION").font(.system(size: 12, weight: .bold)).kerning(0.8).foregroundStyle(Theme.muted)
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.muted)
+                }
+                .padding(.bottom, 6)
+                HStack(spacing: 16) {
+                    ZStack {
+                        Circle().stroke(Color.white.opacity(0.10), lineWidth: 8)
+                        Circle().trim(from: 0, to: max(0.001, frac))
+                            .stroke(over ? Theme.red : Theme.primary, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                            .shadow(color: (over ? Theme.red : Theme.primary).opacity(0.5), radius: 5)
+                        VStack(spacing: 0) {
+                            Text("\(left)").font(W.score(24)).foregroundStyle(Theme.text)
+                            Text(over ? "over" : "left").font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.muted)
+                        }
+                    }
+                    .frame(width: 88, height: 88)
+                    VStack(spacing: 8) {
+                        macroLine("Protein", t.protein, g.protein, Theme.primary)
+                        macroLine("Carbs", t.carbs, g.carbs, Theme.orange)
+                        macroLine("Fat", t.fat, g.fat, Theme.blue)
+                    }
+                }
             }
-            if eaten {
-                ProgressBar(value: t.kcal / Double(g.kcal), height: 8,
-                            fill: AnyShapeStyle(t.kcal > Double(g.kcal) ? Theme.red : Theme.primaryLight))
-                    .padding(.top, 10)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func macroLine(_ name: String, _ value: Double, _ goal: Int, _ color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 3) {
+                Text(name).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                Spacer()
+                Text("\(Int(value.rounded()))/\(goal)g").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.text)
             }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Theme.card2)
+                    Capsule().fill(color).frame(width: max(3, geo.size.width * min(1, goal > 0 ? value / Double(goal) : 0)))
+                }
+            }
+            .frame(height: 5)
         }
     }
 }
