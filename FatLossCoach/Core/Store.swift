@@ -443,6 +443,35 @@ final class Store {
         showToast("\(meal.name) logged · \(Int(meal.kcal.rounded())) kcal 🍽️")
     }
 
+    /// Distinct recently-logged meals (most recent first, de-duped by name), for one-tap re-logging.
+    func recentMeals(limit: Int = 12) -> [MealEntry] {
+        var seen = Set<String>()
+        var out: [MealEntry] = []
+        let all = data.meals.values.flatMap { $0 }.sorted { $0.time > $1.time }
+        for m in all {
+            let key = m.name.lowercased()
+            guard !seen.contains(key) else { continue }
+            seen.insert(key); out.append(m)
+            if out.count >= limit { break }
+        }
+        return out
+    }
+
+    /// Re-log a past meal onto a given day (fresh id + timestamp).
+    func repeatMeal(_ meal: MealEntry, on day: String? = nil, slot: String? = nil) {
+        var m = meal
+        m.id = UUID().uuidString
+        m.date = day ?? today
+        m.time = Date()
+        if let slot { m.slot = slot }
+        addMeal(m)
+    }
+
+    /// Copy all of one day's meals to another day.
+    func copyMeals(from: String, to: String) {
+        for m in (data.meals[from] ?? []) { repeatMeal(m, on: to, slot: m.slot) }
+    }
+
     func deleteMeal(_ meal: MealEntry) {
         var list = data.meals[meal.date] ?? []
         list.removeAll { $0.id == meal.id }

@@ -108,6 +108,7 @@ struct NutritionView: View {
             .onAppear { flow.day = selectedDay }
             .onChange(of: selectedDay) { _, d in flow.day = d }
         MealScanCard(flow: flow)
+        CopyYesterdayCard(day: selectedDay)
         MealPlanCard(flow: flow, day: selectedDay)
         TodayMealsCard(day: selectedDay)
         Group {
@@ -502,15 +503,45 @@ struct TodayMealsCard: View {
                             }
                             Spacer()
                             Text("\(Int(m.kcal.rounded())) kcal").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.primary)
+                            Button { store.repeatMeal(m, on: store.today, slot: m.slot) } label: {
+                                Image(systemName: "arrow.counterclockwise").font(.system(size: 13)).foregroundStyle(Theme.primary)
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.leading, 6)
                             Button(role: .destructive) { store.deleteMeal(m) } label: {
                                 Image(systemName: "trash").font(.system(size: 13)).foregroundStyle(Theme.muted)
                             }
                             .buttonStyle(.plain)
-                            .padding(.leading, 6)
+                            .padding(.leading, 4)
                         }
                         .padding(.vertical, 9)
                         if i < meals.count - 1 { Divider().overlay(Theme.border) }
                     }
+                }
+            }
+        }
+    }
+}
+
+/// Shown when the selected day has no meals yet — offers to copy the previous day's meals.
+struct CopyYesterdayCard: View {
+    var day: String
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        let prev = DateKey.key(DateKey.date(day).map { $0.addingTimeInterval(-86400) } ?? Date())
+        let prevMeals = store.meals(on: prev)
+        if store.meals(on: day).isEmpty && !prevMeals.isEmpty {
+            Card {
+                HStack(spacing: 12) {
+                    Image(systemName: "arrow.counterclockwise.circle.fill").font(.system(size: 22)).foregroundStyle(Theme.primary)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Same as yesterday?").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
+                        Text("Copy \(prevMeals.count) meal\(prevMeals.count == 1 ? "" : "s") from \(WeekCalendarCard.longDay(prev))").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    }
+                    Spacer()
+                    Button("Copy") { store.copyMeals(from: prev, to: day) }
+                        .buttonStyle(PillButtonStyle())
                 }
             }
         }
