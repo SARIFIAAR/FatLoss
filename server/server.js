@@ -16,6 +16,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import * as db from "./firestore.js";
+import * as wear from "./integrations.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
 const PROJECT = process.env.FIREBASE_PROJECT_ID ?? "fat-loss-6516d";
@@ -461,6 +462,96 @@ function send(res, status, obj) {
   res.end(body);
 }
 
+function redirect(res, location) {
+  res.writeHead(302, { location, "cache-control": "no-store" });
+  res.end();
+}
+
+// ---- wearable integrations (Whoop / Oura) ---------------------------------------------------
+
+const tokenPath = (uid, vendor) => `users/${uid}/integrations/${vendor}`;
+
+/** Returns a currently-valid access token for (uid, vendor), refreshing if needed. null if not linked. */
+async function validAccessToken(uid, vendor) {
+  const tok = await db.getDoc(tokenPath(uid, vendor));
+  if (!tok?.accessToken) return null;
+  if (Date.now() < (tok.expiresAt ?? 0) - 60_000) return tok.accessToken;
+  if (!tok.refreshToken) return null;
+  const fresh = await wear.refresh(vendor, tok.refreshToken);
+  await db.setDoc(tokenPath(uid, vendor), { ...fresh, vendor, linkedAt: tok.linkedAt ?? Date.now(), updatedAt: Date.now() });
+  return fresh.accessToken;
+}
+
+/** Pull the last `days` of vendor data and normalise it. */
+async function wearableSync(uid, vendor, days = 30) {
+  const access = await validAccessToken(uid, vendor);
+  if (!access) throw new HttpError(409, `${vendor} is not connected.`);
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const data = await wear.VENDORS[vendor].pull(access, since);
+  await db.setDoc(tokenPath(uid, vendor), { lastSyncAt: Date.now() }).catch(() => {});
+  return data;
+}
+
+async function handleConnect(req, res, url) {
+  // GET /connect/status — which vendors are linked for this user + which are server-configured.
+  if (req.method === "GET" && url.pathname === "/connect/status") {
+    const { uid } = await verifyUser(req);
+    const out = {};
+    for (const v of Object.keys(wear.VENDORS)) {
+      const configured = wear.vendorConfigured(v);
+      const tok = configured && db.enabled ? await db.getDoc(tokenPath(uid, v)).catch(() => null) : null;
+      out[v] = { configured, linked: Boolean(tok?.accessToken), lastSyncAt: tok?.lastSyncAt ?? null };
+    }
+    return send(res, 200, { vendors: out });
+  }
+
+  const start = url.pathname.match(/^\/connect\/([a-z]+)\/url$/);
+  if (req.method === "GET" && start) {
+    const vendor = start[1];
+    if (!wear.VENDORS[vendor]) throw new HttpError(404, "Unknown vendor.");
+    if (!wear.vendorConfigured(vendor)) throw new HttpError(503, `${vendor} is not configured on the server.`);
+    const { uid } = await verifyUser(req);
+    const state = await wear.makeState(uid, vendor);
+    return send(res, 200, { url: await wear.authorizeUrl(vendor, state) });
+  }
+
+  const cb = url.pathname.match(/^\/connect\/([a-z]+)\/callback$/);
+  if (req.method === "GET" && cb) {
+    const vendor = cb[1];
+    const code = url.searchParams.get("code");
+    const state = url.searchParams.get("state");
+    try {
+      if (!code || !state) throw new Error("missing code/state");
+      const { uid, vendor: sv } = await wear.readState(state);
+      if (sv !== vendor) throw new Error("vendor mismatch");
+      const tokens = await wear.exchangeCode(vendor, code);
+      await db.setDoc(tokenPath(uid, vendor), { ...tokens, vendor, linkedAt: Date.now(), updatedAt: Date.now() });
+      return redirect(res, wear.appReturn(vendor, true));
+    } catch (e) {
+      console.error("connect callback:", e.message);
+      return redirect(res, wear.appReturn(vendor, false, e.message));
+    }
+  }
+
+  const sync = url.pathname.match(/^\/connect\/([a-z]+)\/sync$/);
+  if (req.method === "POST" && sync) {
+    const vendor = sync[1];
+    if (!wear.VENDORS[vendor]) throw new HttpError(404, "Unknown vendor.");
+    const { uid } = await verifyUser(req);
+    const body = await readJSON(req).catch(() => ({}));
+    return send(res, 200, await wearableSync(uid, vendor, body.days ?? 30));
+  }
+
+  const unlink = url.pathname.match(/^\/connect\/([a-z]+)\/unlink$/);
+  if (req.method === "POST" && unlink) {
+    const vendor = unlink[1];
+    const { uid } = await verifyUser(req);
+    await db.setDoc(tokenPath(uid, vendor), { accessToken: null, refreshToken: null, vendor, unlinkedAt: Date.now() }).catch(() => {});
+    return send(res, 200, { ok: true });
+  }
+  return false;
+}
+
 http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://x");
   try {
@@ -520,6 +611,11 @@ http.createServer(async (req, res) => {
     if (req.method === "GET" && m) {
       requireAdmin(req);
       return send(res, 200, await adminUser(m[1]));
+    }
+
+    if (url.pathname.startsWith("/connect/")) {
+      const handled = await handleConnect(req, res, url);
+      if (handled !== false) return;
     }
     return send(res, 404, { error: "Not found" });
   } catch (err) {

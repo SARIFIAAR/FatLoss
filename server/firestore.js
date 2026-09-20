@@ -93,6 +93,22 @@ export async function add(collection, data) {
   return call("POST", collection, { fields: encodeFields(data) });
 }
 
+/** Reads a single document by full path (e.g. `users/uid/integrations/whoop`). null if absent. */
+export async function getDoc(path) {
+  try {
+    const doc = await call("GET", path);
+    return decodeFields(doc.fields ?? {});
+  } catch (e) {
+    if (String(e.message).includes(": 404")) return null;
+    throw e;
+  }
+}
+
+/** Creates or overwrites a document at a full path with the given fields. */
+export async function setDoc(path, data) {
+  return call("PATCH", path, { fields: encodeFields(data) });
+}
+
 /** Lists every document in a collection (follows pagination). `fields` limits what comes back. */
 export async function list(collection, { fields, orderBy, pageSize = 300 } = {}) {
   const out = [];

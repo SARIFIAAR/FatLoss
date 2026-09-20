@@ -7,6 +7,7 @@ struct FatLossCoachApp: App {
     @State private var cloud = CloudSync()
     @State private var scanner = MealScanner()
     @State private var reminders = ReminderManager()
+    @State private var wearables = WearableLink()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -21,6 +22,7 @@ struct FatLossCoachApp: App {
                 .environment(cloud)
                 .environment(scanner)
                 .environment(reminders)
+                .environment(wearables)
                 .onOpenURL { store.handle(url: $0) }
                 .task {
                     cloud.attach(store: store)

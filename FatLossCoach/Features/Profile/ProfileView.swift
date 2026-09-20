@@ -14,6 +14,7 @@ struct ProfileView: View {
             GoalsCard()
             CloudCard()
             HealthCard()
+            WearableConnectCard()
             RemindersCard()
             medsCard
             AutomationCard()

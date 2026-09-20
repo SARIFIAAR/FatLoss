@@ -477,6 +477,33 @@ final class Store {
         if r.isEmpty { data.recovery.removeValue(forKey: k) } else { data.recovery[k] = r }
     }
 
+    /// Merge normalised wearable-API data (Whoop / Oura) into recovery days + workouts. Feeds the
+    /// same BodyMetrics engine as Apple Health, so the dashboard is identical (and un-estimated
+    /// once real HRV arrives). Vendor values fill in only the fields they provide.
+    func applyWearable(vendor: String, days: [String: WearableLink.Sync.Day], workouts: [WearableLink.Sync.Work]) {
+        for (day, m) in days {
+            updateRecovery(on: day) { r in
+                if let v = m.hrv, v > 0 { r.hrv = v }
+                if let v = m.rhr, v > 0 { r.rhr = v }
+                if let v = m.sleepH, v > 0 { r.sleepH = v }
+                if let v = m.deepH, v > 0 { r.deepH = v }
+                if let v = m.remH, v > 0 { r.remH = v }
+                if let v = m.resp, v > 0 { r.resp = v }
+                if let v = m.spo2, v > 0 { r.spo2 = v }
+            }
+        }
+        for w in workouts {
+            let id = "\(vendor)-\(w.date)-\(Int((w.minutes ?? 0).rounded()))-\(w.name ?? "")"
+            var list = data.workouts[w.date] ?? []
+            guard !list.contains(where: { $0.id == id }) else { continue }
+            list.append(WorkoutEntry(id: id, date: w.date, name: w.name ?? "Workout",
+                                     start: DateKey.date(w.date) ?? Date(),
+                                     minutes: w.minutes ?? 0, kcal: w.kcal, avgHR: w.avgHR))
+            data.workouts[w.date] = list
+        }
+        showToast("\(vendor.capitalized) synced ✓")
+    }
+
     func setMood(_ m: Int) {
         updateRecovery { $0.mood = m }
         let msgs = ["", "😔 Noted", "😞 Noted", "😐 Noted", "😊 Great!", "😄 Amazing!"]
