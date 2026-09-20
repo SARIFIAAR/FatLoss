@@ -373,7 +373,7 @@ struct BodyView: View {
                 Image(systemName: "waveform.path.ecg").foregroundStyle(W.vibrant)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Calibrating").font(W.label(15)).foregroundStyle(W.text)
-                    Text("Recovery unlocks after \(BodyMetrics.minCalibrationDays) nights of HRV data. Keep syncing Apple Health.")
+                    Text("Recovery unlocks after \(BodyMetrics.minCalibrationDays) nights of data. Keep syncing Apple Health — from Apple Watch or any ring/band that writes to it.")
                         .font(.system(size: 12)).foregroundStyle(W.muted)
                 }
             }
@@ -406,7 +406,8 @@ struct BodyView: View {
     private var recoveryCard: some View {
         DarkCard(accent: scores.recovery.map { $0.zone == .green ? W.green : $0.zone == .yellow ? W.yellow : W.red }) {
             CardTitle("Recovery", scores.recovery.map {
-                $0.zone == .green ? "Primed to push" : $0.zone == .yellow ? "Maintain today" : "Prioritise rest"
+                let s = $0.zone == .green ? "Primed to push" : $0.zone == .yellow ? "Maintain today" : "Prioritise rest"
+                return $0.estimated ? s + " · Estimate" : s
             } ?? "Waiting for data") { pillar = .recovery }
             DividedRows(rows: [
                 AnyView(vitalRow("HRV", scores.day.hrv, unit: "ms", history: store.bodyHistory(\.hrv), higherIsBetter: true)),
@@ -437,13 +438,15 @@ struct BodyView: View {
             color: stressColor(st.zone), fraction: Double(st.score) / 100,
             rows: [("Score", "\(st.score) / 100"), ("State", st.label)],
             bars: bars, trendMax: 100, trendSub: "stress score",
-            note: "HRV-based estimate of autonomic load vs your 28-day baseline. Not a medical measurement.")
+            note: st.estimated
+                ? "Estimate of autonomic load vs your 28-day baseline, from resting HR & breathing (your device doesn't sync HRV). Not a medical measurement."
+                : "HRV-based estimate of autonomic load vs your 28-day baseline. Not a medical measurement.")
     }
 
     @ViewBuilder private var stressCard: some View {
         if let st = scores.stress {
             DarkCard(accent: stressColor(st.zone)) {
-                CardTitle("Stress", st.label, chevron: false) {}
+                CardTitle("Stress", st.estimated ? st.label + " · Estimate" : st.label, chevron: false) {}
                 HStack(alignment: .firstTextBaseline) {
                     Text("\(st.score)").font(W.score(34)).foregroundStyle(stressColor(st.zone))
                     Text("/ 100").font(.system(size: 13)).foregroundStyle(W.muted)

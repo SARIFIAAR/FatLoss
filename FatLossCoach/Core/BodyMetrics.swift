@@ -38,6 +38,7 @@ enum BodyMetrics {
         var respScore: Double?
         var tempScore: Double?
         var spo2Score: Double?
+        var estimated: Bool = false    // true when HRV was unavailable (device doesn't sync it)
 
         enum Zone { case red, yellow, green }
         var zone: Zone { score <= 33 ? .red : score <= 66 ? .yellow : .green }
@@ -46,18 +47,23 @@ enum BodyMetrics {
     /// HRV is log-normal, so its z-score uses ln(HRV). Weights: HRV 40 · RHR 22 · sleep 18 ·
     /// resp 8 · wrist temp 8 · SpO2 4, reweighted over whichever inputs exist. Elevated resp
     /// and elevated temp count against recovery; low values are neutral.
+    ///
+    /// HRV is preferred but no longer required: devices that don't write HRV to Apple Health
+    /// (Oura, Garmin, Fitbit, Withings…) still get a score from RHR + sleep + resp, flagged
+    /// `estimated`. A score needs at least one substantial input (HRV, RHR, or sleep).
     static func recovery(day: RecoveryDay,
                          hrvHistory: [Double], rhrHistory: [Double], respHistory: [Double],
                          tempHistory: [Double] = [], spo2History: [Double] = [],
                          sleepPerformance: Double?) -> Recovery? {
-        guard let hrv = day.hrv, hrv > 0,
-              let hrvBase = baseline(hrvHistory.map(log)) else { return nil }
-
         var weights = 0.0, total = 0.0
         var out = Recovery(score: 0)
 
-        let hrvS = squash(hrvBase.z(log(hrv)))
-        out.hrvScore = hrvS; total += 0.40 * hrvS; weights += 0.40
+        if let hrv = day.hrv, hrv > 0, let hrvBase = baseline(hrvHistory.map(log)) {
+            let hrvS = squash(hrvBase.z(log(hrv)))
+            out.hrvScore = hrvS; total += 0.40 * hrvS; weights += 0.40
+        } else {
+            out.estimated = true
+        }
 
         if let rhr = day.rhr, rhr > 0, let base = baseline(rhrHistory) {
             let s = squash(-base.z(rhr))
@@ -80,6 +86,9 @@ enum BodyMetrics {
             out.spo2Score = s; total += 0.04 * s; weights += 0.04
         }
 
+        // Need at least one substantial input (HRV 0.40 / RHR 0.22 / sleep 0.18); resp/temp/SpO2
+        // alone are too thin to stand up a score.
+        guard weights >= 0.18 else { return nil }
         out.score = max(1, min(99, Int((total / weights * 100).rounded())))
         return out
     }
@@ -91,6 +100,7 @@ enum BodyMetrics {
         var hrvDrop: Double?            // component signals 0...1, for detail
         var rhrRise: Double?
         var respRise: Double?
+        var estimated: Bool = false     // true when HRV was unavailable (device doesn't sync it)
 
         enum Zone { case calm, balanced, elevated }
         var zone: Zone { score <= 33 ? .calm : score <= 66 ? .balanced : .elevated }
@@ -100,16 +110,22 @@ enum BodyMetrics {
     /// Stress as autonomic activation vs a personal 28-day baseline: HRV suppression (60%), resting
     /// HR elevation (25%), respiratory-rate elevation (15%). Grounded in the HRV-stress consensus
     /// (low HRV ↔ higher sympathetic tone), not a proprietary clinic formula.
+    ///
+    /// HRV is preferred but no longer required: without it we fall back to resting-HR (+ resp)
+    /// elevation, flagged `estimated`. Needs an autonomic HR signal (HRV or RHR) — resp alone is
+    /// too weak to stand up a stress score.
     static func stress(hrv: Double?, restingHR: Double?, resp: Double?,
                        hrvHistory: [Double], rhrHistory: [Double], respHistory: [Double]) -> Stress? {
-        guard let hrv, hrv > 0, let hrvBase = baseline(hrvHistory.map(log)) else { return nil }
-
         var weights = 0.0, total = 0.0
         var out = Stress(score: 0)
 
-        // HRV below baseline → stress. squash(−z) so a drop pushes toward 1.
-        let hrvS = squash(-hrvBase.z(log(hrv)))
-        out.hrvDrop = hrvS; total += 0.60 * hrvS; weights += 0.60
+        if let hrv, hrv > 0, let hrvBase = baseline(hrvHistory.map(log)) {
+            // HRV below baseline → stress. squash(−z) so a drop pushes toward 1.
+            let hrvS = squash(-hrvBase.z(log(hrv)))
+            out.hrvDrop = hrvS; total += 0.60 * hrvS; weights += 0.60
+        } else {
+            out.estimated = true
+        }
 
         if let r = restingHR, r > 0, let base = baseline(rhrHistory) {
             let s = squash(base.z(r))            // elevated RHR → stress
@@ -119,6 +135,8 @@ enum BodyMetrics {
             let s = squash(base.z(rr))           // elevated respiration → stress
             out.respRise = s; total += 0.15 * s; weights += 0.15
         }
+        // Require HRV or RHR (weight ≥ 0.25); resp alone (0.15) is not enough.
+        guard weights >= 0.25 else { return nil }
         out.score = max(1, min(99, Int((total / weights * 100).rounded())))
         return out
     }

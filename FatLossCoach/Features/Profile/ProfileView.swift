@@ -194,10 +194,10 @@ struct HealthCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Apple Watch — Health Sync").font(Theme.scoreS).foregroundStyle(Theme.blue)
+            Text("Wearables — Health Sync").font(Theme.scoreS).foregroundStyle(Theme.blue)
                 .padding(.bottom, 8)
             Text(health.lastSync.map { "Last synced \($0.formatted(date: .abbreviated, time: .shortened))" }
-                 ?? "Reads steps, resting HR, HRV, respiratory rate and sleep stages straight from Apple Health.")
+                 ?? "Reads steps, heart rate, HRV, sleep and more straight from Apple Health — from Apple Watch or any wearable that syncs to it.")
                 .font(.system(size: 12)).foregroundStyle(Theme.text).lineSpacing(3)
                 .padding(.bottom, 10)
             Button(health.isSyncing ? "Syncing…" : (health.hasConnected ? "Sync now" : "Connect Apple Health")) {
@@ -211,6 +211,28 @@ struct HealthCard: View {
             if let e = health.lastError {
                 Text(e).font(.system(size: 12)).foregroundStyle(Theme.red).padding(.top, 8)
             }
+
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(WearableCompat.devices, id: \.name) { d in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: d.full ? "checkmark.circle.fill" : "checkmark.circle")
+                                .font(.system(size: 13)).foregroundStyle(d.full ? Theme.primary : Theme.blue)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(d.name).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text)
+                                Text(d.note).font(.system(size: 11)).foregroundStyle(Theme.muted)
+                            }
+                        }
+                    }
+                    Text("Recovery & Stress use HRV when your device provides it (Apple Watch, Ultrahuman); on other devices they're estimated from heart rate, sleep & breathing.")
+                        .font(.system(size: 11)).foregroundStyle(Theme.muted).lineSpacing(2).padding(.top, 4)
+                }
+                .padding(.top, 8)
+            } label: {
+                Text("Compatible devices").font(.system(size: 12, weight: .heavy)).foregroundStyle(Theme.blue)
+            }
+            .tint(Theme.blue)
+            .padding(.top, 12)
 
             DisclosureGroup(isExpanded: $showManual) {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
