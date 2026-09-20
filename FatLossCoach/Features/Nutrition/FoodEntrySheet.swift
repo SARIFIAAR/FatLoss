@@ -9,12 +9,13 @@ struct FoodEntrySheet: View {
     private let date: String
     @State private var slot: String?
 
-    init(slot: String?, date: String? = nil, startWithBarcode: Bool = false, onLog: @escaping (MealEntry) -> Void, onAIEstimate: @escaping (String) -> Void) {
+    init(slot: String?, date: String? = nil, startWithBarcode: Bool = false, initialQuery: String = "", onLog: @escaping (MealEntry) -> Void, onAIEstimate: @escaping (String) -> Void) {
         self.onLog = onLog
         self.onAIEstimate = onAIEstimate
         self.startWithBarcode = startWithBarcode
         self.date = date ?? DateKey.key()
         _slot = State(initialValue: slot)
+        _query = State(initialValue: initialQuery)
     }
 
     @Environment(Store.self) private var store

@@ -154,20 +154,37 @@ final class Store {
     }
     func logCoffee(_ p: CoffeePreset, on day: String? = nil) {
         let k = day ?? today
+        // Milk/syrup drinks carry calories → also log a linked meal so Nutrition stays in sync.
+        var mealId: String? = nil
+        if p.kcal > 0 {
+            let meal = MealEntry(date: k, name: p.name, kcal: p.kcal, protein: p.protein,
+                                 carbs: p.carbs, fat: p.fat, notes: "Logged from coffee tracker", slot: "snack")
+            mealId = meal.id
+            var meals = data.meals[k] ?? []
+            meals.append(meal)
+            data.meals[k] = meals
+        }
         var list = data.caffeine[k] ?? []
-        list.append(CaffeineEntry(date: k, name: p.name, shots: p.shots, mg: p.mg))
+        list.append(CaffeineEntry(date: k, name: p.name, shots: p.shots, mg: p.mg, kcal: p.kcal, mealId: mealId))
         data.caffeine[k] = list
-        showToast("\(p.name) logged")
+        showToast(p.kcal > 0 ? "\(p.name) logged · \(Int(p.kcal.rounded())) kcal ☕️" : "\(p.name) logged ☕️")
+    }
+    /// Remove a caffeine entry's linked Nutrition meal, if any.
+    private func removeLinkedMeal(_ entry: CaffeineEntry) {
+        guard let mid = entry.mealId, var meals = data.meals[entry.date] else { return }
+        meals.removeAll { $0.id == mid }
+        if meals.isEmpty { data.meals.removeValue(forKey: entry.date) } else { data.meals[entry.date] = meals }
     }
     func removeLastCoffee(on day: String? = nil) {
         let k = day ?? today
         guard var list = data.caffeine[k], !list.isEmpty else { return }
-        list.removeLast()
+        removeLinkedMeal(list.removeLast())
         if list.isEmpty { data.caffeine.removeValue(forKey: k) } else { data.caffeine[k] = list }
     }
     func deleteCoffee(_ entry: CaffeineEntry) {
         let k = entry.date
         guard var list = data.caffeine[k] else { return }
+        removeLinkedMeal(entry)
         list.removeAll { $0.id == entry.id }
         if list.isEmpty { data.caffeine.removeValue(forKey: k) } else { data.caffeine[k] = list }
     }

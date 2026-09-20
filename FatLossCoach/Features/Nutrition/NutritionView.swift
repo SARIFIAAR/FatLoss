@@ -131,19 +131,26 @@ struct NutritionView: View {
             }
 
             Card {
-                SectionTitle("Water Tracker")
-                VStack(spacing: 2) {
-                    Text("\(ml)").font(.system(size: 52, weight: .black)).foregroundStyle(Theme.primary)
-                    Text("ml out of \(g.waterGoal.formatted())").font(.system(size: 14)).foregroundStyle(Theme.muted)
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle().fill(Theme.blue.opacity(0.18)).frame(width: 36, height: 36)
+                        Image(systemName: "drop.fill").font(.system(size: 15)).foregroundStyle(Theme.blue)
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Water").font(.system(size: 15, weight: .heavy)).foregroundStyle(Theme.text)
+                        Text("\(ml) / \(g.waterGoal.formatted()) ml").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    }
+                    Spacer()
+                    Button { store.addWater(250) } label: {
+                        Text("+250").font(.system(size: 13, weight: .bold))
+                    }.buttonStyle(PillButtonStyle())
+                    Button { store.addWater(500) } label: {
+                        Text("+500").font(.system(size: 13, weight: .bold))
+                    }.buttonStyle(PillButtonStyle())
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.top, 8)
-                WaveView(fraction: pct).padding(.vertical, 10)
-                HStack(spacing: 10) {
-                    Button("+ 250 ml") { store.addWater(250) }.buttonStyle(PrimaryButtonStyle())
-                    Button("+ 500 ml") { store.addWater(500) }.buttonStyle(PrimaryButtonStyle())
-                    Button("Reset") { store.resetWater() }.buttonStyle(SecondaryButtonStyle())
-                }
+                ProgressBar(value: pct, height: 8,
+                            fill: AnyShapeStyle(LinearGradient(colors: [Theme.accent, Theme.blue], startPoint: .leading, endPoint: .trailing)))
+                    .padding(.top, 8)
             }
 
         }
