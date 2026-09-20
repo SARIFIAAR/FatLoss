@@ -15,5 +15,6 @@ enum WearableCompat {
         Device(name: "Fitbit",       note: "Sleep, HR, SpO₂, steps (via Google Health)", full: false),
         Device(name: "Amazfit / Zepp", note: "Steps, HR, sleep, SpO₂, workouts", full: false),
         Device(name: "RingConn",     note: "Steps, sleep, resting HR, SpO₂", full: false),
+        Device(name: "WHOOP",        note: "Turn on Apple Health in the WHOOP app → limited: RHR, sleep, workouts (no HRV or steps)", full: false),
     ]
 }
