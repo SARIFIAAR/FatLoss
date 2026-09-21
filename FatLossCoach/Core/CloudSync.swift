@@ -167,6 +167,7 @@ final class CloudSync {
             let user = Auth.auth().currentUser
             var fields: [String: Any] = [
                 "json": json,
+                "ownerUid": uid,                       // pin the writer == doc owner (defense-in-depth for rules)
                 "updatedAt": Timestamp(date: data.updatedAt),
                 "deviceId": deviceID,
                 "schema": CloudMirror.schema,

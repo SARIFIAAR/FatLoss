@@ -44,6 +44,7 @@ final class CloudMirror {
                 let ref = user.collection(parts[0]).document(parts[1])
                 if var row = op.row {
                     row["updatedAt"] = now
+                    row["ownerUid"] = uid          // pin the writer so rules/cleanup can verify isolation
                     batch.setData(row, forDocument: ref)
                 } else {
                     batch.deleteDocument(ref)
