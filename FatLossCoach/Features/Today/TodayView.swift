@@ -314,10 +314,12 @@ struct WaterCard: View {
 struct SupplementsCard: View {
     @Environment(Store.self) private var store
     var body: some View {
-        Card {
+        let sel = store.data.supplementsSelected
+        let supps = sel.isEmpty ? Plan.supplements : Plan.supplements.filter { sel.contains($0.key) }
+        return Card {
             SectionTitle("Supplements")
             VStack(spacing: 0) {
-                ForEach(Array(Plan.supplements.enumerated()), id: \.element.id) { i, s in
+                ForEach(Array(supps.enumerated()), id: \.element.id) { i, s in
                     let taken = store.isSupplementTaken(s.key)
                     Button { store.toggleSupplement(s.key) } label: {
                         HStack(spacing: 10) {
@@ -339,7 +341,7 @@ struct SupplementsCard: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    if i < Plan.supplements.count - 1 { Divider().overlay(Theme.border) }
+                    if i < supps.count - 1 { Divider().overlay(Theme.border) }
                 }
             }
         }

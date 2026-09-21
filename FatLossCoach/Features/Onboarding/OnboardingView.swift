@@ -1,10 +1,23 @@
 import SwiftUI
 
-/// Plan questionnaire: nine short steps → `PlanBuilder` targets → `Store.applyIntake`.
-/// Shown on first launch for a new profile, and from Profile → "Edit my answers".
+/// Livity-style guided onboarding in the HUMANS dark theme → `PlanBuilder` targets → `Store.applyIntake`.
+/// First launch runs the full guided flow (welcome, explainers, questions, "building your plan", plan,
+/// value prop). Re-opened from Profile → "Edit my answers" it shows the questions only (skippable).
 struct OnboardingView: View {
+
+    /// One screen in the flow. Question steps host the existing questionnaire bodies; the rest are narrative.
+    private enum Step: Hashable {
+        case welcome, privacy
+        case aboutYou, goal
+        case energyExplainer
+        case activity, training
+        case bodyExplainer
+        case food, lifestyle, health, habits, supplements, devices
+        case building, summary, valueProp
+    }
+
     @State private var p: IntakeProfile
-    @State private var step: Int
+    @State private var idx: Int = 0
     @Environment(Store.self) private var store
     @Environment(\.dismiss) private var dismiss
     let onDone: (IntakeProfile) -> Void
@@ -17,12 +30,9 @@ struct OnboardingView: View {
     @State private var goalText: String
     @State private var birthYearText: String
 
-    static let titles = ["About you", "Your goal", "Daily activity", "Training", "Food", "Lifestyle", "Health", "Devices", "Your plan"]
-
     init(existing: IntakeProfile? = nil, canSkip: Bool = false, onDone: @escaping (IntakeProfile) -> Void) {
         let start = existing ?? IntakeProfile()
         _p = State(initialValue: start)
-        _step = State(initialValue: UserDefaults.standard.integer(forKey: "onboardingStep"))
         _heightText = State(initialValue: Fmt.num(start.heightCm))
         _weightText = State(initialValue: Fmt.num(start.weightKg))
         _waistText = State(initialValue: start.waistCm.map(Fmt.num) ?? "")
@@ -32,83 +42,196 @@ struct OnboardingView: View {
         self.canSkip = canSkip
     }
 
-    private var last: Int { Self.titles.count - 1 }
+    /// Editing an existing profile from Profile → questions only, no narrative or paywall beats.
+    private var isEditing: Bool { canSkip }
+
+    private var steps: [Step] {
+        isEditing
+            ? [.aboutYou, .goal, .activity, .training, .food, .lifestyle, .health, .habits, .supplements, .devices, .summary]
+            : [.welcome, .privacy, .aboutYou, .goal, .energyExplainer, .activity, .training,
+               .bodyExplainer, .food, .lifestyle, .health, .habits, .supplements, .devices, .building, .summary, .valueProp]
+    }
+
+    private var current: Step { steps[min(idx, steps.count - 1)] }
+    private var isLast: Bool { idx >= steps.count - 1 }
+    private var progress: Double { Double(idx + 1) / Double(steps.count) }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    switch step {
-                    case 0: aboutYou
-                    case 1: goal
-                    case 2: activity
-                    case 3: training
-                    case 4: food
-                    case 5: lifestyle
-                    case 6: health
-                    case 7: devices
-                    default: summary
-                    }
-                }
-                .padding(20)
-                .padding(.bottom, 20)
+        Group {
+            switch current {
+            case .welcome:         welcomeScreen
+            case .privacy:         privacyScreen
+            case .energyExplainer: energyScreen
+            case .bodyExplainer:   bodyScreen
+            case .building:        OnboardingLoader(name: p.name) { advance() }
+            case .valueProp:       valuePropScreen
+            case .summary:         summaryScaffold
+            default:               questionScaffold(current)
             }
-            .scrollDismissesKeyboard(.interactively)
-            footer
         }
         .background(Theme.bg)
         .interactiveDismissDisabled(!canSkip)
+        .onAppear {
+            // Debug: `-obStep habits` (etc.) jumps straight to a step for screenshots/QA.
+            guard !didJump else { return }
+            didJump = true
+            if let name = UserDefaults.standard.string(forKey: "obStep"),
+               let i = steps.firstIndex(where: { "\($0)" == name }) { idx = i }
+        }
     }
 
-    // MARK: chrome
+    @State private var didJump = false
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Step \(step + 1) of \(Self.titles.count)").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accent)
-                Spacer()
-                if canSkip { Button("Close") { dismiss() }.font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.accent) }
+    // MARK: flow control
+
+    private func advance() {
+        commitNumbers()
+        if isLast { finish() } else { withAnimation(.easeInOut(duration: 0.25)) { idx += 1 } }
+    }
+    private func back() { withAnimation(.easeInOut(duration: 0.25)) { idx = max(0, idx - 1) } }
+    private func finish() { commitNumbers(); onDone(p); dismiss() }
+
+    private func valid(_ step: Step) -> Bool {
+        switch step {
+        case .aboutYou: return !p.name.trimmingCharacters(in: .whitespaces).isEmpty && (Fmt.parse(weightText) ?? 0) >= 35 && (Fmt.parse(heightText) ?? 0) >= 120 && (Int(birthYearText) ?? 0) > 1920
+        case .goal:     return (Fmt.parse(goalText) ?? 0) >= 35
+        default:        return true
+        }
+    }
+
+    private func title(_ step: Step) -> String {
+        switch step {
+        case .aboutYou:  return "About you"
+        case .goal:      return "Your goal"
+        case .activity:  return "Daily activity"
+        case .training:  return "Training"
+        case .food:      return "Food"
+        case .lifestyle: return "Lifestyle"
+        case .health:    return "Health"
+        case .habits:    return "Habits to build"
+        case .supplements: return "Supplements"
+        case .devices:   return "Devices"
+        case .summary:   return "Your plan"
+        default:         return ""
+        }
+    }
+
+    // MARK: question screens (host the existing questionnaire bodies)
+
+    @ViewBuilder private func questionScaffold(_ step: Step) -> some View {
+        OnboardingScaffold(progress: progress, title: title(step),
+                           showBack: idx > 0, canClose: canSkip, continueEnabled: valid(step),
+                           onBack: back, onClose: { dismiss() }, onContinue: advance) {
+            switch step {
+            case .aboutYou:  aboutYou
+            case .goal:      goal
+            case .activity:  activity
+            case .training:  training
+            case .food:      food
+            case .lifestyle: lifestyle
+            case .health:    health
+            case .habits:    habitsStep
+            case .supplements: supplementsStep
+            case .devices:   devices
+            default:         EmptyView()
             }
-            Text(Self.titles[step]).font(Theme.titleL).foregroundStyle(.white)
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.2))
-                    Capsule().fill(Theme.accent).frame(width: geo.size.width * Double(step + 1) / Double(Self.titles.count))
+        }
+    }
+
+    private var summaryScaffold: some View {
+        OnboardingScaffold(progress: progress, title: title(.summary),
+                           showBack: idx > 0, canClose: canSkip,
+                           continueTitle: isLast ? (p.completedAt == nil ? "Start my plan" : "Save my plan") : "Looks good",
+                           continueEnabled: true,
+                           onBack: back, onClose: { dismiss() }, onContinue: advance) {
+            summary
+        }
+    }
+
+    // MARK: narrative screens
+
+    private var welcomeScreen: some View {
+        OnboardingIntro(
+            headline: "Pro-grade health, from the watch you already wear.",
+            body_: "Recovery, sleep, strain and energy — finally in one place. No extra hardware.",
+            primaryTitle: "Get started",
+            progress: progress,
+            onPrimary: advance,
+            hero: {
+                VStack(spacing: 18) {
+                    Image("SplashLogo").resizable().scaledToFit().frame(height: 76)
+                    FlowLayout(spacing: 8) {
+                        OBDeviceChip(icon: "applewatch", name: "Apple Watch")
+                        OBDeviceChip(icon: "waveform.path.ecg", name: "WHOOP")
+                        OBDeviceChip(icon: "circle.circle", name: "Oura")
+                        OBDeviceChip(icon: "figure.run", name: "Garmin")
+                    }
+                    .frame(maxWidth: 320)
                 }
             }
-            .frame(height: 6)
-            .animation(.easeInOut, value: step)
-        }
-        .padding(20)
-        .background(Theme.primary)
+        )
     }
 
-    private var footer: some View {
-        HStack(spacing: 12) {
-            if step > 0 {
-                Button("Back") { withAnimation { step -= 1 } }.buttonStyle(SecondaryButtonStyle())
-            }
-            if step < last {
-                Button("Continue") { commitNumbers(); withAnimation { step += 1 } }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .disabled(!stepValid)
-                    .opacity(stepValid ? 1 : 0.5)
-            } else {
-                Button(p.completedAt == nil ? "Start my plan" : "Save my plan") { commitNumbers(); onDone(p); dismiss() }
-                    .buttonStyle(PrimaryButtonStyle())
-            }
-        }
-        .padding(16)
-        .background(Theme.card)
+    private var privacyScreen: some View {
+        OnboardingIntro(
+            icon: "lock.shield.fill",
+            headline: "Private by design.",
+            body_: "Your answers build your plan on this device. We never sell your data, and health readings stay on your phone unless you choose to back them up.",
+            primaryTitle: "Continue",
+            showBack: true, progress: progress,
+            onBack: back, onPrimary: advance
+        )
     }
 
-    private var stepValid: Bool {
-        switch step {
-        case 0: return !p.name.trimmingCharacters(in: .whitespaces).isEmpty && (Fmt.parse(weightText) ?? 0) >= 35 && (Fmt.parse(heightText) ?? 0) >= 120 && (Int(birthYearText) ?? 0) > 1920
-        case 1: return (Fmt.parse(goalText) ?? 0) >= 35
-        default: return true
-        }
+    private var energyScreen: some View {
+        OnboardingIntro(
+            eyebrow: "How it works",
+            icon: "flame.fill", tint: Theme.orange,
+            headline: "Fat loss is an energy balance.",
+            body_: "We estimate what you burn, set a deficit you can actually keep, and adjust it every week as your weight moves.",
+            features: [
+                OBFeature(icon: "camera.viewfinder", title: "Snap your meals", detail: "Photo, barcode or describe it — calories and macros in seconds.", tint: Theme.primary),
+                OBFeature(icon: "arrow.left.arrow.right", title: "Energy Balance", detail: "Eaten vs burned, with your deficit shown live.", tint: Theme.blue),
+                OBFeature(icon: "chart.line.uptrend.xyaxis", title: "Weekly auto-adjust", detail: "Targets re-tune as the scale changes — no plateaus.", tint: Theme.orange)
+            ],
+            primaryTitle: "Continue",
+            showBack: true, progress: progress,
+            onBack: back, onPrimary: advance
+        )
+    }
+
+    private var bodyScreen: some View {
+        OnboardingIntro(
+            eyebrow: "Your body, scored",
+            headline: "Recovery, Strain & Sleep — every day.",
+            body_: "From your watch's heart-rate, HRV and sleep, HUMANS scores how recovered you are and how hard to train today.",
+            features: [
+                OBFeature(icon: "heart.fill", title: "Recovery", detail: "HRV, resting HR and sleep against your own baseline.", tint: Theme.primary),
+                OBFeature(icon: "bolt.fill", title: "Strain", detail: "How much load you've taken on — and your target for today.", tint: Theme.blue),
+                OBFeature(icon: "bed.double.fill", title: "Sleep coach", detail: "Sleep debt and a bedtime that pays it back.", tint: Color(hex: 0x9B8CFF))
+            ],
+            primaryTitle: "Continue",
+            showBack: true, progress: progress,
+            onBack: back, onPrimary: advance,
+            hero: {
+                HStack(spacing: 22) {
+                    OBMiniGauge(value: 0.47, display: "47%", label: "Sleep", tint: Theme.blue)
+                    OBMiniGauge(value: 0.62, display: "62%", label: "Recovery", tint: Theme.orange)
+                    OBMiniGauge(value: 0.69, display: "14.5", label: "Strain", tint: Theme.primary)
+                }
+            }
+        )
+    }
+
+    private var valuePropScreen: some View {
+        OnboardingIntro(
+            icon: "checkmark.seal.fill",
+            headline: p.name.isEmpty ? "You're all set." : "You're all set, \(p.name).",
+            body_: "Your plan is ready. Log a meal, wear your watch, and check the Body tab each morning — the numbers get sharper the more you use it.",
+            primaryTitle: "Start HUMANS",
+            showBack: true, progress: progress,
+            onBack: back, onPrimary: advance
+        )
     }
 
     private func commitNumbers() {
@@ -218,6 +341,53 @@ struct OnboardingView: View {
             field("Supplements you already take (optional)") { TextField("e.g. vitamin D, omega-3", text: $p.currentSupplements).textFieldStyle(.roundedBorder) }
             Toggle(isOn: $p.smoker) { Text("I smoke or vape").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text) }.tint(Theme.primary)
             Toggle(isOn: $p.doctorCleared) { Text("A doctor has cleared me for diet and exercise").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text) }.tint(Theme.primary)
+        }
+    }
+
+    // Buildable habit choices offered in onboarding (curated from the full HabitMetric catalog).
+    private static let habitChoices: [HabitMetric] =
+        [.steps, .water, .protein, .sleepDuration, .meditation, .sunExposure, .floors, .workoutCount, .mood]
+
+    private var habitsStep: some View {
+        Group {
+            intro("Pick a few daily habits to build. We'll add them to your tracker — you can change them any time.")
+            chips(Self.habitChoices, selected: $p.wantedHabits)
+            if p.wantedHabits.isEmpty {
+                Text("No pressure — leave this empty and we'll start you with Steps, Water and Protein.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.muted).lineSpacing(3)
+            }
+        }
+    }
+
+    private var supplementsStep: some View {
+        Group {
+            intro("Taking any of these? Tick the ones you want to track each day — we'll show just those on your Today screen.")
+            VStack(spacing: 8) {
+                ForEach(Plan.supplements) { s in
+                    let on = p.supplementsWanted.contains(s.key)
+                    Button {
+                        if on { p.supplementsWanted.remove(s.key) } else { p.supplementsWanted.insert(s.key) }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 20)).foregroundStyle(on ? Theme.primary : Theme.muted)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(s.name).font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
+                                Text("\(s.dose) · \(s.when)").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                            }
+                            Spacer()
+                        }
+                        .padding(12)
+                        .background(on ? Theme.primary.opacity(0.10) : Theme.card)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(on ? Theme.primary : Theme.border, lineWidth: 1.5))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            field("Anything else you take? (optional)") {
+                TextField("e.g. creatine, vitamin C", text: $p.currentSupplements).textFieldStyle(.roundedBorder)
+            }
         }
     }
 
@@ -397,6 +567,10 @@ struct OnboardingView: View {
         }
     }
 }
+
+/// Let the habit catalog flow through the shared chip control.
+extension HabitMetric: Identifiable { public var id: String { rawValue } }
+extension HabitMetric: LabeledOption { var label: String { title } }
 
 /// Options with a display label (the intake enums).
 protocol LabeledOption { var label: String { get } }

@@ -101,6 +101,9 @@ struct IntakeProfile: Codable, Hashable {
     var currentSupplements = ""
     var doctorCleared = false
     var smoker = false
+    // Personalization — habits to build & supplements to track (seed the tracker on first plan)
+    var wantedHabits: Set<HabitMetric> = []
+    var supplementsWanted: Set<String> = []      // Plan.supplements keys
     // Devices
     var hasAppleWatch = false
     var completedAt: Date? = nil
@@ -132,6 +135,7 @@ struct IntakeProfile: Codable, Hashable {
         mood = c.value(.mood, default: .good); anxiety = c.value(.anxiety, default: .rarely)
         currentSupplements = c.value(.currentSupplements, default: ""); doctorCleared = c.value(.doctorCleared, default: false)
         smoker = c.value(.smoker, default: false); hasAppleWatch = c.value(.hasAppleWatch, default: false)
+        wantedHabits = c.value(.wantedHabits, default: []); supplementsWanted = c.value(.supplementsWanted, default: [])
         completedAt = c.value(.completedAt, default: nil)
     }
 }

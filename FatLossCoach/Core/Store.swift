@@ -343,6 +343,17 @@ final class Store {
         d.goals = PlanBuilder.goals(for: p, existing: d.goals)
         d.reminders.startHour = min(max(p.wakeHour + 1, 6), 12)
         d.reminders.endHour = min(max(p.bedHour - 1, 18), 23)
+        // Seed the habit tracker from the habits the user chose in onboarding (only before they curate).
+        if !p.wantedHabits.isEmpty && !d.didSeedHabits && d.habitDefs.isEmpty {
+            let palette: [UInt32] = [0x43CB00, 0x4CA9E8, 0xA96CF0, 0xF0C930, 0xFF6B6B, 0x2DD4BF, 0xF59E0B]
+            let chosen = HabitMetric.allCases.filter { p.wantedHabits.contains($0) }   // stable order
+            d.habitDefs = chosen.enumerated().map { i, m in HabitDef(metric: m, colorHex: palette[i % palette.count]) }
+            d.didSeedHabits = true
+        }
+        // Track only the supplements the user selected (empty = show all, preserves old behavior).
+        if !p.supplementsWanted.isEmpty {
+            d.supplementsSelected = Plan.supplements.map(\.key).filter { p.supplementsWanted.contains($0) }
+        }
         data = d
         if data.weightLogs.isEmpty || (currentWeight ?? 0) != p.weightKg { _ = logWeight(p.weightKg) }
         if let w = p.waistCm, data.waistLogs.last?.value != w { _ = logWaist(w) }
