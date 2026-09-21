@@ -43,6 +43,22 @@ final class CloudSync {
               Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil else { return }
         didConfigure = true
         FirebaseApp.configure()
+        installBootstrap()
+    }
+
+    /// One-time-per-install cleanup for the reinstall gotcha: iOS preserves BOTH the Firebase Auth
+    /// session and our Keychain isolation marker across app *deletion*, so a reinstall would silently
+    /// auto-resume the last signed-in account (and, pre-fix, could adopt its residual local data). The
+    /// `installBootstrapped` flag lives in UserDefaults, which IS cleared on uninstall (the Keychain is
+    /// not) — so on the first launch of a fresh install we sign out once and clear the marker, forcing a
+    /// clean login. Mirrors the SurgiMD build-63 AppDelegate bootstrap. Runs before the auth listener is
+    /// attached (in `attach`), so this sign-out happens before any snapshot/merge could run.
+    private static func installBootstrap() {
+        let key = "installBootstrapped"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        try? Auth.auth().signOut()
+        Keychain.delete(markerKey)
     }
 
     func attach(store: Store) {
@@ -54,16 +70,46 @@ final class CloudSync {
         }
     }
 
+    /// Keychain key for the uid that owns the on-device `AppData`. ThisDeviceOnly so a backup/filesystem
+    /// attacker can't edit it to force adoption of another account's residual data.
+    private static let markerKey = "localDataOwnerUID"
+
     private func handleAuth(_ user: User?) {
         userID = user?.uid
         email = user?.email
         listener?.remove()
         listener = nil
         guard let user else { status = "Not signed in"; return }
+        // Account isolation MUST run before the snapshot listener attaches / any merge happens, so a
+        // different account never sees or re-uploads the previous user's local data.
+        prepareForAccount(user.uid)
         status = "Connecting…"
         listener = docRef(user.uid).addSnapshotListener { [weak self] snap, error in
             Task { @MainActor in self?.handleSnapshot(snap, error) }
         }
+    }
+
+    /// Enforce local-data account isolation for the account that just signed in.
+    ///
+    /// - marker == uid  → same owner: keep local data (offline edits sync up normally).
+    /// - marker != uid  → a *different* account owns the on-device store: WIPE local to empty, clear the
+    ///                    pending push + this account's mirror SHA cache, then stamp the new marker. After
+    ///                    the wipe `store.snapshot()` is empty, so the `!snap.exists` seed path can only
+    ///                    push an empty blob — no foreign data reaches `users/{newUid}`.
+    /// - marker == nil  → fresh install / previously-unauthed local-only use: ADOPT the current local data
+    ///                    for this uid (stamp the marker, no wipe) so offline Free users keep their data.
+    private func prepareForAccount(_ uid: String) {
+        let marker = Keychain.get(Self.markerKey)
+        if marker == uid { return }                       // same owner — nothing to do
+        if marker != nil {                                // different account owns the local store
+            pushTask?.cancel()                            // drop any queued push of the previous user's data
+            pushTask = nil
+            remoteHasProfile = false
+            store?.resetLocalData()                       // local is now empty
+            mirror.clearCache(for: uid)                   // no stale row hashes for the incoming account
+        }
+        // marker == nil → adopt (fresh/local-only): fall through to stamp, no wipe.
+        Keychain.set(uid, for: Self.markerKey)
     }
 
     private func docRef(_ uid: String) -> DocumentReference {

@@ -183,6 +183,14 @@ final class CloudMirror {
 
     private func cacheKey(_ uid: String) -> String { "mirror-v\(Self.schema)-\(uid)" }
 
+    /// Drop the in-memory + persisted per-uid row-hash cache. Called during account-isolation wipe so a
+    /// freshly-wiped local store can't be diffed against a previous account's hashes and skip writes.
+    func clearCache(for uid: String) {
+        if hashesUID == uid { hashes = [:]; hashesUID = nil }
+        // Clear every schema version's cache key for this uid, not just the current one.
+        for v in 1...Self.schema { UserDefaults.standard.removeObject(forKey: "mirror-v\(v)-\(uid)") }
+    }
+
     private func loadCache(_ uid: String) {
         guard hashesUID != uid else { return }
         hashesUID = uid

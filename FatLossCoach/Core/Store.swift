@@ -94,6 +94,31 @@ final class Store {
         WidgetSync.publish(from: self)
     }
 
+    /// Wipe all on-device data to a clean state. Used by account-isolation when a different Apple ID
+    /// signs in on this device (`CloudSync.prepareForAccount`) so the new user never sees the previous
+    /// user's habits / supplements / medications / meals. Overwrites `fatloss-data.json` on disk too.
+    /// Deliberately NOT called on sign-out — the app is a usable offline/local-only tier.
+    func resetLocalData() {
+        isApplyingRemote = true          // don't echo this wipe back to the cloud as a user edit
+        let fresh = AppData()
+        data = fresh
+        lastModified = fresh.updatedAt
+        settingsModified = fresh.settingsUpdatedAt
+        isApplyingRemote = false
+        // Overwrite the file immediately (don't wait for the debounced save) and drop any pending save.
+        saveTask?.cancel()
+        do {
+            let raw = try Self.encoder.encode(snapshot())
+            try raw.write(to: fileURL, options: .atomic)
+        } catch {
+            // If the write fails, remove the file so a stale blob can't be reloaded on next launch.
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+        // Device-level UX counter is not account data, but reset it so it can't leak across accounts.
+        UserDefaults.standard.removeObject(forKey: "aiLogCount")
+        WidgetSync.publish(from: self)
+    }
+
     func exportJSON() -> String {
         let e = JSONEncoder()
         e.dateEncodingStrategy = .iso8601
