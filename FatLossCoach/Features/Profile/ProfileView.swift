@@ -39,7 +39,7 @@ struct ProfileView: View {
                     .frame(width: 72, height: 72).background(Theme.primary).clipShape(Circle())
                 VStack(spacing: 2) {
                     Text(me.map { $0.name.isEmpty ? "Fat Loss Coach" : $0.name } ?? "Fat Loss Coach").font(Theme.titleL).foregroundStyle(Theme.text)
-                    Text(me.map { "\($0.sex.label) · \($0.age) yrs · \(Fmt.num($0.heightCm)) cm" } ?? "Male · 49 yrs · 189 cm").font(.system(size: 14)).foregroundStyle(Theme.muted)
+                    Text(me.map { "\($0.sex.label) · \($0.age) yrs · \(Fmt.num($0.heightCm)) cm" } ?? "Set up your profile").font(.system(size: 14)).foregroundStyle(Theme.muted)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -76,20 +76,24 @@ struct ProfileView: View {
         }
     }
 
-    private var medsCard: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Medications — Important").font(Theme.scoreS).foregroundStyle(Theme.orange)
-            Text("**Wellbutrin (Bupropion) 300mg** — Suppresses appetite, boosts dopamine. Do NOT go below 1,200 kcal/day.")
-            Text("**Brintellix (Vortioxetine) 20mg** — Weight-neutral. No dietary restrictions.")
-            Text("Consult your doctor before any major dietary changes.")
-                .font(.system(size: 12)).foregroundStyle(Theme.muted)
+    /// Shows the signed-in user's OWN medications (entered in onboarding), never hardcoded content.
+    /// Renders nothing when the user hasn't entered any.
+    @ViewBuilder private var medsCard: some View {
+        let meds = (store.data.intake?.medications ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !meds.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Your medications").font(Theme.scoreS).foregroundStyle(Theme.orange)
+                Text(meds).font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
+                Text("Some medications affect appetite, water balance or energy. Talk to your doctor before any major dietary change.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
+            }
+            .font(.system(size: 13)).foregroundStyle(Theme.text).lineSpacing(3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(Color.adaptive(light: 0xFFF8F0, dark: 0x2A1F14))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.orange, lineWidth: 1.5))
         }
-        .font(.system(size: 13)).foregroundStyle(Theme.text).lineSpacing(3)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(Color.adaptive(light: 0xFFF8F0, dark: 0x2A1F14))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.orange, lineWidth: 1.5))
     }
 }
 
