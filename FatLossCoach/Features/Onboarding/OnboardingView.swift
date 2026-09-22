@@ -447,15 +447,24 @@ struct OnboardingView: View {
     // MARK: controls
 
     private func intro(_ text: String) -> some View {
-        Text(text).font(.system(size: 14)).foregroundStyle(Theme.muted).lineSpacing(4)
+        Text(text).font(.system(size: 15)).foregroundStyle(Theme.muted).lineSpacing(5)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.bottom, 2)
     }
 
     private func field<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(label).font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.text)
+        VStack(alignment: .leading, spacing: 10) {
+            Text(label).font(.system(size: 13, weight: .heavy)).foregroundStyle(Theme.text)
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// A dark, on-brand text field — replaces the light `.roundedBorder` system control everywhere.
+    private func styledField(_ text: Binding<String>, _ placeholder: String,
+                             axis: Axis = .horizontal, lines: ClosedRange<Int>? = nil,
+                             caps: TextInputAutocapitalization = .sentences) -> some View {
+        OBTextField(text: text, placeholder: placeholder, axis: axis, lines: lines, caps: caps)
     }
 
     private func row(_ label: String, _ value: String) -> some View {
