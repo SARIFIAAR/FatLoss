@@ -13,6 +13,17 @@ struct Supplement: Identifiable, Hashable {
     let dose: String
     let when: String
     var id: String { key }
+
+    /// Monoline SF Symbol for onboarding rows (P1-4) — matches the device-chip / explainer icon quality.
+    var icon: String {
+        switch key {
+        case "vd3": return "sun.max.fill"          // Vitamin D3
+        case "o3":  return "fish.fill"             // Omega-3
+        case "mg":  return "moon.zzz.fill"         // Magnesium (at night)
+        case "wh":  return "dumbbell.fill"         // Whey (post-workout)
+        default:    return "pills.fill"
+        }
+    }
 }
 
 struct Exercise: Identifiable, Hashable {

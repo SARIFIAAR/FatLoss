@@ -1,4 +1,5 @@
 import SwiftUI
+import AuthenticationServices
 
 // Reusable presentational pieces for the Livity-class guided onboarding, in the HUMANS dark theme.
 // Full-bleed dark screens, one focus each, an ambient hero bloom, pinned CTA. The gauges and
@@ -55,6 +56,7 @@ struct OnboardingScaffold<Content: View>: View {
     var canClose: Bool = false
     var continueTitle: String = "Continue"
     var continueEnabled: Bool = true
+    var scrollAnchor: UnitPoint? = nil   // debug: start scrolled to a position (e.g. .bottom for screenshots)
     var onBack: () -> Void
     var onClose: (() -> Void)? = nil
     var onContinue: () -> Void
@@ -107,13 +109,15 @@ struct OnboardingScaffold<Content: View>: View {
                     .padding(.bottom, 28)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .modifier(ScrollStartAnchor(anchor: scrollAnchor))
 
                 // Pinned CTA over a soft fade so content scrolls under it, not into it.
+                // P1-3: when genuinely incomplete the CTA is a flat inert grey (no emerald saturation),
+                // so "disabled" reads as inert rather than as a dimmed active button.
                 OBFooter {
                     Button(continueTitle) { onContinue() }
-                        .buttonStyle(PrimaryButtonStyle())
+                        .buttonStyle(PrimaryButtonStyle(color: continueEnabled ? Theme.primary : Color(hex: 0x2A343A)))
                         .disabled(!continueEnabled)
-                        .opacity(continueEnabled ? 1 : 0.45)
                         .animation(.easeInOut(duration: 0.2), value: continueEnabled)
                 }
             }
@@ -502,6 +506,8 @@ struct OnboardingLoader: View {
 // MARK: - Text field
 
 /// Dark, on-brand text field — replaces the light system `.roundedBorder` control across onboarding.
+/// P1-1: sits on a RAISED card surface (#20292F) with a visible 1px hairline (#2C3940), a properly
+/// muted placeholder and an emerald focus ring, so it reads as a tappable field, not a hole in the page.
 /// Supports single-line and growing multi-line (axis: .vertical + lines range).
 struct OBTextField: View {
     @Binding var text: String
@@ -509,25 +515,289 @@ struct OBTextField: View {
     var axis: Axis = .horizontal
     var lines: ClosedRange<Int>? = nil
     var caps: TextInputAutocapitalization = .sentences
+    var keyboard: UIKeyboardType = .default
+
+    @FocusState private var focused: Bool
+
+    private static let surface = Color(hex: 0x20292F)   // raised field fill
+    private static let hairline = Color(hex: 0x2C3940)  // visible 1px edge
 
     var body: some View {
         Group {
             if axis == .vertical {
-                TextField(placeholder, text: $text, axis: .vertical)
+                TextField("", text: $text, axis: .vertical)
                     .lineLimit(lines ?? 1...4)
             } else {
-                TextField(placeholder, text: $text)
+                TextField("", text: $text)
             }
         }
+        // Muted placeholder rendered by us (SwiftUI's default is too dim on this surface).
+        .overlay(alignment: .leading) {
+            if text.isEmpty {
+                Text(placeholder)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Theme.muted)
+                    .padding(.leading, 14)
+                    .allowsHitTesting(false)
+            }
+        }
+        .focused($focused)
+        .keyboardType(keyboard)
         .textInputAutocapitalization(caps)
         .autocorrectionDisabled(false)
         .font(.system(size: 15, weight: .semibold))
         .foregroundStyle(Theme.text)
         .tint(Theme.primary)
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(Theme.card2)
+        .padding(.vertical, 13)
+        .background(Self.surface)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.border, lineWidth: 1))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(focused ? Theme.primary : Self.hairline, lineWidth: focused ? 1.6 : 1)
+        )
+        .shadow(color: focused ? Theme.primary.opacity(0.28) : .clear, radius: focused ? 6 : 0)
+        .animation(.easeInOut(duration: 0.15), value: focused)
+    }
+}
+
+/// Debug helper: pins a scroll view's initial anchor (used to screenshot below-the-fold content).
+private struct ScrollStartAnchor: ViewModifier {
+    var anchor: UnitPoint?
+    func body(content: Content) -> some View {
+        if let anchor { content.defaultScrollAnchor(anchor) } else { content }
+    }
+}
+
+// MARK: - Collision confirm (guest → existing account)
+
+/// One-line confirm shown when a guest who entered a plan signs into an account that already has one.
+/// Default action keeps the saved (cloud) plan; the secondary keeps the just-entered answers.
+/// Reused by onboarding AND by the main app (Profile sign-in after onboarding).
+struct CollisionConfirmView: View {
+    var onUseSaved: () -> Void
+    var onKeepEntered: () -> Void
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.6).ignoresSafeArea()
+            VStack(spacing: 16) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 30, weight: .semibold)).foregroundStyle(Theme.primary)
+                Text("You already have a HUMANS plan on this account. Use your saved plan?")
+                    .font(.system(size: 16, weight: .bold)).foregroundStyle(Theme.text)
+                    .multilineTextAlignment(.center).lineSpacing(3)
+                VStack(spacing: 10) {
+                    Button("Use saved plan") { onUseSaved() }
+                        .buttonStyle(PrimaryButtonStyle())
+                    Button("Keep what I just entered") { onKeepEntered() }
+                        .font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.muted)
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: 320)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Theme.border, lineWidth: 1))
+            .padding(28)
+        }
+        .transition(.opacity)
+    }
+}
+
+// MARK: - Sign in with Apple screen (auth-first flow, build 52)
+
+/// Marketing → THIS → questionnaire. No profile data is collected before an identity exists to own it.
+/// Native Apple button (HIG: never restyled into our emerald button). "Continue without an account" is a
+/// quiet low-emphasis link (ALLOW-GUEST). Factual trust footnote — no health/outcome claims.
+struct OnboardingSignIn: View {
+    var progress: Double
+    var isWorking: Bool                       // spinner while the initial cloud fetch resolves the branch
+    var onRequest: (ASAuthorizationAppleIDRequest) -> Void
+    var onCompletion: (Result<ASAuthorization, Error>) -> Void
+    var onGuest: () -> Void
+    var onBack: (() -> Void)? = nil
+    var errorText: String? = nil
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack {
+            OBAmbient()
+            VStack(spacing: 0) {
+                HStack(spacing: 14) {
+                    if let onBack {
+                        Button { onBack() } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 15, weight: .heavy)).foregroundStyle(Theme.text)
+                                .frame(width: 30, height: 30)
+                                .background(Color.white.opacity(0.06), in: Circle())
+                        }.accessibilityLabel("Back")
+                    }
+                    OBProgressRail(value: progress)
+                }
+                .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 6)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 22) {
+                        OBIconHero(icon: "icloud.fill")
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.top, 16)
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("SAVE YOUR PLAN")
+                                .font(.system(size: 12, weight: .heavy)).kerning(1.4)
+                                .foregroundStyle(Theme.primary)
+                            Text("Keep your plan on every device.")
+                                .font(Theme.score(34)).foregroundStyle(Theme.text)
+                                .lineSpacing(2).fixedSize(horizontal: false, vertical: true)
+                            Text("Sign in so your plan is reinstall-safe and syncs across your iPhone and iPad. Your data stays private to your account.")
+                                .font(.system(size: 16)).foregroundStyle(Theme.muted).lineSpacing(6)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(.horizontal, 20).padding(.bottom, 20)
+                }
+
+                OBFooter {
+                    VStack(spacing: 14) {
+                        if let errorText {
+                            Text(errorText).font(.system(size: 12)).foregroundStyle(Theme.red)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        ZStack {
+                            // Native Apple styling — NOT restyled (HIG). Only dimmed while resolving.
+                            SignInWithAppleButton(.signIn, onRequest: onRequest, onCompletion: onCompletion)
+                                .signInWithAppleButtonStyle(.white)
+                                .frame(height: 50)
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .opacity(isWorking ? 0.5 : 1)
+                                .disabled(isWorking)
+                            if isWorking { ProgressView().tint(.black) }
+                        }
+                        Button("Continue without an account") { onGuest() }
+                            .font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.muted)
+                            .disabled(isWorking)
+
+                        Text("Sign in with Apple uses only your Apple ID. We don't post anything or use your data for ads.")
+                            .font(.system(size: 11)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
+                            .lineSpacing(2)
+                            .padding(.top, 2)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Connect-your-device step
+
+/// One connectable/coming-soon device card for the connect step. Leading monoline glyph, title, note,
+/// and a trailing state (Connect button / Connected seal / Coming soon badge / phone-only chevron).
+struct OBDeviceCard<Trailing: View>: View {
+    var icon: String
+    var title: String
+    var note: String
+    var tint: Color = Theme.primary
+    var comingSoon: Bool = false
+    var onTap: (() -> Void)? = nil
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        Button { onTap?() } label: { content }
+            .buttonStyle(.plain)
+            .disabled(onTap == nil)
+    }
+
+    private var content: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(tint.opacity(0.16)).frame(width: 46, height: 46)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(tint.opacity(0.28), lineWidth: 1).frame(width: 46, height: 46)
+                Image(systemName: icon).font(.system(size: 20, weight: .semibold)).foregroundStyle(tint)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Text(title).font(.system(size: 16, weight: .heavy)).foregroundStyle(Theme.text)
+                    if comingSoon {
+                        Text("COMING SOON").font(.system(size: 9, weight: .heavy)).kerning(0.8)
+                            .foregroundStyle(Theme.muted)
+                            .padding(.vertical, 3).padding(.horizontal, 7)
+                            .background(Color.white.opacity(0.07), in: Capsule())
+                    }
+                }
+                Text(note).font(.system(size: 13)).foregroundStyle(Theme.muted).lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            trailing
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(15)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(LinearGradient(colors: [.white.opacity(0.10), .white.opacity(0.02)],
+                                       startPoint: .top, endPoint: .bottom), lineWidth: 1)
+        )
+        .opacity(comingSoon ? 0.85 : 1)
+    }
+}
+
+// MARK: - Welcome-back / restore beat (returning user)
+
+/// Returning user's beat: a real loader tied to the actual Firestore fetch. Shows a spinner while the
+/// plan is restoring, an honest retry state on failure, and dismisses (via onReady) once the data lands.
+/// Never falls through into the questionnaire.
+struct OnboardingWelcomeBack: View {
+    var name: String
+    var failed: String?          // non-nil → show retry state
+    var onRetry: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var spin = false
+
+    var body: some View {
+        ZStack {
+            OBAmbient()
+            VStack(spacing: 26) {
+                Spacer()
+                ZStack {
+                    Circle().stroke(Color.white.opacity(0.08), lineWidth: 10).frame(width: 128, height: 128)
+                    if failed == nil {
+                        Circle().trim(from: 0, to: 0.22)
+                            .stroke(AngularGradient(gradient: Gradient(colors: [Theme.primary.opacity(0.4), Theme.primaryLight]), center: .center),
+                                    style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                            .frame(width: 128, height: 128)
+                            .rotationEffect(.degrees(spin ? 360 : 0))
+                    } else {
+                        Image(systemName: "wifi.exclamationmark").font(.system(size: 42, weight: .semibold))
+                            .foregroundStyle(Theme.orange)
+                    }
+                    Image(systemName: "icloud.fill").font(.system(size: 40, weight: .semibold))
+                        .foregroundStyle(failed == nil ? Theme.primary : .clear)
+                        .opacity(failed == nil ? 1 : 0)
+                }
+                VStack(spacing: 10) {
+                    Text(failed == nil ? (name.isEmpty ? "Welcome back" : "Welcome back, \(name)")
+                                       : "Couldn't reach your plan")
+                        .font(Theme.score(26)).foregroundStyle(Theme.text)
+                        .multilineTextAlignment(.center)
+                    Text(failed == nil ? "Restoring your plan…"
+                                       : (failed ?? "Check your connection and try again."))
+                        .font(.system(size: 15)).foregroundStyle(Theme.muted)
+                        .multilineTextAlignment(.center).padding(.horizontal, 32)
+                }
+                if failed != nil {
+                    Button("Try again") { onRetry() }
+                        .buttonStyle(PrimaryButtonStyle())
+                        .padding(.horizontal, 40).padding(.top, 4)
+                }
+                Spacer()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.linear(duration: 1.0).repeatForever(autoreverses: false)) { spin = true }
+        }
     }
 }

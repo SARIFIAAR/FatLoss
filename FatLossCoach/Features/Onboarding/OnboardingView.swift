@@ -1,27 +1,44 @@
 import SwiftUI
+import AuthenticationServices
 
-/// Livity-style guided onboarding in the HUMANS dark theme → `PlanBuilder` targets → `Store.applyIntake`.
-/// First launch runs the full guided flow (welcome, explainers, questions, "building your plan", plan,
-/// value prop). Re-opened from Profile → "Edit my answers" it shows the questions only (skippable).
+/// Auth-first guided onboarding in the HUMANS dark theme (build 52):
+/// MARKETING (everyone) → Sign in with Apple → branch on whether a CLOUD PROFILE EXISTS for that Apple ID
+/// (not device state — the load-bearing fix for the "new version = brand-new user" bug):
+///   • returning (cloud plan exists) → a real "Restoring your plan…" beat tied to the Firestore fetch,
+///     then straight into the app (questionnaire SKIPPED);
+///   • new account / guest → questionnaire → Connect-your-device → "Building your plan" → app.
+/// No profile data is collected or persisted before an identity exists to own it.
+/// Re-opened from Profile → "Edit my answers" it shows the questions only (skippable, no marketing/auth).
 struct OnboardingView: View {
 
     /// One screen in the flow. Question steps host the existing questionnaire bodies; the rest are narrative.
     private enum Step: Hashable {
         case welcome, privacy
-        case aboutYou, goal
         case energyExplainer
-        case activity, training
         case bodyExplainer
-        case food, lifestyle, health, habits, supplements, devices
+        case signIn                    // NEW — Sign in with Apple, before any question
+        case welcomeBack               // NEW — returning user's restore beat (branch target)
+        case aboutYou, goal
+        case activity, training
+        case food, lifestyle, health, habits, supplements
+        case connectDevice             // NEW — Apple Watch / Oura / WHOOP / HUMANS soon / phone-only
         case building, summary, valueProp
     }
 
     @State private var p: IntakeProfile
     @State private var idx: Int = 0
     @Environment(Store.self) private var store
+    @Environment(CloudSync.self) private var cloud
+    @Environment(HealthKitManager.self) private var hk
+    @Environment(WearableLink.self) private var link
     @Environment(\.dismiss) private var dismiss
     let onDone: (IntakeProfile) -> Void
     let canSkip: Bool
+
+    /// The user chose "Continue without an account" on the sign-in screen (local/guest path).
+    @State private var isGuest = false
+    /// True once we've routed past the sign-in gate (returning → welcomeBack, else → questionnaire).
+    @State private var didBranch = false
 
     // Text mirrors for numeric fields (NumField works on strings).
     @State private var heightText: String
@@ -45,16 +62,30 @@ struct OnboardingView: View {
     /// Editing an existing profile from Profile → questions only, no narrative or paywall beats.
     private var isEditing: Bool { canSkip }
 
+    /// Marketing beats shown to everyone, then the sign-in gate, then the questionnaire → connect → plan.
+    /// `.welcomeBack` is the returning-user branch target (jumped to from the sign-in gate, not in the
+    /// linear order). Editing from Profile is questions-only (no marketing, no auth, no device step).
     private var steps: [Step] {
         isEditing
-            ? [.aboutYou, .goal, .activity, .training, .food, .lifestyle, .health, .habits, .supplements, .devices, .summary]
-            : [.welcome, .privacy, .aboutYou, .goal, .energyExplainer, .activity, .training,
-               .bodyExplainer, .food, .lifestyle, .health, .habits, .supplements, .devices, .building, .summary, .valueProp]
+            ? [.aboutYou, .goal, .activity, .training, .food, .lifestyle, .health, .habits, .supplements, .summary]
+            : [.welcome, .privacy, .bodyExplainer, .energyExplainer, .signIn,
+               .aboutYou, .goal, .activity, .training, .food, .lifestyle, .health, .habits, .supplements,
+               .connectDevice, .building, .summary, .valueProp]
     }
 
-    private var current: Step { steps[min(idx, steps.count - 1)] }
+    private var current: Step {
+        if showWelcomeBack { return .welcomeBack }
+        return steps[min(idx, steps.count - 1)]
+    }
     private var isLast: Bool { idx >= steps.count - 1 }
-    private var progress: Double { Double(idx + 1) / Double(steps.count) }
+    /// Progress hides during marketing/auth/branch beats (there's no meaningful "% of setup" yet).
+    private var progress: Double {
+        // Base the bar on the questionnaire span only, so it reads honestly once questions begin.
+        guard let signInIdx = steps.firstIndex(of: .signIn) else { return Double(idx + 1) / Double(steps.count) }
+        let qStart = signInIdx + 1
+        let qCount = max(1, steps.count - qStart)
+        return Double(max(0, idx - qStart) + 1) / Double(qCount)
+    }
 
     var body: some View {
         Group {
@@ -63,6 +94,9 @@ struct OnboardingView: View {
             case .privacy:         privacyScreen
             case .energyExplainer: energyScreen
             case .bodyExplainer:   bodyScreen
+            case .signIn:          signInScreen
+            case .welcomeBack:     welcomeBackScreen
+            case .connectDevice:   connectDeviceScreen
             case .building:        OnboardingLoader(name: p.name) { advance() }
             case .valueProp:       valuePropScreen
             case .summary:         summaryScaffold
@@ -71,16 +105,43 @@ struct OnboardingView: View {
         }
         .background(Theme.bg)
         .interactiveDismissDisabled(!canSkip)
+        // Guest → existing-account collision (Bug 2): a one-line confirm, cloud wins by default.
+        .overlay { collisionOverlay }
+        // If the sign-in gate is up and the fetch resolves to a returning user, route to the restore beat.
+        .onChange(of: cloud.accountHasCloudProfile) { _, _ in routeAfterSignInIfNeeded() }
+        .onChange(of: cloud.isResolvingSignIn) { _, _ in routeAfterSignInIfNeeded() }
         .onAppear {
-            // Debug: `-obStep habits` (etc.) jumps straight to a step for screenshots/QA.
+            // Debug: `-obStep habits` (etc.) jumps straight to a step for screenshots/QA. New steps
+            // signIn / connectDevice / welcomeBack are addressable by name too.
             guard !didJump else { return }
             didJump = true
             if let name = UserDefaults.standard.string(forKey: "obStep"),
                let i = steps.firstIndex(where: { "\($0)" == name }) { idx = i }
+            else if UserDefaults.standard.string(forKey: "obStep") == "welcomeBack" {
+                idx = steps.firstIndex(of: .signIn) ?? 0   // welcomeBack isn't in the linear list
+                showWelcomeBack = true
+            }
         }
     }
 
     @State private var didJump = false
+    /// Returning-user branch: replaces the sign-in gate with the restore beat.
+    @State private var showWelcomeBack = false
+
+    // MARK: sign-in gate routing
+
+    /// After Sign in with Apple, branch on the REAL cloud-profile-exists signal (not device state).
+    private func routeAfterSignInIfNeeded() {
+        guard current == .signIn, cloud.isSignedIn, !cloud.isResolvingSignIn, !didBranch else { return }
+        if cloud.pendingCollision != nil { return }   // collision confirm handles this case
+        didBranch = true
+        if cloud.accountHasCloudProfile {
+            withAnimation(.easeInOut(duration: 0.25)) { showWelcomeBack = true }
+        } else {
+            // New account — proceed into the questionnaire.
+            withAnimation(.easeInOut(duration: 0.25)) { idx += 1 }
+        }
+    }
 
     // MARK: flow control
 
@@ -110,7 +171,6 @@ struct OnboardingView: View {
         case .health:    return "Health"
         case .habits:    return "Habits to build"
         case .supplements: return "Supplements"
-        case .devices:   return "Devices"
         case .summary:   return "Your plan"
         default:         return ""
         }
@@ -132,7 +192,6 @@ struct OnboardingView: View {
             case .health:    health
             case .habits:    habitsStep
             case .supplements: supplementsStep
-            case .devices:   devices
             default:         EmptyView()
             }
         }
@@ -176,7 +235,7 @@ struct OnboardingView: View {
         OnboardingIntro(
             icon: "lock.shield.fill",
             headline: "Private by design.",
-            body_: "Your answers build your plan on this device. We never sell your data, and health readings stay on your phone unless you choose to back them up.",
+            body_: "We never sell your data, and your health readings stay on your phone unless you choose to back them up to your own account.",
             primaryTitle: "Continue",
             showBack: true, progress: progress,
             onBack: back, onPrimary: advance
@@ -217,7 +276,7 @@ struct OnboardingView: View {
                 HStack(spacing: 22) {
                     OBMiniGauge(value: 0.47, display: "47%", label: "Sleep", tint: Theme.blue)
                     OBMiniGauge(value: 0.62, display: "62%", label: "Recovery", tint: Theme.orange)
-                    OBMiniGauge(value: 0.69, display: "14.5", label: "Strain", tint: Theme.primary)
+                    OBMiniGauge(value: 0.69, display: "14.5/21", label: "Strain", tint: Theme.primary)
                 }
             }
         )
@@ -247,17 +306,46 @@ struct OnboardingView: View {
     private var aboutYou: some View {
         Group {
             intro("A few basics so the numbers are yours, not a template.")
-            field("Your first name") { TextField("e.g. Ahmed", text: $p.name).textFieldStyle(.roundedBorder).textInputAutocapitalization(.words) }
-            field("Sex (for the metabolism formula)") { segmented($p.sex) }
+            field("Your first name") { OBTextField(text: $p.name, placeholder: "e.g. Ahmed", caps: .words) }
+            field("Sex (for the metabolism formula)") { sexSegmented }
             HStack(spacing: 12) {
-                field("Birth year") { NumField(placeholder: "1985", text: $birthYearText, decimal: false, width: nil) }
-                field("Height (cm)") { NumField(placeholder: "175", text: $heightText, width: nil) }
+                field("Birth year") { obNum($birthYearText, "1985", decimal: false) }
+                field("Height (cm)") { obNum($heightText, "175") }
             }
             HStack(spacing: 12) {
-                field("Current weight (kg)") { NumField(placeholder: "90", text: $weightText, width: nil) }
-                field("Waist at navel (cm) — optional") { NumField(placeholder: "100", text: $waistText, width: nil) }
+                field("Current weight (kg)") { obNum($weightText, "90") }
+                field("Waist at navel (cm) — optional") { obNum($waistText, "100") }
             }
         }
+    }
+
+    /// P1-1: on-brand numeric field for onboarding (raised surface + hairline + emerald focus ring),
+    /// replacing the near-black shared `NumField` on the About-you / Supplements screens.
+    private func obNum(_ text: Binding<String>, _ placeholder: String, decimal: Bool = true) -> some View {
+        OBTextField(text: text, placeholder: placeholder, caps: .never,
+                    keyboard: decimal ? .decimalPad : .numberPad)
+    }
+
+    /// P1-2: Male/Female segmented control with an emerald-filled selected segment and a recessed track,
+    /// clearly higher contrast than the default system segmented picker on a dark surface.
+    private var sexSegmented: some View {
+        HStack(spacing: 6) {
+            ForEach(Array(IntakeProfile.Sex.allCases)) { c in
+                let on = p.sex == c
+                Button { withAnimation(.easeInOut(duration: 0.15)) { p.sex = c } } label: {
+                    Text(c.label)
+                        .font(.system(size: 15, weight: .heavy))
+                        .foregroundStyle(on ? Color.black : Theme.text)
+                        .frame(maxWidth: .infinity).padding(.vertical, 11)
+                        .background(on ? Theme.primary : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(4)
+        .background(Color(hex: 0x20292F), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color(hex: 0x2C3940), lineWidth: 1))
     }
 
     private var goal: some View {
@@ -351,10 +439,35 @@ struct OnboardingView: View {
     private var habitsStep: some View {
         Group {
             intro("Pick a few daily habits to build. We'll add them to your tracker — you can change them any time.")
-            chips(Self.habitChoices, selected: $p.wantedHabits)
+            habitChips
             if p.wantedHabits.isEmpty {
                 Text("No pressure — leave this empty and we'll start you with Steps, Water and Protein.")
                     .font(.system(size: 12)).foregroundStyle(Theme.muted).lineSpacing(3)
+            }
+        }
+    }
+
+    /// P1-4 + P2: habit chips with a leading monoline glyph (HabitMetric.icon); selected = emerald-tinted
+    /// fill + a check, matching the device-chip / explainer-card icon quality.
+    private var habitChips: some View {
+        FlowLayout(spacing: 8) {
+            ForEach(Self.habitChoices) { m in
+                let on = p.wantedHabits.contains(m)
+                Button {
+                    if on { p.wantedHabits.remove(m) } else { p.wantedHabits.insert(m) }
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: on ? "checkmark" : m.icon)
+                            .font(.system(size: 12, weight: .heavy))
+                            .foregroundStyle(on ? Color.black : Theme.primary)
+                        Text(m.title).font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(on ? Color.black : Theme.text)
+                    }
+                    .padding(.vertical, 9).padding(.horizontal, 13)
+                    .background(on ? Theme.primary : Theme.card, in: Capsule())
+                    .overlay(Capsule().stroke(on ? Theme.primary : Theme.border, lineWidth: 1.5))
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -369,13 +482,22 @@ struct OnboardingView: View {
                         if on { p.supplementsWanted.remove(s.key) } else { p.supplementsWanted.insert(s.key) }
                     } label: {
                         HStack(spacing: 12) {
-                            Image(systemName: on ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 20)).foregroundStyle(on ? Theme.primary : Theme.muted)
+                            // P1-4: leading monoline glyph per supplement (matches device-chip quality).
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(Theme.primary.opacity(0.16)).frame(width: 38, height: 38)
+                                Image(systemName: s.icon).font(.system(size: 17, weight: .semibold))
+                                    .foregroundStyle(Theme.primary)
+                            }
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(s.name).font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
-                                Text("\(s.dose) · \(s.when)").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                                // P2: metadata one step brighter than pure muted.
+                                Text("\(s.dose) · \(s.when)").font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(Color(hex: 0xA7B6BE))
                             }
                             Spacer()
+                            Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 20)).foregroundStyle(on ? Theme.primary : Theme.muted)
                         }
                         .padding(12)
                         .background(on ? Theme.primary.opacity(0.10) : Theme.card)
@@ -386,20 +508,189 @@ struct OnboardingView: View {
                 }
             }
             field("Anything else you take? (optional)") {
-                TextField("e.g. creatine, vitamin C", text: $p.currentSupplements).textFieldStyle(.roundedBorder)
+                OBTextField(text: $p.currentSupplements, placeholder: "e.g. creatine, vitamin C")
             }
         }
     }
 
-    private var devices: some View {
-        Group {
-            intro("An Apple Watch lets the app measure calories burned, steps, sleep and heart-rate variability instead of estimating them.")
-            Toggle(isOn: $p.hasAppleWatch) { Text("I wear an Apple Watch").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text) }.tint(Theme.primary)
-            Text(p.hasAppleWatch ? "After this, connect Apple Health from the Profile tab — the plan then uses your real daily burn to show your deficit."
-                                 : "No problem — your calorie budget uses your job and step answers instead. You can log steps by hand.")
-                .font(.system(size: 13)).foregroundStyle(Theme.muted).lineSpacing(3)
-            Text("Sign in with Apple in the Profile tab afterwards to back everything up — each person who signs in gets their own private profile.")
-                .font(.system(size: 13)).foregroundStyle(Theme.muted).lineSpacing(3)
+    // MARK: sign-in gate
+
+    private var signInScreen: some View {
+        OnboardingSignIn(
+            progress: 0,
+            isWorking: cloud.isSignedIn && cloud.isResolvingSignIn,
+            onRequest: cloud.prepareAppleRequest,
+            onCompletion: { result in
+                didBranch = false            // a fresh sign-in should re-evaluate the branch
+                cloud.handleApple(result)
+            },
+            onGuest: {
+                isGuest = true
+                withAnimation(.easeInOut(duration: 0.25)) { idx += 1 }   // into the questionnaire, local
+            },
+            onBack: idx > 0 ? { back() } : nil,
+            errorText: cloud.lastError
+        )
+    }
+
+    private var restoreFailure: String? {
+        if case .failed(let m) = cloud.restoreState { return m } else { return nil }
+    }
+
+    private var welcomeBackScreen: some View {
+        OnboardingWelcomeBack(
+            name: cloud.email?.split(separator: "@").first.map(String.init) ?? p.name,
+            failed: restoreFailure,
+            onRetry: { cloud.retryRestore() }
+        )
+        .onChange(of: cloud.restoreState) { _, s in
+            // Real fetch landed → data is in the store; leave onboarding and drop into the app.
+            if s == .restored { finishRestore() }
+        }
+        .onAppear {
+            if cloud.restoreState == .restored { finishRestore() }
+        }
+    }
+
+    /// Returning user: the plan is already merged into the store by CloudSync — just dismiss (no applyIntake,
+    /// no questionnaire). Guard so it fires once.
+    private func finishRestore() {
+        guard showWelcomeBack else { return }
+        showWelcomeBack = false
+        dismiss()
+    }
+
+    // MARK: connect-your-device step
+
+    private var connectDeviceScreen: some View {
+        // Debug: `-connectScroll bottom` starts the step scrolled down so the phone-only card + honest
+        // note are screenshot-able.
+        let anchor: UnitPoint? = UserDefaults.standard.string(forKey: "connectScroll") == "bottom" ? .bottom : nil
+        return OnboardingScaffold(progress: progress, title: "Connect your device",
+                           subtitle: "Recovery, Strain and Sleep come from a wearable. Connect one now, or start phone-only and add one later.",
+                           showBack: true, canClose: false,
+                           continueTitle: "Continue", continueEnabled: true,
+                           scrollAnchor: anchor,
+                           onBack: back, onContinue: advance) {
+            connectDeviceCards
+        }
+    }
+
+    @State private var humansInterest = UserDefaults.standard.bool(forKey: "humansWearableInterest")
+
+    private var connectDeviceCards: some View {
+        VStack(spacing: 12) {
+            // Apple Watch → HealthKit permission prompt (steps, HR, HRV, sleep).
+            OBDeviceCard(icon: "applewatch", title: "Apple Watch",
+                         note: "Steps, heart rate, HRV and sleep — the full Recovery, Strain and Sleep scores.") {
+                if hk.hasConnected { Image(systemName: "checkmark.seal.fill").foregroundStyle(Theme.primary) }
+            }
+            connectButtonRow(
+                title: hk.hasConnected ? "Apple Health connected" : (hk.isSyncing ? "Requesting access…" : "Connect Apple Watch"),
+                enabled: hk.isAvailable && !hk.isSyncing && !hk.hasConnected
+            ) {
+                p.hasAppleWatch = true
+                Task { await hk.connectAndSync(store: store, days: 30) }
+            }
+
+            // Oura / WHOOP → vendor connect (reuse the existing WearableLink plumbing).
+            ForEach(WearableLink.vendors, id: \.self) { vendor in vendorCard(vendor) }
+
+            // HUMANS — own-brand wearable, not connectable. Optional local "Notify me" (no backend).
+            OBDeviceCard(icon: "sparkles", title: "HUMANS", note: "Our own band, built for these scores. In development.",
+                         tint: Theme.orange, comingSoon: true) {
+                Button {
+                    humansInterest.toggle()
+                    UserDefaults.standard.set(humansInterest, forKey: "humansWearableInterest")
+                } label: {
+                    Text(humansInterest ? "Notified" : "Notify me")
+                        .font(.system(size: 13, weight: .heavy))
+                        .foregroundStyle(humansInterest ? Theme.muted : Theme.orange)
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Phone-only — honest note that wearable scores need a device (no faked scores).
+            OBDeviceCard(icon: "iphone", title: "No wearable — use my phone",
+                         note: "Track steps and motion from your iPhone and log meals by hand.",
+                         tint: Theme.blue) {
+                Image(systemName: "chevron.right").font(.system(size: 13, weight: .heavy)).foregroundStyle(Theme.muted)
+            }
+            .onTapGesture { p.hasAppleWatch = false; advance() }
+
+            Text("Recovery, Strain and Sleep need a wearable — add one any time from Profile to unlock them.")
+                .font(.system(size: 12)).foregroundStyle(Theme.muted).lineSpacing(3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 2)
+                .id("connect-bottom")
+
+            if let e = link.lastError {
+                Text(e).font(.system(size: 12)).foregroundStyle(Theme.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .task { if cloud.isSignedIn { await link.refreshStatus() } }
+    }
+
+    @ViewBuilder private func connectButtonRow(title: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(.system(size: 14, weight: .heavy))
+                .frame(maxWidth: .infinity).padding(.vertical, 12)
+                .foregroundStyle(enabled ? Theme.primary : Theme.muted)
+                .background(Theme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(enabled ? Theme.primary.opacity(0.5) : Theme.border, lineWidth: 1))
+        }
+        .buttonStyle(.plain).disabled(!enabled)
+    }
+
+    @ViewBuilder private func vendorCard(_ vendor: String) -> some View {
+        let meta: (String, String, String) = vendor == "whoop"
+            ? ("waveform.path.ecg", "WHOOP", "HRV, recovery, sleep and workouts from WHOOP.")
+            : ("circle.circle", "Oura", "HRV, readiness, sleep stages and SpO₂ from Oura.")
+        let st = link.status[vendor]
+        let busy = link.busy == vendor
+        VStack(spacing: 8) {
+            OBDeviceCard(icon: meta.0, title: meta.1, note: meta.2, tint: Color(hex: 0x9B8CFF)) {
+                if st?.linked == true { Image(systemName: "checkmark.seal.fill").foregroundStyle(Theme.primary) }
+            }
+            if !cloud.isSignedIn {
+                Text("Sign in to link \(meta.1).").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if st?.configured == false {
+                Text("\(meta.1) connect isn't available yet.").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if st?.linked == true {
+                connectButtonRow(title: busy ? "Syncing…" : "Sync now", enabled: !busy) {
+                    Task { await link.sync(vendor, store: store) }
+                }
+            } else {
+                connectButtonRow(title: busy ? "Connecting…" : "Connect \(meta.1)", enabled: !busy) {
+                    Task { await link.connect(vendor, store: store) }
+                }
+            }
+        }
+    }
+
+    // MARK: collision confirm (guest → existing account)
+
+    @ViewBuilder private var collisionOverlay: some View {
+        if cloud.pendingCollision != nil {
+            CollisionConfirmView(
+                onUseSaved: {
+                    cloud.resolveCollision(useCloud: true)
+                    didBranch = true
+                    withAnimation(.easeInOut(duration: 0.25)) { showWelcomeBack = true }
+                },
+                onKeepEntered: {
+                    cloud.resolveCollision(useCloud: false)
+                    didBranch = true
+                    // Keep going through the questionnaire flow with the just-entered answers.
+                    if idx <= (steps.firstIndex(of: .signIn) ?? 0) {
+                        withAnimation(.easeInOut(duration: 0.25)) { idx += 1 }
+                    }
+                }
+            )
         }
     }
 

@@ -25,6 +25,29 @@ final class CloudSync {
     private let mirror = CloudMirror()
     private var remoteHasProfile = false
 
+    // MARK: Onboarding restore + collision (auth-first flow, build 52)
+
+    /// State of the post-sign-in cloud fetch, so the onboarding "Welcome back / Restoring your plan"
+    /// beat can bind to the ACTUAL Firestore round-trip (never a fake timer). Honest and observable:
+    /// `.restoring` while the first snapshot is in flight, `.restored` once the plan is merged in,
+    /// `.failed` on a network/auth error (the UI offers retry — it never falls through to the questionnaire).
+    enum RestoreState: Equatable { case idle, restoring, restored, failed(String) }
+    var restoreState: RestoreState = .idle
+
+    /// True once we KNOW (from a real fetch) that the signed-in Apple ID already owns a cloud plan.
+    /// This is the load-bearing branch signal for onboarding — NOT device state (fixes Bug 1: a new app
+    /// version / reinstall no longer mistakes a returning user for a brand-new one).
+    var accountHasCloudProfile = false
+
+    /// Set when a GUEST who entered a questionnaire signs into an account that ALREADY has a cloud plan.
+    /// The merge is held until the user chooses (Bug 2 fix). `nil` = no pending decision.
+    var pendingCollision: PendingCollision?
+    struct PendingCollision: Equatable { let remote: AppData; let local: AppData }
+
+    /// True while an initial fetch is deciding the branch, so the onboarding can hold the sign-in screen
+    /// (spinner on the Apple button) rather than flashing a wrong branch.
+    var isResolvingSignIn = false
+
     private let deviceID: String = {
         let k = "cloud-device-id"
         if let id = UserDefaults.standard.string(forKey: k) { return id }
@@ -79,15 +102,32 @@ final class CloudSync {
         email = user?.email
         listener?.remove()
         listener = nil
-        guard let user else { status = "Not signed in"; return }
+        guard let user else {
+            status = "Not signed in"
+            accountHasCloudProfile = false
+            restoreState = .idle
+            pendingCollision = nil
+            isResolvingSignIn = false
+            return
+        }
+        // Whether this device carried guest-entered answers INTO this sign-in — captured before the
+        // isolation wipe below can clear them. Used to decide the guest→existing-account collision.
+        let localHadGuestPlan = (store?.data.intake != nil) || (store?.data.isEmpty == false)
         // Account isolation MUST run before the snapshot listener attaches / any merge happens, so a
         // different account never sees or re-uploads the previous user's local data.
         prepareForAccount(user.uid)
+        pendingLocalGuestPlan = localHadGuestPlan && (store?.data.intake != nil || store?.data.isEmpty == false)
         status = "Connecting…"
+        restoreState = .restoring
+        isResolvingSignIn = true
         listener = docRef(user.uid).addSnapshotListener { [weak self] snap, error in
             Task { @MainActor in self?.handleSnapshot(snap, error) }
         }
     }
+
+    /// Whether the current sign-in carried guest answers that still survive after account isolation
+    /// (i.e. this device adopted local-only data into the account). Read once in `handleSnapshot`.
+    private var pendingLocalGuestPlan = false
 
     /// Enforce local-data account isolation for the account that just signed in.
     ///
@@ -117,12 +157,24 @@ final class CloudSync {
     }
 
     private func handleSnapshot(_ snap: DocumentSnapshot?, _ error: Error?) {
-        if let error { lastError = error.localizedDescription; status = "Sync error"; return }
+        if let error {
+            lastError = error.localizedDescription
+            status = "Sync error"
+            // A returning user's restore round-trip failed — surface it so the UI can retry, and never
+            // let the welcome-back beat fall through into a fresh questionnaire.
+            if restoreState == .restoring { restoreState = .failed(error.localizedDescription) }
+            isResolvingSignIn = false
+            return
+        }
         guard let snap, let store else { return }
         if !snap.exists {
-            // First sign-in from this account: seed the cloud with local data.
+            // First sign-in from this account: no cloud plan → this is a NEW account (run the questionnaire).
             remoteHasProfile = false
-            schedulePush(immediate: true)
+            accountHasCloudProfile = false
+            pendingLocalGuestPlan = false
+            isResolvingSignIn = false
+            restoreState = .idle
+            schedulePush(immediate: true)   // seed the cloud with local data (empty for a fresh sign-in)
             return
         }
         guard !snap.metadata.hasPendingWrites else { return }
@@ -131,9 +183,33 @@ final class CloudSync {
         let needsMirror = (snap.get("schema") as? Int ?? 0) < CloudMirror.schema
         guard let json = snap.get("json") as? String,
               let raw = json.data(using: .utf8),
-              let remote = try? Store.decoder.decode(AppData.self, from: raw) else { return }
+              let remote = try? Store.decoder.decode(AppData.self, from: raw) else {
+            if restoreState == .restoring { restoreState = .failed("Couldn't read your saved plan.") }
+            isResolvingSignIn = false
+            return
+        }
+
+        let remoteHasPlan = remoteHasProfile || remote.intake != nil || !remote.isEmpty
+        // Real, fetch-driven branch signal for onboarding (Bug 1 fix).
+        accountHasCloudProfile = remoteHasPlan
 
         let local = store.snapshot()
+
+        // Bug 2: a GUEST filled the questionnaire, then signed into an account that ALREADY has a plan.
+        // Do NOT silently union-merge — pause and ask (default = cloud wins). Only for the first fetch
+        // of this sign-in (`pendingLocalGuestPlan`), and only when both sides actually hold a plan.
+        if pendingLocalGuestPlan, remoteHasPlan, (local.intake != nil || !local.isEmpty) {
+            pendingLocalGuestPlan = false
+            isResolvingSignIn = false
+            restoreState = .restored          // remote plan is in hand; the confirm is a UI decision now
+            pendingCollision = PendingCollision(remote: remote, local: local)
+            lastError = nil
+            status = "Choose which plan to keep"
+            return                             // hold the merge until resolveCollision(...)
+        }
+        pendingLocalGuestPlan = false
+        isResolvingSignIn = false
+
         let merged = local.merged(with: remote)
         if merged != local {
             print("CloudSync merge: local \(local.updatedAt)/settings \(local.settingsUpdatedAt) remote \(remote.updatedAt)/settings \(remote.settingsUpdatedAt) → program \(merged.program) reminders water=\(merged.reminders.waterOn) walk=\(merged.reminders.walkOn)")
@@ -146,6 +222,46 @@ final class CloudSync {
         if merged != remote || needsMirror { schedulePush() }
         lastError = nil
         status = "Synced " + Date().formatted(date: .omitted, time: .shortened)
+        // The plan is now in hand — release the "Restoring your plan…" beat (returning-user branch).
+        if restoreState == .restoring { restoreState = .restored }
+    }
+
+    /// Resolve the guest→existing-account collision (Bug 2). `useCloud` (default action) discards the
+    /// just-entered guest answers and keeps the account's saved plan; `false` keeps what the user just
+    /// entered and overwrites the cloud with it. Never a silent union merge.
+    func resolveCollision(useCloud: Bool) {
+        guard let pending = pendingCollision, let store else { return }
+        pendingCollision = nil
+        if useCloud {
+            store.isApplyingRemote = true
+            store.data = pending.remote
+            store.lastModified = pending.remote.updatedAt
+            store.settingsModified = pending.remote.settingsUpdatedAt
+            store.isApplyingRemote = false
+            status = "Restored your saved plan"
+        } else {
+            // Keep local: push it up so the cloud reflects the just-entered answers (local wins).
+            schedulePush(immediate: true)
+            status = "Kept your new answers"
+        }
+        restoreState = .restored
+        lastError = nil
+    }
+
+    /// Debug only: present the collision confirm for screenshots (`-showCollision 1`).
+    func debugPresentCollision() {
+        pendingCollision = PendingCollision(remote: AppData(), local: AppData())
+    }
+
+    /// Retry the initial fetch after a restore failure (returning-user welcome-back beat).
+    func retryRestore() {
+        guard let uid = userID else { return }
+        restoreState = .restoring
+        isResolvingSignIn = true
+        listener?.remove()
+        listener = docRef(uid).addSnapshotListener { [weak self] snap, error in
+            Task { @MainActor in self?.handleSnapshot(snap, error) }
+        }
     }
 
     func schedulePush(immediate: Bool = false) {

@@ -61,7 +61,8 @@ struct ContentView: View {
         let t = UserDefaults.standard.integer(forKey: "startTab")
         return t == 4 ? 0 : t
     }()
-    /// New profile (no answers, no data) → questionnaire first. `-onboarding 1` forces it for screenshots.
+    /// Auth-first onboarding gate. A fresh install with no local plan shows the guided flow
+    /// (marketing → Sign in with Apple → branch). `-onboarding 1` forces it for screenshots.
     @State private var showOnboarding = false
 
     var body: some View {
@@ -90,16 +91,35 @@ struct ContentView: View {
         .overlay {
             if let c = store.celebration { CelebrationView(text: c) }
         }
+        .overlay {
+            // Guest → existing-account collision that happened OUTSIDE onboarding (e.g. Profile sign-in
+            // after finishing setup). Onboarding presents its own copy while it's up.
+            if cloud.pendingCollision != nil && !showOnboarding {
+                CollisionConfirmView(
+                    onUseSaved: { cloud.resolveCollision(useCloud: true) },
+                    onKeepEntered: { cloud.resolveCollision(useCloud: false) }
+                )
+                .zIndex(10)
+            }
+        }
         .animation(.spring(duration: 0.3), value: store.toast)
         .animation(.spring(duration: 0.4), value: store.celebration)
+        .animation(.easeInOut(duration: 0.2), value: cloud.pendingCollision)
         .task {
+            if UserDefaults.standard.bool(forKey: "showCollision") {
+                try? await Task.sleep(for: .milliseconds(600))   // let the initial auth(nil) settle first
+                cloud.debugPresentCollision(); return
+            }
             if UserDefaults.standard.bool(forKey: "onboarding") { showOnboarding = true; return }
+            // Debug: jump straight to a specific onboarding step for screenshots/QA (implies onboarding).
+            if UserDefaults.standard.string(forKey: "obStep") != nil { showOnboarding = true; return }
             guard store.data.intake == nil && store.data.isEmpty else { return }
-            // A reinstall keeps the Sign in with Apple session in the keychain, so an empty
-            // store does NOT mean a new user — give auth a moment to resolve, and if it does,
-            // wait for the Firestore snapshot to restore the data before deciding.
+            // A returning user who is ALREADY signed in (normal launch, not a reinstall that cleared auth)
+            // restores silently — give the auth session + Firestore snapshot a moment so we don't flash the
+            // guided flow at them. If nothing restores, this is a genuinely new/local user → show onboarding,
+            // which itself runs the marketing → Sign in with Apple → branch (the auth-first model).
             if cloud.isConfigured {
-                for _ in 0..<6 where !cloud.isSignedIn {                            // ~1.5 s for auth
+                for _ in 0..<6 where !cloud.isSignedIn {                            // ~1.5 s for auth to resume
                     try? await Task.sleep(for: .milliseconds(250))
                 }
                 for _ in 0..<40 where cloud.isSignedIn && store.data.isEmpty {      // ~10 s for restore
@@ -109,12 +129,13 @@ struct ContentView: View {
             if store.data.intake == nil && store.data.isEmpty { showOnboarding = true }
         }
         .onChange(of: store.data.isEmpty) { _, empty in
-            // Cloud restore landed while the questionnaire was up (slow network) — drop it.
+            // Cloud restore landed while onboarding was up (slow network) — drop it.
             if !empty && showOnboarding && store.data.intake != nil { showOnboarding = false }
         }
         .fullScreenCover(isPresented: $showOnboarding) {
-            OnboardingView(existing: store.data.intake,
-                           canSkip: !store.data.isEmpty || cloud.isSignedIn) { store.applyIntake($0) }
+            // Auth-first: never `canSkip` on first-run (the flow owns sign-in + the returning-user branch).
+            // Editing from Profile passes canSkip:true (questions-only) via its own presentation.
+            OnboardingView(existing: store.data.intake, canSkip: false) { store.applyIntake($0) }
         }
     }
 }
