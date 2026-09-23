@@ -377,6 +377,32 @@ struct OBStatChip: View {
     }
 }
 
+// MARK: - Testimonial (post-launch placeholder — HONEST ONLY)
+
+/// A REAL, permissioned testimonial line. We are pre-App-Store, so we have none and show none: the
+/// social-proof beat passes `nil` and renders no quote. When a genuine tester/customer gives permission
+/// post-launch, construct one of these and hand it to `OBTestimonialCard` — never invent stars or quotes.
+struct OBTestimonial {
+    var quote: String
+    var attribution: String        // e.g. "— A., TestFlight tester" (real, with consent)
+}
+
+/// Renders a real testimonial as a quote card in the explainer showcase slot. Only ever shown when a
+/// non-nil `OBTestimonial` is supplied (see `OnboardingView.realTestimonial`).
+struct OBTestimonialCard: View {
+    let t: OBTestimonial
+    init(_ t: OBTestimonial) { self.t = t }
+    var body: some View {
+        OBShowcaseCard(eyebrow: "From a member", icon: "quote.opening", tint: Theme.primary) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(t.quote).font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.text).lineSpacing(4)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(t.attribution).font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.muted)
+            }
+        }
+    }
+}
+
 // MARK: - Device chip (welcome screen)
 
 struct OBDeviceChip: View {

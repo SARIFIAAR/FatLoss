@@ -16,12 +16,23 @@ struct OnboardingView: View {
         case welcome, privacy
         case energyExplainer
         case bodyExplainer
-        case signIn                    // NEW — Sign in with Apple, before any question
-        case welcomeBack               // NEW — returning user's restore beat (branch target)
+        case socialProof               // NEW (v4 item 3) — honest credibility beat before sign-in
+        case signIn                    // Sign in with Apple, before any question
+        case welcomeBack               // returning user's restore beat (branch target)
         case aboutYou, goal
-        case activity, training
-        case food, lifestyle, health, habits, supplements
-        case connectDevice             // NEW — Apple Watch / Oura / WHOOP / HUMANS soon / phone-only
+        case goalPreview               // NEW (v4 item 2) — honest weeks-to-goal estimate from partial intake
+        case activity
+        case activityPreview           // NEW (v4 item 2) — honest daily-calorie estimate from partial intake
+        case training
+        case recoveryExplainer         // NEW (v4 item 1) — micro-explainer: recovery / training-load, before Training
+        case food
+        case sleepExplainer            // NEW (v4 item 1) — micro-explainer: sleep, before Lifestyle
+        case lifestyle
+        case chronotype                // NEW (v4 item 5) — single-question chronotype, near Lifestyle
+        case health
+        case medExplainer              // NEW (v4 item 4) — shown ONLY if medications entered; HR-calibration
+        case habits, supplements
+        case connectDevice             // Apple Watch / Oura / WHOOP / HUMANS soon / phone-only
         case building, summary, valueProp
     }
 
@@ -67,10 +78,20 @@ struct OnboardingView: View {
     /// linear order). Editing from Profile is questions-only (no marketing, no auth, no device step).
     private var steps: [Step] {
         isEditing
-            ? [.aboutYou, .goal, .activity, .training, .food, .lifestyle, .health, .habits, .supplements, .summary]
-            : [.welcome, .privacy, .bodyExplainer, .energyExplainer, .signIn,
-               .aboutYou, .goal, .activity, .training, .food, .lifestyle, .health, .habits, .supplements,
+            ? [.aboutYou, .goal, .activity, .training, .food, .lifestyle, .chronotype, .health, .habits, .supplements, .summary]
+            : [.welcome, .privacy, .bodyExplainer, .energyExplainer, .socialProof, .signIn,
+               .aboutYou, .goal, .goalPreview, .activity, .activityPreview,
+               .recoveryExplainer, .training, .food,
+               .sleepExplainer, .lifestyle, .chronotype, .health, .medExplainer,
+               .habits, .supplements,
                .connectDevice, .building, .summary, .valueProp]
+    }
+
+    /// The medication → HR-calibration explainer (item 4) is only meaningful if the user actually entered
+    /// medications on the Health step. When the field is empty we skip it so nobody sees an irrelevant beat.
+    /// Kept honest and non-diagnostic — it explains that Recovery/HR zones read from the user's own baseline.
+    private func shouldSkip(_ step: Step) -> Bool {
+        step == .medExplainer && p.medications.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     private var current: Step {
@@ -94,8 +115,15 @@ struct OnboardingView: View {
             case .privacy:         privacyScreen
             case .energyExplainer: energyScreen
             case .bodyExplainer:   bodyScreen
+            case .socialProof:     socialProofScreen
             case .signIn:          signInScreen
             case .welcomeBack:     welcomeBackScreen
+            case .goalPreview:     goalPreviewScreen
+            case .activityPreview: activityPreviewScreen
+            case .recoveryExplainer: recoveryExplainerScreen
+            case .sleepExplainer:  sleepExplainerScreen
+            case .medExplainer:    medExplainerScreen
+            case .chronotype:      chronotypeScaffold
             case .connectDevice:   connectDeviceScreen
             case .building:        OnboardingLoader(name: p.name) { advance() }
             case .valueProp:       valuePropScreen
@@ -147,9 +175,20 @@ struct OnboardingView: View {
 
     private func advance() {
         commitNumbers()
-        if isLast { finish() } else { withAnimation(.easeInOut(duration: 0.25)) { idx += 1 } }
+        if isLast { finish(); return }
+        withAnimation(.easeInOut(duration: 0.25)) {
+            idx += 1
+            // Skip conditionally-hidden steps (e.g. the med explainer when no meds were entered).
+            while idx < steps.count - 1 && shouldSkip(steps[idx]) { idx += 1 }
+            if isLast && shouldSkip(steps[idx]) { finish() }
+        }
     }
-    private func back() { withAnimation(.easeInOut(duration: 0.25)) { idx = max(0, idx - 1) } }
+    private func back() {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            idx = max(0, idx - 1)
+            while idx > 0 && shouldSkip(steps[idx]) { idx -= 1 }
+        }
+    }
     private func finish() { commitNumbers(); onDone(p); dismiss() }
 
     private func valid(_ step: Step) -> Bool {
@@ -168,6 +207,7 @@ struct OnboardingView: View {
         case .training:  return "Training"
         case .food:      return "Food"
         case .lifestyle: return "Lifestyle"
+        case .chronotype: return "Your body clock"
         case .health:    return "Health"
         case .habits:    return "Habits to build"
         case .supplements: return "Supplements"
@@ -291,6 +331,170 @@ struct OnboardingView: View {
             showBack: true, progress: progress,
             onBack: back, onPrimary: advance
         )
+    }
+
+    // MARK: v4 item 3 — honest social-proof / credibility beat (near sign-in)
+
+    /// PRE-APP-STORE: no ratings, testimonials or "App of the Day" — we have none, so we invent none.
+    /// Instead a factual credibility beat: the real signals HUMANS reads from the watch the user already
+    /// owns, and that they stay private. When we have a genuine, permissioned testimonial post-launch,
+    /// drop it into `Self.realTestimonial` and the quote card below renders automatically. Until then it
+    /// stays nil and NOTHING fake is shown.
+    /// Format when ready, e.g.: OBTestimonial(quote: "…", attribution: "— A., TestFlight tester")
+    private static let realTestimonial: OBTestimonial? = nil   // ← post-launch: real, permissioned quote only
+
+    private var socialProofScreen: some View {
+        OnboardingIntro(
+            eyebrow: "Why it works",
+            icon: "waveform.path.ecg", tint: Theme.primary,
+            headline: "Built on the signals your watch already records.",
+            body_: "HUMANS reads heart-rate variability, resting heart rate and sleep — the same measurements sports scientists use to gauge recovery. Nothing is guessed, and it stays private to you.",
+            features: [
+                OBFeature(icon: "heart.fill", title: "HRV & resting HR", detail: "Read straight from Apple Health — your own baseline, not an average.", tint: Theme.primary),
+                OBFeature(icon: "bed.double.fill", title: "Sleep stages", detail: "Deep, REM and time in bed, night by night.", tint: Color(hex: 0x9B8CFF)),
+                OBFeature(icon: "lock.fill", title: "Private by design", detail: "Your readings stay on your phone unless you back them up to your own account.", tint: Theme.blue)
+            ],
+            showcase: Self.realTestimonial.map { AnyView(OBTestimonialCard($0)) },
+            primaryTitle: "Continue",
+            showBack: true, progress: progress,
+            onBack: back, onPrimary: advance
+        )
+    }
+
+    // MARK: v4 item 2 — personalised, honest preview beats (real estimates from the PARTIAL profile)
+
+    /// After "Your goal": a real weeks-to-goal estimate from PlanBuilder on the partial profile. Updates
+    /// with their weight/goal/pace answers. Clearly labelled an estimate; at maintenance it says so.
+    private var goalPreviewScreen: some View {
+        let t = PlanBuilder.targets(for: p)
+        let hasLoss = t.kgToLose > 0 && t.weeksToGoal > 0
+        return OnboardingIntro(
+            eyebrow: "Your estimate so far",
+            icon: "flag.checkered", tint: Theme.primary,
+            headline: hasLoss
+                ? "At a \(p.pace.label.lowercased()) pace, about \(t.weeksToGoal) weeks to \(Fmt.num(p.goalWeightKg)) kg."
+                : "Your goal is at maintenance.",
+            body_: hasLoss
+                ? "That's \(Fmt.num(t.kgToLose)) kg at ~\(Fmt.num(p.pace.kgPerWeek)) kg/week. It's an estimate from your answers so far and will sharpen as we learn your activity — real weeks depend on how consistent the deficit is."
+                : "You've set a goal at or above your current weight, so targets will hold you steady rather than drop weight. You can change this any time.",
+            showcase: AnyView(
+                OBShowcaseCard(eyebrow: "Estimate", icon: "flag.checkered", trailing: "updates as you answer") {
+                    HStack(spacing: 22) {
+                        OBMiniGauge(value: min(1, Double(t.weeksToGoal) / 52.0),
+                                    display: hasLoss ? "\(t.weeksToGoal)" : "—",
+                                    label: "weeks", tint: Theme.primary)
+                        VStack(alignment: .leading, spacing: 10) {
+                            OBStatChip(color: Theme.text.opacity(0.9), label: "To lose", value: hasLoss ? "\(Fmt.num(t.kgToLose)) kg" : "0 kg")
+                            OBStatChip(color: Theme.primary, label: "Pace", value: "~\(Fmt.num(p.pace.kgPerWeek)) kg/wk")
+                            OBStatChip(color: Theme.orange, label: "Target", value: "\(Fmt.num(p.goalWeightKg)) kg")
+                        }
+                        Spacer(minLength: 0)
+                    }
+                }
+            ),
+            primaryTitle: "Continue",
+            showBack: true, progress: progress,
+            onBack: back, onPrimary: advance
+        )
+    }
+
+    /// After "Daily activity": a real estimated daily calorie target from PlanBuilder on the partial
+    /// profile. Now that job + steps + training days are known, the maintenance and deficit estimates mean
+    /// something. Labelled an estimate; final macros are shown on the summary.
+    private var activityPreviewScreen: some View {
+        let t = PlanBuilder.targets(for: p)
+        return OnboardingIntro(
+            eyebrow: "Your estimate so far",
+            icon: "flame.fill", tint: Theme.orange,
+            headline: "Around \(t.kcal.formatted()) kcal a day to start.",
+            body_: t.deficit > 0
+                ? "We estimate you burn ~\(t.tdee.formatted()) kcal on a day like yours, so eating ~\(t.kcal.formatted()) kcal sets a ~\(t.deficit.formatted()) kcal deficit. It's an estimate from your answers — it re-tunes weekly as the scale moves."
+                : "We estimate you burn ~\(t.tdee.formatted()) kcal on a day like yours. This is an estimate from your answers and re-tunes weekly as the scale moves.",
+            showcase: AnyView(
+                OBShowcaseCard(eyebrow: "Estimated daily target", icon: "fork.knife", trailing: "estimate") {
+                    VStack(spacing: 12) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(t.kcal.formatted()).font(Theme.score(40)).foregroundStyle(Theme.text)
+                            Text("kcal").font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.muted)
+                            Spacer()
+                        }
+                        HStack(spacing: 16) {
+                            OBStatChip(color: Theme.muted, label: "Maintenance", value: "~\(t.tdee.formatted())")
+                            if t.deficit > 0 { OBStatChip(color: Theme.orange, label: "Deficit", value: "−\(t.deficit.formatted())") }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            ),
+            primaryTitle: "Continue",
+            showBack: true, progress: progress,
+            onBack: back, onPrimary: advance
+        )
+    }
+
+    // MARK: v4 item 1 — micro-explainers woven between questions
+
+    /// Before Training: a short recovery / training-load beat, so the next questions have context.
+    private var recoveryExplainerScreen: some View {
+        OnboardingIntro(
+            eyebrow: "Before we talk training",
+            headline: "Harder isn't always better.",
+            body_: "HUMANS tracks how much load you take on and how recovered you are, so it can tell you which days to push and which to keep easy. A few questions next shape your programme around that.",
+            primaryTitle: "Continue",
+            showBack: true, progress: progress,
+            onBack: back, onPrimary: advance,
+            hero: {
+                OBMiniGauge(value: 0.69, display: "14.5/21", label: "Strain today", tint: Theme.primary)
+            }
+        )
+    }
+
+    /// Before Lifestyle: a short sleep beat — the honest "sleep drives hunger" value line.
+    private var sleepExplainerScreen: some View {
+        OnboardingIntro(
+            eyebrow: "Before we talk sleep",
+            headline: "Sleep is a fat-loss tool.",
+            body_: "Short nights raise the hormones that drive hunger and cravings. HUMANS times your reminders and a wind-down breathing session around when you actually sleep — the next few questions set that up.",
+            primaryTitle: "Continue",
+            showBack: true, progress: progress,
+            onBack: back, onPrimary: advance,
+            hero: {
+                OBMiniGauge(value: 0.78, display: "7h 12m", label: "Sleep", tint: Color(hex: 0x9B8CFF))
+            }
+        )
+    }
+
+    // MARK: v4 item 4 — medication → HR-calibration explainer (only when meds entered; non-diagnostic)
+
+    /// Shown ONLY when the user entered medications on the Health step (gated by `shouldSkip`). Surfaces,
+    /// factually and non-diagnostically, the PlanBuilder logic: Recovery and HR zones read from the user's
+    /// OWN baseline, so beta-blockers / stimulants that shift heart rate don't skew the score. No medical
+    /// claims, no advice — just how the number is computed.
+    private var medExplainerScreen: some View {
+        OnboardingIntro(
+            eyebrow: "About your medications",
+            icon: "waveform.path.ecg.rectangle", tint: Theme.blue,
+            headline: "Your scores read from your baseline, not a formula.",
+            body_: "Some medications — beta-blockers, stimulants and others — raise or lower heart rate. HUMANS judges Recovery and your heart-rate zones against your own 28-day baseline, so the score reflects your real readiness rather than the medication. Weight is read on the 7-day trend, not single days.",
+            features: [
+                OBFeature(icon: "heart.fill", title: "Recovery from your own history", detail: "Compared to your personal baseline, not an age-based average.", tint: Theme.primary),
+                OBFeature(icon: "chart.line.uptrend.xyaxis", title: "Trends over single days", detail: "Water and appetite can shift day to day — the 7-day trend is what counts.", tint: Theme.orange)
+            ],
+            primaryTitle: "Got it",
+            showBack: true, progress: progress,
+            onBack: back, onPrimary: advance
+        )
+    }
+
+    // MARK: v4 item 5 — chronotype single-question screen (near Lifestyle)
+
+    private var chronotypeScaffold: some View {
+        OnboardingScaffold(progress: progress, title: title(.chronotype),
+                           subtitle: "When do you naturally feel sharpest? We'll keep this to time reminders and training suggestions around your rhythm.",
+                           showBack: idx > 0, canClose: canSkip, continueEnabled: true,
+                           onBack: back, onClose: { dismiss() }, onContinue: advance) {
+            options(IntakeProfile.Chronotype.allCases, selected: $p.chronotype, detail: { $0.detail })
+        }
     }
 
     private func commitNumbers() {
@@ -890,6 +1094,7 @@ extension IntakeProfile.CravingTime: LabeledOption {}
 extension IntakeProfile.Alcohol: LabeledOption {}
 extension IntakeProfile.Fasting: LabeledOption {}
 extension IntakeProfile.Condition: LabeledOption {}
+extension IntakeProfile.Chronotype: LabeledOption {}
 extension IntakeProfile.Mood: LabeledOption {}
 extension IntakeProfile.Anxiety: LabeledOption {}
 

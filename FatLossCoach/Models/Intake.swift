@@ -46,6 +46,14 @@ struct IntakeProfile: Codable, Hashable {
         var label: String { switch self { case .good: return "Mostly good"; case .upAndDown: return "Up and down"; case .low: return "Low more days than not"; case .private_: return "I'd rather not say" } } }
     enum Anxiety: String, Codable, CaseIterable, Identifiable { case rarely, sometimes, often, private_; var id: String { rawValue }
         var label: String { switch self { case .rarely: return "Rarely"; case .sometimes: return "Sometimes"; case .often: return "Often — it gets in the way"; case .private_: return "I'd rather not say" } } }
+    /// When the body naturally wants to wake and sleep. Persisted for future circadian/reminder timing;
+    /// lenient-decoded to `.inBetween` so old profiles (no key) and any bad value never break decoding.
+    enum Chronotype: String, Codable, CaseIterable, Identifiable { case earlyBird, inBetween, nightOwl; var id: String { rawValue }
+        var label: String { switch self { case .earlyBird: return "Early bird"; case .inBetween: return "In between"; case .nightOwl: return "Night owl" } }
+        var detail: String { switch self {
+            case .earlyBird: return "Sharpest in the morning, fades in the evening"
+            case .inBetween: return "No strong preference either way"
+            case .nightOwl:  return "Slow to start, best later in the day" } } }
     enum Condition: String, Codable, CaseIterable, Identifiable { case prediabetes, diabetes, hypertension, cholesterol, thyroid, pcos, joints, heart, kidney; var id: String { rawValue }
         var label: String { switch self {
             case .prediabetes: return "Pre-diabetes"; case .diabetes: return "Diabetes"; case .hypertension: return "High blood pressure"
@@ -93,6 +101,7 @@ struct IntakeProfile: Codable, Hashable {
     var sleepHours: Double = 7
     var stress = 3
     var shiftWork = false
+    var chronotype: Chronotype = .inBetween
     // Health
     var conditions: Set<Condition> = []
     var mood: Mood = .good
@@ -131,6 +140,7 @@ struct IntakeProfile: Codable, Hashable {
         fasting = c.value(.fasting, default: .none)
         wakeHour = c.value(.wakeHour, default: 7); bedHour = c.value(.bedHour, default: 23)
         sleepHours = c.value(.sleepHours, default: 7); stress = c.value(.stress, default: 3); shiftWork = c.value(.shiftWork, default: false)
+        chronotype = c.value(.chronotype, default: .inBetween)
         conditions = c.value(.conditions, default: []); medications = c.value(.medications, default: "")
         mood = c.value(.mood, default: .good); anxiety = c.value(.anxiety, default: .rarely)
         currentSupplements = c.value(.currentSupplements, default: ""); doctorCleared = c.value(.doctorCleared, default: false)

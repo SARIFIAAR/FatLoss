@@ -16,7 +16,9 @@ struct FatLossCoachApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            // Root is the SPLASH ROUTER (build 53), not the TabView. It decides onboarding-vs-app on the
+            // splash BEFORE Home is ever constructed, fixing the "Home flashes then onboarding" bug.
+            RootRouter()
                 .environment(store)
                 .environment(health)
                 .environment(cloud)
@@ -61,9 +63,6 @@ struct ContentView: View {
         let t = UserDefaults.standard.integer(forKey: "startTab")
         return t == 4 ? 0 : t
     }()
-    /// Auth-first onboarding gate. A fresh install with no local plan shows the guided flow
-    /// (marketing → Sign in with Apple → branch). `-onboarding 1` forces it for screenshots.
-    @State private var showOnboarding = false
 
     var body: some View {
         TabView(selection: $tab) {
@@ -93,8 +92,9 @@ struct ContentView: View {
         }
         .overlay {
             // Guest → existing-account collision that happened OUTSIDE onboarding (e.g. Profile sign-in
-            // after finishing setup). Onboarding presents its own copy while it's up.
-            if cloud.pendingCollision != nil && !showOnboarding {
+            // after finishing setup). The onboarding route presents its own copy while it's up; here in the
+            // app route onboarding is never on screen, so this is safe to always show.
+            if cloud.pendingCollision != nil {
                 CollisionConfirmView(
                     onUseSaved: { cloud.resolveCollision(useCloud: true) },
                     onKeepEntered: { cloud.resolveCollision(useCloud: false) }
@@ -106,36 +106,12 @@ struct ContentView: View {
         .animation(.spring(duration: 0.4), value: store.celebration)
         .animation(.easeInOut(duration: 0.2), value: cloud.pendingCollision)
         .task {
+            // Debug: present the collision confirm for screenshots (`-showCollision 1`). The route decision
+            // (onboarding vs app) now lives in RootRouter; ContentView only ever renders in the app route.
             if UserDefaults.standard.bool(forKey: "showCollision") {
                 try? await Task.sleep(for: .milliseconds(600))   // let the initial auth(nil) settle first
-                cloud.debugPresentCollision(); return
+                cloud.debugPresentCollision()
             }
-            if UserDefaults.standard.bool(forKey: "onboarding") { showOnboarding = true; return }
-            // Debug: jump straight to a specific onboarding step for screenshots/QA (implies onboarding).
-            if UserDefaults.standard.string(forKey: "obStep") != nil { showOnboarding = true; return }
-            guard store.data.intake == nil && store.data.isEmpty else { return }
-            // A returning user who is ALREADY signed in (normal launch, not a reinstall that cleared auth)
-            // restores silently — give the auth session + Firestore snapshot a moment so we don't flash the
-            // guided flow at them. If nothing restores, this is a genuinely new/local user → show onboarding,
-            // which itself runs the marketing → Sign in with Apple → branch (the auth-first model).
-            if cloud.isConfigured {
-                for _ in 0..<6 where !cloud.isSignedIn {                            // ~1.5 s for auth to resume
-                    try? await Task.sleep(for: .milliseconds(250))
-                }
-                for _ in 0..<40 where cloud.isSignedIn && store.data.isEmpty {      // ~10 s for restore
-                    try? await Task.sleep(for: .milliseconds(250))
-                }
-            }
-            if store.data.intake == nil && store.data.isEmpty { showOnboarding = true }
-        }
-        .onChange(of: store.data.isEmpty) { _, empty in
-            // Cloud restore landed while onboarding was up (slow network) — drop it.
-            if !empty && showOnboarding && store.data.intake != nil { showOnboarding = false }
-        }
-        .fullScreenCover(isPresented: $showOnboarding) {
-            // Auth-first: never `canSkip` on first-run (the flow owns sign-in + the returning-user branch).
-            // Editing from Profile passes canSkip:true (questions-only) via its own presentation.
-            OnboardingView(existing: store.data.intake, canSkip: false) { store.applyIntake($0) }
         }
     }
 }
