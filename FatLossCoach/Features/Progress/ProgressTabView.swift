@@ -107,17 +107,23 @@ struct ProgressTabView: View {
     }
 
     private var adherenceCard: some View {
-        Card {
-            SectionTitle("Supplement Adherence (7 days)")
-            VStack(spacing: 0) {
-                ForEach(Array(Plan.supplements.filter { Plan.trackedSupplements.contains($0.key) }.enumerated()), id: \.element.id) { i, s in
-                    HStack {
-                        Text(s.name).font(.system(size: 15)).foregroundStyle(Theme.text)
-                        Spacer()
-                        Text("\(store.adherence(s.key))%").font(Theme.scoreS).foregroundStyle(Theme.primary)
+        // Adherence for exactly what the user tracks (catalog + custom), in tracked order.
+        let supps = store.trackedSupplements
+        return Group {
+            if !supps.isEmpty {
+                Card {
+                    SectionTitle("Supplement Adherence (7 days)")
+                    VStack(spacing: 0) {
+                        ForEach(Array(supps.enumerated()), id: \.element.id) { i, s in
+                            HStack {
+                                Text(s.name).font(.system(size: 15)).foregroundStyle(Theme.text)
+                                Spacer()
+                                Text("\(store.adherence(s.id))%").font(Theme.scoreS).foregroundStyle(Theme.primary)
+                            }
+                            .padding(.vertical, 9)
+                            if i < supps.count - 1 { Divider().overlay(Theme.border) }
+                        }
                     }
-                    .padding(.vertical, 9)
-                    if i < Plan.trackedSupplements.count - 1 { Divider().overlay(Theme.border) }
                 }
             }
         }

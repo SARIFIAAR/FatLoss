@@ -336,10 +336,10 @@ struct SupplementsCard: View {
     @State private var manage = false
 
     var body: some View {
-        // Tracked set: exactly what the user chose (may be empty on a completed profile). Only legacy
-        // pre-onboarding data with no selection ever falls back to all — see Store.trackedSupplementKeys.
-        let keys = store.trackedSupplementKeys
-        let supps = Plan.supplements.filter { keys.contains($0.key) }
+        // Tracked set: exactly what the user chose — catalog entries and custom ones, any number, in tracked
+        // order (may be empty on a completed profile). Only legacy pre-onboarding data with no selection ever
+        // falls back to the four defaults — see Store.trackedSupplements.
+        let supps = store.trackedSupplements
         return Card {
             HStack {
                 SectionTitle("Supplements")
@@ -371,8 +371,8 @@ struct SupplementsCard: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(supps.enumerated()), id: \.element.id) { i, s in
-                        let taken = store.isSupplementTaken(s.key)
-                        Button { store.toggleSupplement(s.key) } label: {
+                        let taken = store.isSupplementTaken(s.id)
+                        Button { store.toggleSupplement(s.id) } label: {
                             HStack(spacing: 10) {
                                 Capsule()
                                     .fill(taken ? Theme.orange : Color.clear)
@@ -380,8 +380,10 @@ struct SupplementsCard: View {
                                     .frame(width: 32, height: 18)
                                 VStack(alignment: .leading, spacing: 1) {
                                     (Text(s.name).font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
-                                     + Text(" \(s.dose)").font(.system(size: 12)).foregroundStyle(Theme.muted))
-                                    Text(s.when).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                                     + Text(s.dose.map { " \($0)" } ?? "").font(.system(size: 12)).foregroundStyle(Theme.muted))
+                                    if let w = s.when {
+                                        Text(w).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                                    }
                                 }
                                 Spacer()
                                 if taken {
@@ -403,9 +405,8 @@ struct SupplementsCard: View {
     }
 }
 
-/// Add or remove which supplements the Today card tracks. Writes `AppData.supplementsSelected`; the daily
-/// taken-toggle on the card is unaffected. Every supplement in the full list can be re-added here, so a user
-/// who removed one can get it back.
+/// Search the full library and add/remove any number of supplements the Today card tracks (catalog + custom).
+/// Writes `AppData.supplementsTracked` via the Store; the daily taken-toggle on the card is unaffected.
 struct ManageSupplementsSheet: View {
     @Environment(Store.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -414,36 +415,16 @@ struct ManageSupplementsSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 8) {
-                    Text("Tick the supplements you want to see and track on your Today screen.")
+                    Text("Search and tap to add the supplements you want on your Today screen — as many as you like. Can't find one? Type its name and add your own.")
                         .font(.system(size: 13)).foregroundStyle(Theme.muted).lineSpacing(3)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.bottom, 4)
-                    ForEach(Plan.supplements) { s in
-                        let on = store.trackedSupplementKeys.contains(s.key)
-                        Button { store.setSupplementTracked(s.key, tracked: !on) } label: {
-                            HStack(spacing: 12) {
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(Theme.primary.opacity(0.16)).frame(width: 38, height: 38)
-                                    Image(systemName: s.icon).font(.system(size: 17, weight: .semibold))
-                                        .foregroundStyle(Theme.primary)
-                                }
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(s.name).font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
-                                    Text("\(s.dose) · \(s.when)").font(.system(size: 11, weight: .semibold))
-                                        .foregroundStyle(Color(hex: 0xA7B6BE))
-                                }
-                                Spacer()
-                                Image(systemName: on ? "checkmark.circle.fill" : "circle")
-                                    .font(.system(size: 20)).foregroundStyle(on ? Theme.primary : Theme.muted)
-                            }
-                            .padding(12)
-                            .background(on ? Theme.primary.opacity(0.10) : Theme.card)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(on ? Theme.primary : Theme.border, lineWidth: 1.5))
-                        }
-                        .buttonStyle(.plain)
-                    }
+                    SupplementPicker(
+                        tracked: store.trackedSupplements,
+                        setCatalog: { key, on in store.setSupplementTracked(key, tracked: on) },
+                        addCustom: { name in store.addCustomSupplement(named: name) },
+                        remove: { id in store.removeSupplement(id) }
+                    )
                 }
                 .padding(16)
             }

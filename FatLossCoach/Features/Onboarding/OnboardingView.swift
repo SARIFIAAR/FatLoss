@@ -707,48 +707,37 @@ struct OnboardingView: View {
         .buttonStyle(.plain)
     }
 
+    /// The combined tracked list the picker renders — catalog picks (in catalog order) + any custom entries.
+    /// PER-USER: driven entirely by this profile's `supplementsWanted` + `customSupplements`.
+    private var onboardingTrackedSupplements: [TrackedSupplement] {
+        let catalog = Plan.supplementCatalog
+            .filter { p.supplementsWanted.contains($0.key) }
+            .map(TrackedSupplement.init)
+        return catalog + p.customSupplements
+    }
+
     private var supplementsStep: some View {
-        // v5 item 6: these are PER-USER — supplementsWanted and currentSupplements live in this user's own
-        // IntakeProfile (defaults: [] and ""), so a brand-new profile shows NOTHING pre-ticked and an empty
-        // free-text box. No auto-select anywhere. (Seeing prefill only means an existing profile is loaded
-        // for that account — correct per-user behaviour, not a default.)
+        // v5 item 6: these are PER-USER — supplementsWanted / customSupplements live in this user's own
+        // IntakeProfile (defaults: [] and []), so a brand-new profile shows nothing tracked. No auto-select.
+        // The searchable picker replaces both the fixed 4-row list and the old free-text box (custom-add
+        // covers "anything else you take"). No cap — add as many as you want.
         Group {
-            intro("Taking any of these? Tick the ones you want to track each day — we'll show just those on your Today screen.")
-            VStack(spacing: 8) {
-                ForEach(Plan.supplements) { s in
-                    let on = p.supplementsWanted.contains(s.key)
-                    Button {
-                        if on { p.supplementsWanted.remove(s.key) } else { p.supplementsWanted.insert(s.key) }
-                    } label: {
-                        HStack(spacing: 12) {
-                            // P1-4: leading monoline glyph per supplement (matches device-chip quality).
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Theme.primary.opacity(0.16)).frame(width: 38, height: 38)
-                                Image(systemName: s.icon).font(.system(size: 17, weight: .semibold))
-                                    .foregroundStyle(Theme.primary)
-                            }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(s.name).font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
-                                // P2: metadata one step brighter than pure muted.
-                                Text("\(s.dose) · \(s.when)").font(.system(size: 11, weight: .semibold))
-                                    .foregroundStyle(Color(hex: 0xA7B6BE))
-                            }
-                            Spacer()
-                            Image(systemName: on ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 20)).foregroundStyle(on ? Theme.primary : Theme.muted)
-                        }
-                        .padding(12)
-                        .background(on ? Theme.primary.opacity(0.10) : Theme.card)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(on ? Theme.primary : Theme.border, lineWidth: 1.5))
-                    }
-                    .buttonStyle(.plain)
+            intro("Search the library and tap to add the ones you want to track each day — we'll show just those on your Today screen. Can't find it? Type the name and add your own.")
+            SupplementPicker(
+                tracked: onboardingTrackedSupplements,
+                setCatalog: { key, on in
+                    if on { p.supplementsWanted.insert(key) } else { p.supplementsWanted.remove(key) }
+                },
+                addCustom: { name in
+                    let entry = TrackedSupplement.custom(named: name)
+                    guard !entry.name.isEmpty, !p.customSupplements.contains(where: { $0.id == entry.id }) else { return }
+                    p.customSupplements.append(entry)
+                },
+                remove: { id in
+                    p.supplementsWanted.remove(id)
+                    p.customSupplements.removeAll { $0.id == id }
                 }
-            }
-            field("Anything else you take? (optional)") {
-                OBTextField(text: $p.currentSupplements, placeholder: "e.g. creatine, vitamin C")
-            }
+            )
         }
     }
 

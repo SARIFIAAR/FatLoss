@@ -23,6 +23,58 @@ struct MeasurementEntry: Codable, Identifiable, Hashable {
     var id: String { date }
 }
 
+/// One supplement the user tracks on Today. Either a catalog entry (`id` == a `Plan.supplementCatalog` key,
+/// `custom` false) or a user-typed custom one (`id` == a generated "custom-…" id, `custom` true, `name` free).
+/// The daily taken-toggle keys off `id`, so both catalog keys and custom ids flow through
+/// `AppData.supplements[date]: Set<String>` unchanged.
+struct TrackedSupplement: Codable, Identifiable, Hashable {
+    var id: String
+    var name: String
+    var dose: String?
+    var when: String?
+    var custom: Bool = false
+
+    init(id: String, name: String, dose: String? = nil, when: String? = nil, custom: Bool = false) {
+        self.id = id; self.name = name; self.dose = dose; self.when = when; self.custom = custom
+    }
+
+    /// From a catalog supplement (dose/timing carried through so the card shows them).
+    init(_ s: Supplement) {
+        self.init(id: s.key, name: s.name, dose: s.dose, when: s.when, custom: false)
+    }
+
+    /// A user-typed custom supplement (stable id derived from the trimmed name so re-adding the same
+    /// name doesn't create a duplicate).
+    static func custom(named raw: String) -> TrackedSupplement {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let slug = name.lowercased().unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? Character($0) : "-" }
+        let id = "custom-" + String(String(slug).prefix(40))
+        return TrackedSupplement(id: id, name: name, dose: nil, when: nil, custom: true)
+    }
+
+    /// SF Symbol for the icon tile — the catalog's symbol for a known key, a neutral glyph for custom ones.
+    var symbol: String { custom ? "pills.fill" : (Plan.supplement(id)?.symbol ?? "pills.fill") }
+
+    /// "dose · when" when either is known, else nil.
+    var detail: String? {
+        switch (dose, when) {
+        case let (d?, w?): return "\(d) · \(w)"
+        case let (d?, nil): return d
+        case let (nil, w?): return w
+        case (nil, nil):   return nil
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id     = c.value(.id,     default: "")
+        name   = c.value(.name,   default: "")
+        dose   = c.value(.dose,   default: nil)
+        when   = c.value(.when,   default: nil)
+        custom = c.value(.custom, default: false)
+    }
+}
+
 struct RecoveryDay: Codable, Hashable {
     var hrv: Double?
     var rhr: Double?
@@ -312,7 +364,12 @@ struct AppData: Codable, Hashable {
     var habitDefs: [HabitDef] = []                          // customizable habit definitions
     var habitLog: [String: [String: Double]] = [:]          // date -> habitId -> logged value (manual)
     var didSeedHabits = false                               // starter habits seeded once
-    var supplementsSelected: [String] = []                  // Plan.supplements keys the user tracks (empty = all)
+    // Legacy: the four-item onboarding selection (Plan.supplements keys). Kept only so old JSON still opens
+    // and migrates into `supplementsTracked` on first decode. New writes go to `supplementsTracked`.
+    var supplementsSelected: [String] = []
+    // The supplements the user tracks on Today — catalog entries AND custom ones, any number. Source of truth
+    // for the card, the manage sheet, and adherence. Empty on a completed profile = "track none".
+    var supplementsTracked: [TrackedSupplement] = []
     var nutritionPlanId: String? = nil                      // chosen diet program (Nutrition > Program)
     var favoriteMeals: [MealEntry] = []                     // hearted meals for quick re-logging
     var plannedMeals: [String: [String: String]] = [:]      // date -> slot -> recipeId (persisted meal plan)
@@ -347,6 +404,14 @@ struct AppData: Codable, Hashable {
         habitLog     = c.value(.habitLog,     default: [:])
         didSeedHabits = c.value(.didSeedHabits, default: false)
         supplementsSelected = c.value(.supplementsSelected, default: [])
+        // Migrate: if a build wrote the new list, use it; otherwise rebuild it from the legacy 4-item keys so
+        // existing users keep exactly the supplements they picked (no drop, no reset to all).
+        let tracked = c.value(.supplementsTracked, default: [TrackedSupplement]())
+        if !tracked.isEmpty {
+            supplementsTracked = tracked
+        } else {
+            supplementsTracked = supplementsSelected.compactMap { key in Plan.supplement(key).map(TrackedSupplement.init) }
+        }
         nutritionPlanId = c.value(.nutritionPlanId, default: nil)
         favoriteMeals = c.value(.favoriteMeals, default: [])
         plannedMeals = c.value(.plannedMeals, default: [:])
@@ -400,6 +465,12 @@ struct AppData: Codable, Hashable {
         for d in older.habitDefs where !mergedIDs.contains(d.id) { mergedDefs.append(d) }
         out.habitDefs = mergedDefs
         out.didSeedHabits = out.didSeedHabits || older.didSeedHabits
+        // Tracked supplements: union by id, order-preserving (newer snapshot's order first, then any the older
+        // copy has that the newer one dropped) — same rule as habit defs so adds from two devices don't fight.
+        var mergedSupps = out.supplementsTracked
+        let mergedSuppIDs = Set(mergedSupps.map(\.id))
+        for s in older.supplementsTracked where !mergedSuppIDs.contains(s.id) { mergedSupps.append(s) }
+        out.supplementsTracked = mergedSupps
         // Favorite meals: union by lowercased name (newer wins).
         var favByName: [String: MealEntry] = [:]
         for m in older.favoriteMeals { favByName[m.name.lowercased()] = m }

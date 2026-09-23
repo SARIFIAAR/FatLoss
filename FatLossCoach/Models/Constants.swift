@@ -10,18 +10,32 @@ struct Habit: Identifiable, Hashable {
 struct Supplement: Identifiable, Hashable {
     let key: String
     let name: String
-    let dose: String
-    let when: String
+    /// Well-known supplements carry a suggested dose + timing; the long tail omits them (nil).
+    let dose: String?
+    let when: String?
+    /// SF Symbol for the row's icon tile. Defaults to "pills.fill" when the catalog entry omits one.
+    let symbol: String
+
     var id: String { key }
 
-    /// Monoline SF Symbol for onboarding rows (P1-4) — matches the device-chip / explainer icon quality.
-    var icon: String {
-        switch key {
-        case "vd3": return "sun.max.fill"          // Vitamin D3
-        case "o3":  return "fish.fill"             // Omega-3
-        case "mg":  return "moon.zzz.fill"         // Magnesium (at night)
-        case "wh":  return "dumbbell.fill"         // Whey (post-workout)
-        default:    return "pills.fill"
+    init(key: String, name: String, dose: String? = nil, when: String? = nil, symbol: String = "pills.fill") {
+        self.key = key
+        self.name = name
+        self.dose = dose
+        self.when = when
+        self.symbol = symbol
+    }
+
+    /// Backwards-compatible icon accessor (older call sites used `.icon`). Equals `symbol`.
+    var icon: String { symbol }
+
+    /// "dose · when" when either is known, else nil. Used by rows that show a subtitle only when we have one.
+    var detail: String? {
+        switch (dose, when) {
+        case let (d?, w?): return "\(d) · \(w)"
+        case let (d?, nil): return d
+        case let (nil, w?): return w
+        case (nil, nil):   return nil
         }
     }
 }
@@ -114,14 +128,81 @@ enum Plan {
         Habit(key: "sleep",   label: "In Bed by 11pm",      time: "11:00 PM"),
     ]
 
+    /// The original four (kept as-is, same keys/dose/timing). These are the well-known picks surfaced first
+    /// and are the only ones an old build ever wrote to `supplementsSelected`, so their keys must not change.
     static let supplements: [Supplement] = [
-        Supplement(key: "vd3", name: "Vitamin D3",              dose: "2000–4000 IU", when: "With breakfast"),
-        Supplement(key: "o3",  name: "Omega-3",                 dose: "2–3g EPA+DHA", when: "With meal"),
-        Supplement(key: "mg",  name: "Magnesium Glycinate",     dose: "300–400mg",    when: "At night"),
-        Supplement(key: "wh",  name: "Whey Protein (optional)", dose: "25–30g",       when: "Post-workout"),
+        Supplement(key: "vd3", name: "Vitamin D3",              dose: "2000–4000 IU", when: "With breakfast", symbol: "sun.max.fill"),
+        Supplement(key: "o3",  name: "Omega-3",                 dose: "2–3g EPA+DHA", when: "With meal",       symbol: "fish.fill"),
+        Supplement(key: "mg",  name: "Magnesium Glycinate",     dose: "300–400mg",    when: "At night",        symbol: "moon.zzz.fill"),
+        Supplement(key: "wh",  name: "Whey Protein (optional)", dose: "25–30g",       when: "Post-workout",    symbol: "dumbbell.fill"),
     ]
 
-    /// Supplements shown in the 7-day adherence card.
+    /// A broad, searchable library of common supplements the user can add any number of. The first four keep
+    /// the legacy keys (vd3/o3/mg/wh) so existing `supplementsSelected` data maps straight in. Dose/timing are
+    /// filled only for the well-known ones — the long tail is name + icon and the user sets their own routine.
+    static let supplementCatalog: [Supplement] = supplements + [
+        // Vitamins
+        Supplement(key: "vitA",       name: "Vitamin A",                                              symbol: "eye.fill"),
+        Supplement(key: "bcomplex",   name: "B-Complex",              dose: "1 tablet",  when: "With breakfast", symbol: "b.circle.fill"),
+        Supplement(key: "b12",        name: "Vitamin B12",            dose: "500–1000 mcg", when: "Morning",    symbol: "bolt.heart.fill"),
+        Supplement(key: "vitC",       name: "Vitamin C",              dose: "500–1000 mg", when: "With meal",   symbol: "leaf.fill"),
+        Supplement(key: "vitE",       name: "Vitamin E",                                              symbol: "drop.fill"),
+        Supplement(key: "k2",         name: "Vitamin K2",             dose: "100–200 mcg", when: "With fat",    symbol: "drop.fill"),
+        Supplement(key: "folate",     name: "Folate",                                                 symbol: "leaf.fill"),
+        Supplement(key: "biotin",     name: "Biotin",                                                 symbol: "sparkles"),
+        Supplement(key: "multi",      name: "Multivitamin",           dose: "1 serving", when: "With breakfast", symbol: "pills.circle.fill"),
+        Supplement(key: "dk",         name: "Vitamin D + K",          dose: "With fat",  when: "Morning",     symbol: "sun.max.fill"),
+        // Minerals
+        Supplement(key: "mgcit",      name: "Magnesium Citrate",      dose: "200–400 mg", when: "Evening",     symbol: "moon.stars.fill"),
+        Supplement(key: "mgsleep",    name: "Magnesium (sleep)",      dose: "300–400 mg", when: "Before bed",  symbol: "bed.double.fill"),
+        Supplement(key: "zinc",       name: "Zinc",                   dose: "15–30 mg",  when: "With food",   symbol: "aqi.medium"),
+        Supplement(key: "iron",       name: "Iron",                   dose: "With vitamin C", when: "Away from coffee", symbol: "drop.triangle.fill"),
+        Supplement(key: "calcium",    name: "Calcium",                dose: "500 mg",    when: "With meal",   symbol: "circle.hexagongrid.fill"),
+        Supplement(key: "potassium",  name: "Potassium",                                              symbol: "bolt.fill"),
+        Supplement(key: "iodine",     name: "Iodine",                                                 symbol: "atom"),
+        Supplement(key: "selenium",   name: "Selenium",                                               symbol: "atom"),
+        Supplement(key: "electro",    name: "Electrolytes",           dose: "1 sachet",  when: "During training", symbol: "drop.halffull"),
+        // Omega / oils
+        Supplement(key: "fishoil",    name: "Fish Oil",               dose: "1–2 g EPA+DHA", when: "With meal", symbol: "fish.fill"),
+        Supplement(key: "krill",      name: "Krill Oil",                                              symbol: "fish.fill"),
+        Supplement(key: "codliver",   name: "Cod Liver Oil",          dose: "1 tsp",     when: "With meal",   symbol: "fish.fill"),
+        // Performance
+        Supplement(key: "creatine",   name: "Creatine Monohydrate",   dose: "5 g",       when: "Any time daily", symbol: "bolt.fill"),
+        Supplement(key: "casein",     name: "Casein Protein",         dose: "25–30 g",   when: "Before bed",  symbol: "moon.fill"),
+        Supplement(key: "collagen",   name: "Collagen",               dose: "10–15 g",   when: "Any time",    symbol: "figure.strengthtraining.functional"),
+        Supplement(key: "eaa",        name: "BCAA / EAA",             dose: "5–10 g",    when: "Around training", symbol: "figure.run"),
+        Supplement(key: "glutamine",  name: "Glutamine",              dose: "5 g",       when: "Post-workout", symbol: "figure.run"),
+        Supplement(key: "betaala",    name: "Beta-Alanine",           dose: "3–5 g",     when: "Daily",       symbol: "flame.fill"),
+        Supplement(key: "preworkout", name: "Pre-Workout",            dose: "1 scoop",   when: "Before training", symbol: "flame.fill"),
+        Supplement(key: "caffeine",   name: "Caffeine",               dose: "100–200 mg", when: "Before training", symbol: "cup.and.saucer.fill"),
+        Supplement(key: "caffltheanine", name: "Caffeine + L-Theanine", dose: "100 mg / 200 mg", when: "Morning", symbol: "cup.and.saucer.fill"),
+        Supplement(key: "taurine",    name: "Taurine",                                                symbol: "bolt.fill"),
+        // Gut / general
+        Supplement(key: "probiotics", name: "Probiotics",             dose: "1 capsule", when: "With food",   symbol: "allergens.fill"),
+        Supplement(key: "prebiotic",  name: "Prebiotic Fibre",                                        symbol: "leaf.fill"),
+        Supplement(key: "psyllium",   name: "Psyllium Husk",          dose: "1 tbsp",    when: "With water",  symbol: "leaf.fill"),
+        Supplement(key: "greens",     name: "Greens Powder",          dose: "1 scoop",   when: "Morning",     symbol: "leaf.fill"),
+        Supplement(key: "acv",        name: "Apple Cider Vinegar",    dose: "1 tbsp",    when: "Before meals", symbol: "drop.fill"),
+        // Adaptogens / sleep / mind
+        Supplement(key: "ashwa",      name: "Ashwagandha",            dose: "300–600 mg", when: "Evening",    symbol: "leaf.circle.fill"),
+        Supplement(key: "rhodiola",   name: "Rhodiola",                                               symbol: "leaf.circle.fill"),
+        Supplement(key: "ltheanine",  name: "L-Theanine",             dose: "100–200 mg", when: "As needed",  symbol: "brain.head.profile"),
+        Supplement(key: "melatonin",  name: "Melatonin",              dose: "0.5–3 mg",  when: "Before bed",  symbol: "moon.zzz.fill"),
+        Supplement(key: "ginkgo",     name: "Ginkgo Biloba",                                          symbol: "brain.head.profile"),
+        Supplement(key: "inositol",   name: "Inositol",                                               symbol: "circle.grid.cross.fill"),
+        // Joints / heart / liver / metabolic
+        Supplement(key: "turmeric",   name: "Turmeric / Curcumin",    dose: "500 mg",    when: "With meal",   symbol: "circle.fill"),
+        Supplement(key: "coq10",      name: "CoQ10",                  dose: "100–200 mg", when: "With fat",   symbol: "heart.fill"),
+        Supplement(key: "glucosamine", name: "Glucosamine",           dose: "1500 mg",   when: "Daily",       symbol: "figure.walk"),
+        Supplement(key: "nac",        name: "NAC",                    dose: "600 mg",    when: "Daily",       symbol: "lungs.fill"),
+        Supplement(key: "berberine",  name: "Berberine",              dose: "500 mg",    when: "With meals",  symbol: "circle.hexagonpath.fill"),
+        Supplement(key: "milkthistle", name: "Milk Thistle",                                          symbol: "leaf.fill"),
+    ]
+
+    /// Catalog lookup by key.
+    static func supplement(_ key: String) -> Supplement? { supplementCatalog.first { $0.key == key } }
+
+    /// Default supplements shown in the adherence card when we have no user selection to reason about.
     static let trackedSupplements = ["vd3", "o3", "mg"]
 
     // MARK: Programme phases

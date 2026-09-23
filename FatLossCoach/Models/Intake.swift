@@ -114,7 +114,8 @@ struct IntakeProfile: Codable, Hashable {
     // These are PER-USER: stored in this profile only, applied to the user's own tracker on first plan.
     var wantedHabits: Set<HabitMetric> = []      // metric-backed habits (Steps, Water, Protein…)
     var wantedHabitTemplates: Set<String> = []   // HabitLibrary template ids (No sugar, Read, Journal…)
-    var supplementsWanted: Set<String> = []      // Plan.supplements keys
+    var supplementsWanted: Set<String> = []      // Plan.supplementCatalog keys chosen in the picker
+    var customSupplements: [TrackedSupplement] = []   // user-typed supplements not in the catalog
     // Devices
     var hasAppleWatch = false
     var completedAt: Date? = nil
@@ -150,6 +151,7 @@ struct IntakeProfile: Codable, Hashable {
         wantedHabits = c.value(.wantedHabits, default: [])
         wantedHabitTemplates = c.value(.wantedHabitTemplates, default: [])
         supplementsWanted = c.value(.supplementsWanted, default: [])
+        customSupplements = c.value(.customSupplements, default: [])
         completedAt = c.value(.completedAt, default: nil)
     }
 }

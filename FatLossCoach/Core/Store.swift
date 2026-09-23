@@ -388,11 +388,19 @@ final class Store {
             }
             d.didSeedHabits = true
         }
-        // Track exactly the supplements the user selected in onboarding — ALWAYS write it, even when the
-        // selection is empty (they picked "none"). An empty list on a COMPLETED profile means "track none"
-        // (SupplementsCard renders the empty state), not the legacy "show all" fallback which only applies to
-        // pre-onboarding data that never had this field written.
-        d.supplementsSelected = Plan.supplements.map(\.key).filter { p.supplementsWanted.contains($0) }
+        // Seed exactly the supplements the user chose in onboarding — ALWAYS write it, even when the selection
+        // is empty (they picked "none"). Empty on a COMPLETED profile means "track none" (the card shows its
+        // empty state), not the legacy "show all" fallback which only applies to pre-onboarding data.
+        // The onboarding picker already stores custom ones directly in `supplementsTracked`, so union that in
+        // (catalog picks from `supplementsWanted`) rather than overwriting it.
+        let catalogPicks = Plan.supplementCatalog
+            .filter { p.supplementsWanted.contains($0.key) }
+            .map(TrackedSupplement.init)
+        var seeded: [TrackedSupplement] = []
+        var seededIDs = Set<String>()
+        for s in catalogPicks + p.customSupplements where seededIDs.insert(s.id).inserted { seeded.append(s) }
+        d.supplementsTracked = seeded
+        d.supplementsSelected = catalogPicks.map(\.id)   // keep the legacy mirror consistent
         data = d
         if data.weightLogs.isEmpty || (currentWeight ?? 0) != p.weightKg { _ = logWeight(p.weightKg) }
         if let w = p.waistCm, data.waistLogs.last?.value != w { _ = logWaist(w) }
@@ -424,33 +432,65 @@ final class Store {
     /// "track none", not legacy pre-onboarding data). Drives SupplementsCard's empty-state vs all-fallback.
     var didCompleteOnboarding: Bool { data.intake?.completedAt != nil }
 
-    /// The supplements the user tracks on Today. On a completed profile this is exactly what they chose
-    /// (may be empty). Only legacy pre-onboarding data (never wrote the field) falls back to showing all.
-    var trackedSupplementKeys: [String] {
-        let sel = data.supplementsSelected
-        if !sel.isEmpty { return Plan.supplements.map(\.key).filter { sel.contains($0) } }
-        return didCompleteOnboarding ? [] : Plan.supplements.map(\.key)
+    /// The supplements the user tracks on Today — catalog entries and custom ones, any number, in the order
+    /// they were added. On a completed profile this is exactly what they chose (may be empty). Only legacy
+    /// pre-onboarding data that never wrote a selection falls back to showing the four defaults.
+    var trackedSupplements: [TrackedSupplement] {
+        if !data.supplementsTracked.isEmpty { return data.supplementsTracked }
+        return didCompleteOnboarding ? [] : Plan.supplements.map(TrackedSupplement.init)
     }
 
-    /// Add/remove a supplement from the Today tracker (manage sheet). Writes `supplementsSelected` in the
-    /// canonical Plan order so the card ordering stays stable. The daily taken-toggle is untouched.
-    func setSupplementTracked(_ key: String, tracked: Bool) {
-        var keys = Set(trackedSupplementKeys)
-        if tracked { keys.insert(key) } else { keys.remove(key) }
-        data.supplementsSelected = Plan.supplements.map(\.key).filter { keys.contains($0) }
-    }
+    /// The ids the user tracks (catalog keys + custom ids).
+    var trackedSupplementIDs: [String] { trackedSupplements.map(\.id) }
 
-    func isSupplementTaken(_ key: String) -> Bool { data.supplements[today]?.contains(key) ?? false }
-    func toggleSupplement(_ key: String) {
-        var set = data.supplements[today] ?? []
-        if set.contains(key) {
-            set.remove(key)
+    func isSupplementTracked(_ id: String) -> Bool { trackedSupplements.contains { $0.id == id } }
+
+    /// Add/remove a catalog supplement from the Today tracker (manage sheet / onboarding picker). Preserves
+    /// existing order; a re-added one goes to the end. The daily taken-toggle is untouched.
+    func setSupplementTracked(_ id: String, tracked: Bool) {
+        var list = trackedSupplements
+        if tracked {
+            guard !list.contains(where: { $0.id == id }) else { return }
+            guard let s = Plan.supplement(id) else { return }
+            list.append(TrackedSupplement(s))
         } else {
-            set.insert(key)
+            list.removeAll { $0.id == id }
+        }
+        data.supplementsTracked = list
+    }
+
+    /// Add a user-typed custom supplement (name only). Idempotent on the derived id, so adding the same name
+    /// twice is a no-op. Returns the tracked entry (its id feeds the taken-toggle).
+    @discardableResult
+    func addCustomSupplement(named raw: String) -> TrackedSupplement? {
+        let entry = TrackedSupplement.custom(named: raw)
+        guard !entry.name.isEmpty else { return nil }
+        var list = trackedSupplements
+        if let existing = list.first(where: { $0.id == entry.id }) { return existing }
+        list.append(entry)
+        data.supplementsTracked = list
+        return entry
+    }
+
+    /// Remove any tracked supplement by id (catalog or custom).
+    func removeSupplement(_ id: String) {
+        data.supplementsTracked = trackedSupplements.filter { $0.id != id }
+    }
+
+    func isSupplementTaken(_ id: String) -> Bool { data.supplements[today]?.contains(id) ?? false }
+    func toggleSupplement(_ id: String) {
+        var set = data.supplements[today] ?? []
+        if set.contains(id) {
+            set.remove(id)
+        } else {
+            set.insert(id)
             showToast("Supplement taken! 💊")
         }
         data.supplements[today] = set
-        autoHabit("supps", done: Plan.trackedSupplements.allSatisfy { set.contains($0) })
+        // Auto-tick the "Supplements Taken" habit once every tracked supplement is marked taken (honest:
+        // if they track none, there's nothing to complete, so leave it).
+        let ids = trackedSupplementIDs
+        autoHabit("supps", done: !ids.isEmpty && ids.allSatisfy { set.contains($0) })
     }
     /// Percent of the last `days` days on which the supplement was taken.
     func adherence(_ key: String, days: Int = 7) -> Int {
