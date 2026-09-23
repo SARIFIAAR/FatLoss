@@ -12,7 +12,7 @@ struct ProfileView: View {
                scrollTo: UserDefaults.standard.string(forKey: "profileScroll")) {
             headerCard
             PlanQuestionnaireCard(edit: $editPlan)
-            GoalsCard()
+            GoalsCard().id("goals")
             CloudCard()
             DevicesHealthCard().id("devices")
             RemindersCard()
@@ -106,6 +106,7 @@ struct GoalsCard: View {
     @State private var waist = ""
     @State private var steps = ""
     @State private var water = ""
+    @State private var countBurned = true
 
     var body: some View {
         Card {
@@ -117,6 +118,20 @@ struct GoalsCard: View {
                 LabeledField(label: "Steps goal", text: $steps, decimal: false)
                 LabeledField(label: "Water goal (ml)", text: $water, decimal: false)
             }
+
+            // Net vs gross calorie budgeting. On = burned calories are added to the day's allowance.
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle(isOn: $countBurned) {
+                    Text("Count burned calories").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
+                }
+                .tint(Theme.primary)
+                Text(countBurned
+                     ? "Net calories: exercise you burn (Apple Watch active + resting) is added to today's allowance."
+                     : "Gross calories: your allowance is just the target. Burned calories are shown but not added.")
+                    .font(.system(size: 11)).foregroundStyle(Theme.muted).lineSpacing(2)
+            }
+            .padding(.top, 14)
+
             Button("Save Goals") {
                 var g = store.data.goals
                 if let v = Fmt.parse(start), v > 0 { g.startWeight = v }
@@ -124,16 +139,18 @@ struct GoalsCard: View {
                 if let v = Fmt.parse(waist), v > 0 { g.waistTarget = v }
                 if let v = Fmt.parse(steps), v > 0 { g.stepsGoal = Int(v) }
                 if let v = Fmt.parse(water), v > 0 { g.waterGoal = Int(v) }
+                g.countBurnedCalories = countBurned
                 store.data.goals = g
                 store.showToast("Goals saved")
             }
             .buttonStyle(PrimaryButtonStyle(compact: true))
-            .padding(.top, 10)
+            .padding(.top, 14)
         }
         .onAppear {
             let g = store.data.goals
             start = Fmt.num(g.startWeight); goal = Fmt.num(g.goalWeight); waist = Fmt.num(g.waistTarget)
             steps = String(g.stepsGoal); water = String(g.waterGoal)
+            countBurned = g.countBurnedCalories
         }
     }
 }

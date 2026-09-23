@@ -135,12 +135,16 @@ struct DiarySummaryCard: View {
         let g = store.data.goals
         let t = store.totals(on: day)
         let eaten = Int(t.kcal.rounded())
-        let over = eaten > g.kcal
-        let left = abs(g.kcal - eaten)
-        let frac = g.kcal > 0 ? min(1, t.kcal / Double(g.kcal)) : 0
         let isToday = day == store.today
         let e = store.energy()
         let burned = isToday ? e.burned : nil
+        // Net mode (Lifesum default): the day's allowance grows by what the Watch says you burned.
+        // Gross mode: the allowance is just the target; burn is shown but not added.
+        let net = g.countBurnedCalories
+        let budget = net ? g.kcal + Int((burned ?? 0).rounded()) : g.kcal
+        let over = eaten > budget
+        let left = abs(budget - eaten)
+        let frac = budget > 0 ? min(1, t.kcal / Double(budget)) : 0
 
         let lifeScore = LifeScore.score(meals: store.meals(on: day), goals: g)
         Card(accent: over ? Theme.red : Theme.primary) {
@@ -188,11 +192,19 @@ struct DiarySummaryCard: View {
             .padding(.top, 14)
 
             if let burned, isToday {
-                let net = burned - t.kcal
-                Text(t.kcal > 0
-                     ? "\(net >= 0 ? "Deficit" : "Surplus") \(Int(abs(net))) kcal so far · goal −\(g.deficit)"
-                     : "Log meals to see today's deficit")
-                    .font(.system(size: 11)).foregroundStyle(Theme.muted).padding(.top, 10)
+                let bal = burned - t.kcal
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(t.kcal > 0
+                         ? "\(bal >= 0 ? "Deficit" : "Surplus") \(Int(abs(bal))) kcal so far · goal −\(g.deficit)"
+                         : "Log meals to see today's deficit")
+                        .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    Text(net
+                         ? "Net calories: your \(g.kcal) target grows by the \(Int(burned)) kcal you burned."
+                         : "Gross calories: allowance is your \(g.kcal) target; burn is shown, not added.")
+                        .font(.system(size: 10)).foregroundStyle(Theme.muted).opacity(0.75)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 10)
             }
         }
     }

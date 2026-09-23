@@ -199,6 +199,10 @@ struct Goals: Codable, Hashable {
     var carbs: Int = 150
     var fat: Int = 65
     var deficit: Int = 550
+    /// When true (net, Lifesum's default), Apple-Watch/active burn is added to the day's calorie
+    /// allowance (budget = target + burned). When false (gross), the budget is just eaten-vs-target
+    /// and burn is shown but not added. Default true preserves the app's current energy-balance model.
+    var countBurnedCalories: Bool = true
 
     init() {}
 
@@ -214,6 +218,7 @@ struct Goals: Codable, Hashable {
         carbs       = c.value(.carbs,       default: 150)
         fat         = c.value(.fat,         default: 65)
         deficit     = c.value(.deficit,     default: 550)
+        countBurnedCalories = c.value(.countBurnedCalories, default: true)
     }
 }
 

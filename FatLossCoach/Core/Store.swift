@@ -683,6 +683,27 @@ final class Store {
         for m in (data.meals[from] ?? []) { repeatMeal(m, on: to, slot: m.slot) }
     }
 
+    /// The DateKey of the calendar day before `day`.
+    func previousDay(of day: String) -> String {
+        DateKey.key(DateKey.date(day).map { $0.addingTimeInterval(-86400) } ?? Date())
+    }
+
+    /// Items logged to a given slot on the day before `day` — the source list for a per-meal
+    /// "Same as yesterday" affordance (each item re-addable on its own, not the whole day).
+    func yesterdayItems(slot: String, before day: String? = nil) -> [MealEntry] {
+        let prev = previousDay(of: day ?? today)
+        return meals(slot: slot, on: prev).sorted { $0.time < $1.time }
+    }
+
+    /// Quick-add a bare calorie (and optional protein) entry to a day/slot — no specific food.
+    func quickAdd(kcal: Double, protein: Double = 0, on day: String? = nil, slot: String? = nil) {
+        var e = MealEntry(date: day ?? today, name: "Quick add",
+                          kcal: kcal, protein: protein, carbs: 0, fat: 0,
+                          confidence: "high", notes: "Manually entered calories.")
+        e.slot = slot
+        addMeal(e)
+    }
+
     func deleteMeal(_ meal: MealEntry) {
         var list = data.meals[meal.date] ?? []
         list.removeAll { $0.id == meal.id }

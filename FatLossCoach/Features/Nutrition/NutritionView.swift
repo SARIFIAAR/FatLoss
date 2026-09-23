@@ -17,6 +17,9 @@ final class ScanFlow {
     var showAIChat = false                 // unified multimodal AI composer (text/voice/photo)
     var fromAIChat = false                 // the pending result came via the AI composer
     var showCompare = false                // barcode compare (two products)
+    var showHub = false                    // "+ More ways to log" hub sheet
+    var showQuickAdd = false               // quick-add calories sheet
+    var hubTab: LogHubTab = .methods       // which hub tab opened last
 
     struct PendingMeal: Identifiable {
         let id = UUID()
@@ -99,6 +102,21 @@ struct NutritionView: View {
                            onImage: { img in flow.fromAIChat = true; Task { await analyze(img) } })
         }
         .sheet(isPresented: $flow.showCompare) { BarcodeCompareView() }
+        .sheet(isPresented: $flow.showHub) { LogHubSheet(flow: flow, day: selectedDay) }
+        .sheet(isPresented: $flow.showQuickAdd) { QuickAddSheet(flow: flow, day: selectedDay) }
+        .onAppear {
+            // Debug / screenshots: `-nutritionHub methods|recents|favorites|yesterday` opens the "+"
+            // hub; `-nutritionQuickAdd 1` opens quick-add; both scoped by `-nutritionSlot <key>`.
+            if let raw = UserDefaults.standard.string(forKey: "nutritionHub"),
+               let t = LogHubTab.allCases.first(where: { $0.rawValue.lowercased() == raw.lowercased() }) {
+                flow.slot = UserDefaults.standard.string(forKey: "nutritionSlot")
+                flow.hubTab = t
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { flow.showHub = true }
+            } else if UserDefaults.standard.string(forKey: "nutritionQuickAdd") != nil {
+                flow.slot = UserDefaults.standard.string(forKey: "nutritionSlot")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { flow.showQuickAdd = true }
+            }
+        }
     }
 
     @ViewBuilder
@@ -111,9 +129,10 @@ struct NutritionView: View {
         WeekCalendarCard(selected: $selectedDay)
             .onAppear { flow.day = selectedDay }
             .onChange(of: selectedDay) { _, d in flow.day = d }
-        MealScanCard(flow: flow)
-        CopyYesterdayCard(day: selectedDay)
+        // Diary-first: the meal plan and its per-slot logging sit right under the calendar so
+        // the plan is above the fold. Logging methods live in the compact card + "+" hub below it.
         MealPlanCard(flow: flow, day: selectedDay)
+        LogEntryCard(flow: flow)
         TodayMealsCard(day: selectedDay)
         Group {
             TimelineView(.periodic(from: .now, by: 60)) { ctx in
@@ -221,7 +240,10 @@ struct MacroBar: View {
 
 // MARK: - Meal photo scanner
 
-struct MealScanCard: View {
+/// Compact diary logging card: one primary "Log with AI" action + a single "+ More ways to log"
+/// button that opens the hub (all other methods, plus Recents / Favorites / Same as yesterday /
+/// Quick add). Collapses the old 7-button stack so the diary and meal plan stay above the fold.
+struct LogEntryCard: View {
     @Bindable var flow: ScanFlow
     @Environment(MealScanner.self) private var scanner
     @Environment(CloudSync.self) private var cloud
@@ -245,47 +267,17 @@ struct MealScanCard: View {
             .buttonStyle(PrimaryButtonStyle())
             .disabled(!cloud.isSignedIn)
             .padding(.bottom, 10)
-            Text("Or use a specific method:").font(.system(size: 11)).foregroundStyle(Theme.muted).padding(.bottom, 8)
-            HStack(spacing: 10) {
-                Button {
-                    flow.camera(slot: nil)
-                } label: {
-                    Label(scanner.isAnalyzing ? "Analyzing…" : "Camera", systemImage: "camera.fill")
+            // The hub holds every other logging method + recents/favorites/same-as-yesterday/quick add.
+            Button { flow.slot = nil; flow.error = nil; flow.hubTab = .methods; flow.showHub = true } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "plus.circle")
+                    Text("More ways to log").font(.system(size: 15, weight: .bold))
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.muted)
                 }
-                .buttonStyle(PrimaryButtonStyle())
-                .disabled(scanner.isAnalyzing || !cloud.isSignedIn || !UIImagePickerController.isSourceTypeAvailable(.camera))
-
-                PhotosPicker(selection: $flow.pickerItem, matching: .images, photoLibrary: .shared()) {
-                    Label("Library", systemImage: "photo.on.rectangle")
-                        .font(.system(size: 16, weight: .bold)).foregroundStyle(Theme.primary)
-                        .frame(maxWidth: .infinity).padding(.vertical, 14)
-                        .background(Theme.bg)
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.accent, lineWidth: 2))
-                }
-                .simultaneousGesture(TapGesture().onEnded { flow.slot = nil; flow.error = nil })
-                .disabled(scanner.isAnalyzing || !cloud.isSignedIn)
             }
-            HStack(spacing: 10) {
-                Button { flow.typed(slot: nil) } label: { Label("Type it in", systemImage: "keyboard") }
-                    .buttonStyle(SecondaryButtonStyle())
-                Button { flow.typed(slot: nil, barcode: true) } label: { Label("Barcode", systemImage: "barcode.viewfinder") }
-                    .buttonStyle(SecondaryButtonStyle())
-            }
-            .padding(.top, 10)
-            .disabled(scanner.isAnalyzing || !cloud.isSignedIn)
-            HStack(spacing: 10) {
-                Button { flow.slot = nil; flow.error = nil; flow.showVoice = true } label: {
-                    Label("Say it", systemImage: "mic.fill").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(SecondaryButtonStyle())
-                Button { flow.showCompare = true } label: {
-                    Label("Compare", systemImage: "arrow.left.arrow.right").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(SecondaryButtonStyle())
-            }
-            .padding(.top, 10)
-            .disabled(scanner.isAnalyzing || !cloud.isSignedIn)
+            .buttonStyle(SecondaryButtonStyle())
+            .disabled(!cloud.isSignedIn)
             if scanner.isAnalyzing {
                 HStack(spacing: 8) {
                     ProgressView().tint(Theme.primary)
@@ -337,11 +329,20 @@ struct MealPlanCard: View {
                             }
                         }
                         Menu {
+                            let yCount = store.yesterdayItems(slot: m.key, before: day).count
+                            if yCount > 0 {
+                                Button { flow.slot = m.key; flow.error = nil; flow.hubTab = .yesterday; flow.showHub = true } label: {
+                                    Label("Same as yesterday (\(yCount))", systemImage: "clock.arrow.circlepath")
+                                }
+                            }
+                            Button { flow.slot = m.key; flow.error = nil; flow.hubTab = .recents; flow.showHub = true } label: { Label("Recent foods", systemImage: "arrow.counterclockwise") }
+                            Button { flow.slot = m.key; flow.error = nil; flow.showQuickAdd = true } label: { Label("Quick add", systemImage: "bolt.fill") }
+                            Divider()
                             Button { flow.camera(slot: m.key) } label: { Label("Take photo", systemImage: "camera.fill") }
                             Button { flow.slot = m.key; flow.error = nil; flow.showLibrary = true } label: { Label("Choose from library", systemImage: "photo.on.rectangle") }
-                            Divider()
                             Button { flow.typed(slot: m.key) } label: { Label("Type it in", systemImage: "keyboard") }
                             Button { flow.typed(slot: m.key, barcode: true) } label: { Label("Scan barcode", systemImage: "barcode.viewfinder") }
+                            Button { flow.slot = m.key; flow.error = nil; flow.showAIChat = true } label: { Label("Log with AI", systemImage: "sparkles") }
                         } label: {
                             Image(systemName: logged ? "plus.circle" : "plus")
                                 .font(.system(size: 15, weight: .bold))

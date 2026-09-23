@@ -185,12 +185,19 @@ struct WatchCard: View {
             }
             let e = store.energy()
             if let burned = e.burned {
-                let net = burned - e.eaten
-                Text(e.eaten > 0
-                     ? "Burned \(Int(burned)) · eaten \(Int(e.eaten)) · \(net >= 0 ? "deficit" : "surplus") \(Int(abs(net))) kcal so far"
-                     : "Burned \(Int(burned)) kcal so far · scan a meal to see today's deficit")
-                    .font(.system(size: 12)).foregroundStyle(net >= 0 || e.eaten == 0 ? Theme.muted : Theme.red)
-                    .padding(.top, 8)
+                let bal = burned - e.eaten
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(e.eaten > 0
+                         ? "Burned \(Int(burned)) · eaten \(Int(e.eaten)) · \(bal >= 0 ? "deficit" : "surplus") \(Int(abs(bal))) kcal so far"
+                         : "Burned \(Int(burned)) kcal so far · log a meal to see today's deficit")
+                        .font(.system(size: 12)).foregroundStyle(bal >= 0 || e.eaten == 0 ? Theme.muted : Theme.red)
+                    Text(store.data.goals.countBurnedCalories
+                         ? "Net budget: \(store.data.goals.kcal + Int(burned.rounded())) kcal (target + burned)"
+                         : "Gross budget: \(store.data.goals.kcal) kcal (target only)")
+                        .font(.system(size: 10)).foregroundStyle(Theme.muted).opacity(0.75)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 8)
             }
         }
     }
