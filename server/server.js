@@ -25,7 +25,9 @@ const ADMIN_KEY = process.env.ADMIN_KEY ?? "";               // fly secrets set 
 const MAX_BODY = 10 * 1024 * 1024;
 const USDA_KEY = process.env.USDA_API_KEY ?? "DEMO_KEY";      // free key: https://fdc.nal.usda.gov/api-key-signup (DEMO_KEY = 30 req/h)
 
-if (!process.env.ANTHROPIC_API_KEY) {
+// When imported by a test (not run directly) we skip the hard bootstrap requirements and the server.
+const IS_MAIN = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
+if (IS_MAIN && !process.env.ANTHROPIC_API_KEY) {
   console.error("ANTHROPIC_API_KEY is not set");
   process.exit(1);
 }
@@ -33,11 +35,15 @@ if (!db.enabled) console.warn("FIREBASE_SERVICE_ACCOUNT not set: scans are not l
 if (!ADMIN_KEY) console.warn("ADMIN_KEY not set: /admin is disabled");
 if (USDA_KEY === "DEMO_KEY") console.warn("USDA_API_KEY not set: food search uses DEMO_KEY (30 requests/hour)");
 
-const client = new Anthropic();
+const client = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
 const JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com"),
 );
-const ADMIN_HTML = readFileSync(new URL("./admin.html", import.meta.url));
+const ADMIN_HTML = IS_MAIN ? readFileSync(new URL("./admin.html", import.meta.url)) : Buffer.alloc(0);
+
+// Optional micronutrients. null = genuinely cannot be estimated (unknown ≠ zero). The model must
+// only fill these when it can reasonably estimate them; barcode foods already carry them client-side.
+const nullableMicro = (unit) => z.number().nullable().describe(`${unit}; null if it cannot be reasonably estimated`);
 
 const FoodItem = z.object({
   name: z.string().describe("Short food name, e.g. 'Grilled chicken breast'"),
@@ -47,6 +53,10 @@ const FoodItem = z.object({
   protein_g: z.number(),
   carbs_g: z.number(),
   fat_g: z.number(),
+  fibre_g: nullableMicro("Dietary fibre in grams"),
+  sugar_g: nullableMicro("Total sugars in grams"),
+  sodium_mg: nullableMicro("Sodium in milligrams"),
+  sat_fat_g: nullableMicro("Saturated fat in grams"),
 });
 const MealAnalysis = z.object({
   is_food: z.boolean().describe("false if the photo does not show food or drink"),
@@ -56,6 +66,10 @@ const MealAnalysis = z.object({
   total_protein_g: z.number(),
   total_carbs_g: z.number(),
   total_fat_g: z.number(),
+  total_fibre_g: nullableMicro("Total dietary fibre in grams; null if it cannot be reasonably estimated"),
+  total_sugar_g: nullableMicro("Total sugars in grams; null if it cannot be reasonably estimated"),
+  total_sodium_mg: nullableMicro("Total sodium in milligrams; null if it cannot be reasonably estimated"),
+  total_sat_fat_g: nullableMicro("Total saturated fat in grams; null if it cannot be reasonably estimated"),
   confidence: z.enum(["low", "medium", "high"]),
   notes: z.string().describe("One sentence: assumptions made (hidden oils, sauces, portion uncertainty). Empty if none."),
 });
@@ -67,12 +81,13 @@ function systemPrompt(ctx, source = "photo") {
   if (ctx?.kcalTarget) who.push(`target ${ctx.kcalTarget} kcal/day`);
   if (ctx?.proteinTarget) who.push(`${ctx.proteinTarget} g protein/day`);
   const profile = who.length ? ` (${who.join(", ")})` : "";
+  const micros = `Also estimate, per item and as a meal total, four micronutrients: dietary fibre (g), total sugars (g), sodium (mg) and saturated fat (g). Use standard nutrition-database values for the identified foods. Report these honestly: if a micronutrient genuinely cannot be reasonably estimated for a food (or the whole meal), return null for it — never guess and never return 0 for an unknown value (0 means "known to contain none", not "unknown"). Micronutrient totals should equal the sum of the items' known values.`;
   if (source === "text") {
     return `You are a registered dietitian estimating nutrition from a client's written description of a meal, for a fat-loss client${profile}.
-Identify each distinct food or drink in the description. Use the quantities the client gives; when a quantity is missing, assume a typical single serving and say so in notes. Estimate calories and macros using standard nutrition databases (USDA). Account for likely cooking oils, dressings and sauces. Totals must equal the sum of the items. If the text does not describe food or drink, set is_food to false and return empty items with zero totals.`;
+Identify each distinct food or drink in the description. Use the quantities the client gives; when a quantity is missing, assume a typical single serving and say so in notes. Estimate calories and macros using standard nutrition databases (USDA). Account for likely cooking oils, dressings and sauces. Totals must equal the sum of the items. ${micros} If the text does not describe food or drink, set is_food to false and return empty items with zero totals.`;
   }
   return `You are a registered dietitian estimating nutrition from a single meal photo for a fat-loss client${profile}.
-Identify each distinct food or drink, estimate the portion from visual cues (plate size, utensils, hand, packaging), and estimate calories and macros using standard nutrition databases (USDA). Account for likely cooking oils, dressings and sauces. When unsure, choose the more common preparation and say so in notes. Totals must equal the sum of the items. If the image does not show food or drink, set is_food to false and return empty items with zero totals.`;
+Identify each distinct food or drink, estimate the portion from visual cues (plate size, utensils, hand, packaging), and estimate calories and macros using standard nutrition databases (USDA). Account for likely cooking oils, dressings and sauces. When unsure, choose the more common preparation and say so in notes. Totals must equal the sum of the items. ${micros} If the image does not show food or drink, set is_food to false and return empty items with zero totals.`;
 }
 
 const BodyComp = z.object({
@@ -211,12 +226,44 @@ async function analyze(body) {
   const out = response.content.find((b) => b.type === "text")?.text ?? "";
   const parsed = MealAnalysis.safeParse(JSON.parse(out));
   if (!parsed.success) throw new HttpError(502, "Malformed analysis.");
+  const d = parsed.data;
+  // Map the four optional micros to the EXACT keys the iOS MealScanner.Analysis decodes
+  // (fibre_g/sugar_g/sodium_mg/sat_fat_g). Honest numbers: emit a key ONLY when a real value
+  // exists — omit it entirely when unknown (unknown ≠ 0). Older app builds ignore these keys,
+  // so the kcal/macros contract stays backward-compatible.
+  const micros = micronutrients(d);
   return {
-    ...parsed.data,
+    is_food: d.is_food, meal_name: d.meal_name, items: d.items,
+    total_kcal: d.total_kcal, total_protein_g: d.total_protein_g,
+    total_carbs_g: d.total_carbs_g, total_fat_g: d.total_fat_g,
+    confidence: d.confidence, notes: d.notes,
+    ...micros,
     model: response.model,
     usage: { input: response.usage.input_tokens, output: response.usage.output_tokens },
   };
 }
+
+/** Meal-total micros in iOS field names, only for values that were actually estimated.
+ *  Falls back to summing item-level values when the model gave items but omitted the total.
+ *  A micro is included only if at least one contributing value is a finite number; a total that
+ *  is null with no numeric item data is omitted (unknown ≠ 0). */
+function micronutrients(d) {
+  const items = Array.isArray(d.items) ? d.items : [];
+  const pick = (totalKey, itemKey) => {
+    const t = d[totalKey];
+    if (typeof t === "number" && Number.isFinite(t)) return t;
+    // Model omitted the meal total but may have filled item values — sum the known ones.
+    const known = items.map((i) => i?.[itemKey]).filter((v) => typeof v === "number" && Number.isFinite(v));
+    return known.length ? known.reduce((a, b) => a + b, 0) : null;
+  };
+  const out = {};
+  const fibre = pick("total_fibre_g", "fibre_g");     if (fibre != null) out.fibre_g = round1(fibre);
+  const sugar = pick("total_sugar_g", "sugar_g");     if (sugar != null) out.sugar_g = round1(sugar);
+  const sodium = pick("total_sodium_mg", "sodium_mg"); if (sodium != null) out.sodium_mg = Math.round(sodium);
+  const satFat = pick("total_sat_fat_g", "sat_fat_g"); if (satFat != null) out.sat_fat_g = round1(satFat);
+  return out;
+}
+const round1 = (n) => Math.round(n * 10) / 10;
 
 // ---- USDA FoodData Central search --------------------------------------------------------------
 
@@ -552,7 +599,7 @@ async function handleConnect(req, res, url) {
   return false;
 }
 
-http.createServer(async (req, res) => {
+const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://x");
   try {
     if (req.method === "GET" && url.pathname === "/health") return send(res, 200, { ok: true, model: MODEL, firestore: db.enabled, admin: Boolean(ADMIN_KEY), foods: USDA_KEY !== "DEMO_KEY" ? "usda" : "usda-demo" });
@@ -623,4 +670,11 @@ http.createServer(async (req, res) => {
     if (status >= 500) console.error(err);
     return send(res, status, { error: err.message ?? "Analysis failed." });
   }
-}).listen(PORT, "0.0.0.0", () => console.log(`analyzer listening on ${PORT} (model ${MODEL}, firestore ${db.enabled ? "on" : "off"}, admin ${ADMIN_KEY ? "on" : "off"})`));
+});
+
+if (IS_MAIN) {
+  server.listen(PORT, "0.0.0.0", () => console.log(`analyzer listening on ${PORT} (model ${MODEL}, firestore ${db.enabled ? "on" : "off"}, admin ${ADMIN_KEY ? "on" : "off"})`));
+}
+
+// Exported for unit tests (see tests/micros.test.mjs). No effect on the running server.
+export { MealAnalysis, micronutrients, round1 };

@@ -7,7 +7,8 @@
   },
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test:micros": "node --test tests/micros.test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
