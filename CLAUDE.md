@@ -1,5 +1,8 @@
 # Fat Loss Coach — project guide for Claude
 
+> **Nucleus + isolation (brain-isolation Phase 2, 2026-09-22):** This is the **canonical HUMANS/FatLoss repo** (has the HumansWidget target + app group; `~/FatLoss` is a stale clone — don't build there). A session here loads **Nucleus** (MetaTec's central brain: global `~/.claude/CLAUDE.md` + `~/MyCompany/agents/company-context.md` + the lean Nucleus `MEMORY.md`) **+ this HUMANS/FatLoss brain only**.
+> **Signing identity:** Team `9F2G8CQ45J` (Infinion Apps FZ-LLC), bundle `com.MyFatLossCoach.app` (+ widget `com.MyFatLossCoach.app.HumansWidget`) — full details in the identifiers table below (source of truth; not restated here).
+
 Native iOS port of a single-file web app (`my_fitness_coach_4.html`, localStorage) for one user's
 fat-loss programme. SwiftUI, iOS 17+, iPhone only. This file is the knowledge base: read it before
 touching the project.
