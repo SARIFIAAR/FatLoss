@@ -55,6 +55,11 @@ final class FoodSearch {
         }
 
         enum CodingKeys: String, CodingKey { case id, name, brand, kind, category, per100, servings, barcode }
+        init(id: String, name: String, brand: String?, kind: String, category: String?,
+             per100: Macros, servings: [Serving], barcode: String?) {
+            self.id = id; self.name = name; self.brand = brand; self.kind = kind
+            self.category = category; self.per100 = per100; self.servings = servings; self.barcode = barcode
+        }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             if let n = try? c.decode(Int.self, forKey: .id) { id = String(n) } else { id = try c.decode(String.self, forKey: .id) }

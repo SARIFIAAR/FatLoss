@@ -180,6 +180,14 @@ struct FoodEntrySheet: View {
                         ForEach(results) { food in
                             Button { picking = food } label: {
                                 HStack(spacing: 10) {
+                                    if let ir = FoodRating.rate(NutrientProfile(kcal: food.per100.kcal, protein: food.per100.protein,
+                                                                                carbs: food.per100.carbs, fat: food.per100.fat,
+                                                                                fibre: food.per100.fibre, sugar: food.per100.sugar,
+                                                                                sodium: food.per100.sodium, satFat: food.per100.satFat),
+                                                                plan: .from(programId: store.data.nutritionPlanId),
+                                                                planId: store.data.nutritionPlanId) {
+                                        FoodRatingBadge(grade: ir.grade, size: 18)
+                                    }
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(food.name).font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text).lineLimit(2)
                                         Text("\(food.subtitle) · P \(Int(food.per100.protein.rounded())) · C \(Int(food.per100.carbs.rounded())) · F \(Int(food.per100.fat.rounded()))")

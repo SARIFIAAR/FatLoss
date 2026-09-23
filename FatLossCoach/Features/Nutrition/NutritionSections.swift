@@ -146,10 +146,18 @@ struct DiarySummaryCard: View {
         let left = abs(budget - eaten)
         let frac = budget > 0 ? min(1, t.kcal / Double(budget)) : 0
 
-        let lifeScore = LifeScore.score(meals: store.meals(on: day), goals: g)
+        let planId = store.data.nutritionPlanId
+        let meals = store.meals(on: day)
+        let lifeScore = LifeScore.score(meals: meals, goals: g, planId: planId)
+        let dayRating = FoodRating.rateDay(meals: meals, planId: planId)
         Card(accent: over ? Theme.red : Theme.primary) {
             if let ls = lifeScore {
                 HStack(spacing: 8) {
+                    // Day-level plan-aware grade sits beside the Life Score number — same calculation,
+                    // two faces (the badge explains WHY; the number is the diary headline).
+                    if let dr = dayRating {
+                        RatingBadgeButton(rating: dr, size: 22, title: "Day rating")
+                    }
                     Text("LIFE SCORE").font(.system(size: 10, weight: .bold)).kerning(0.8).foregroundStyle(Theme.muted)
                     Text("\(ls)").font(.system(size: 13, weight: .heavy)).foregroundStyle(LifeScore.color(ls))
                     Text(LifeScore.label(ls)).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
@@ -490,8 +498,9 @@ struct RecipesSection: View {
                         .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted).padding(.top, 2)
                 }
                 Spacer()
-                if let g = FoodRating.grade(kcal: Double(r.kcal), protein: Double(r.protein), carbs: Double(r.carbs), fat: Double(r.fat)) {
-                    FoodRatingBadge(grade: g)
+                if let rating = FoodRating.rate(NutrientProfile(kcal: Double(r.kcal), protein: Double(r.protein), carbs: Double(r.carbs), fat: Double(r.fat)),
+                                                plan: .from(programId: store.data.nutritionPlanId), planId: store.data.nutritionPlanId) {
+                    RatingBadgeButton(rating: rating, title: r.name)
                 }
                 Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.muted)
             }

@@ -99,7 +99,15 @@ struct NutritionView: View {
         }
         .sheet(isPresented: $flow.showAIChat) {
             AIMealComposer(onText: { text in flow.fromAIChat = true; Task { await analyze(text: text) } },
-                           onImage: { img in flow.fromAIChat = true; Task { await analyze(img) } })
+                           onImage: { img in flow.fromAIChat = true; Task { await analyze(img) } },
+                           onBarcode: { food in
+                               // A scanned barcode becomes an editable estimate on the SAME result
+                               // surface as text/voice/photo (portion picker, confidence, adjust).
+                               flow.fromAIChat = true
+                               flow.pending = ScanFlow.PendingMeal(image: nil,
+                                                                   analysis: MealScanner.Analysis.fromBarcode(food),
+                                                                   slot: flow.slot)
+                           })
         }
         .sheet(isPresented: $flow.showCompare) { BarcodeCompareView() }
         .sheet(isPresented: $flow.showHub) { LogHubSheet(flow: flow, day: selectedDay) }
@@ -115,6 +123,23 @@ struct NutritionView: View {
             } else if UserDefaults.standard.string(forKey: "nutritionQuickAdd") != nil {
                 flow.slot = UserDefaults.standard.string(forKey: "nutritionSlot")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { flow.showQuickAdd = true }
+            } else if UserDefaults.standard.string(forKey: "nutritionCompose") != nil {
+                // Screenshot aid: open the "Log with AI" composer (shows the inline barcode input).
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { flow.showAIChat = true }
+            } else if UserDefaults.standard.string(forKey: "nutritionBarcodeResult") != nil {
+                // Screenshot aid: present the result surface a scanned barcode feeds — the same
+                // MealResultSheet (portion picker, confidence, editable estimate) the composer routes to.
+                let demo = FoodSearch.Food(id: "demo", name: "Greek Yoghurt (0% fat)", brand: "Fage",
+                    kind: "branded", category: "Dairy",
+                    per100: FoodSearch.Macros(kcal: 57, protein: 10, carbs: 4, fat: 0,
+                                              fibre: 0, sugar: 4, sodium: 36, satFat: 0),
+                    servings: [], barcode: "5201054001234")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    flow.fromAIChat = true
+                    flow.pending = ScanFlow.PendingMeal(image: nil,
+                                                        analysis: MealScanner.Analysis.fromBarcode(demo),
+                                                        slot: "breakfast")
+                }
             }
         }
     }
@@ -126,6 +151,11 @@ struct NutritionView: View {
         ActivePlanBanner()
         FastingCard()
         DiarySummaryCard(day: selectedDay)
+        // Screenshot aid (`-nutritionShots 1`): surface the eaten-meals card (with per-meal ratings)
+        // right under the day summary so item/meal/day ratings are all visible without scrolling.
+        if UserDefaults.standard.string(forKey: "nutritionShots") != nil {
+            TodayMealsCard(day: selectedDay)
+        }
         WeekCalendarCard(selected: $selectedDay)
             .onAppear { flow.day = selectedDay }
             .onChange(of: selectedDay) { _, d in flow.day = d }
@@ -418,6 +448,18 @@ struct MealResultSheet: View {
 
     private func s(_ v: Double) -> Double { v * portion }
 
+    /// The analysis as a MealEntry at the currently-selected portion, so the meal-level rating badge
+    /// tracks the portion picker. Items carry through so the distribution factor still applies.
+    private var scaledEntry: MealEntry {
+        var e = analysis.mealEntry(date: date)
+        e.kcal = s(analysis.total_kcal); e.protein = s(analysis.total_protein_g)
+        e.carbs = s(analysis.total_carbs_g); e.fat = s(analysis.total_fat_g)
+        e.items = analysis.items.map { FoodItem(name: $0.name, portion: $0.portion, grams: $0.grams * portion,
+                                                kcal: s($0.kcal), protein: s($0.protein_g),
+                                                carbs: s($0.carbs_g), fat: s($0.fat_g)) }
+        return e
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -430,7 +472,7 @@ struct MealResultSheet: View {
                     } else {
                         HStack(spacing: 8) {
                             Text("")
-                            Text("Estimated from your description").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.primary)
+                            Text("Editable estimate — confirm or adjust before logging").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.primary)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(12)
@@ -439,6 +481,11 @@ struct MealResultSheet: View {
                     }
 
                     HStack(alignment: .firstTextBaseline) {
+                        // Meal-level plan-aware rating on the result screen (reflects the chosen portion).
+                        if let mealRating = FoodRating.rate(meal: scaledEntry, planId: store.data.nutritionPlanId) {
+                            RatingBadgeButton(rating: mealRating, size: 24, title: analysis.meal_name)
+                                .padding(.trailing, 2)
+                        }
                         Text(analysis.meal_name).font(Theme.scoreM).foregroundStyle(Theme.text)
                         Spacer()
                         Text("\(analysis.confidence.capitalized) confidence")
@@ -476,6 +523,13 @@ struct MealResultSheet: View {
                     VStack(spacing: 0) {
                         ForEach(Array(analysis.items.enumerated()), id: \.offset) { i, it in
                             HStack {
+                                // Item-level plan-aware rating per food row.
+                                if let ir = FoodRating.rate(item: FoodItem(name: it.name, portion: it.portion, grams: it.grams,
+                                                                           kcal: s(it.kcal), protein: s(it.protein_g),
+                                                                           carbs: s(it.carbs_g), fat: s(it.fat_g)),
+                                                            planId: store.data.nutritionPlanId) {
+                                    RatingBadgeButton(rating: ir, size: 18, title: it.name).padding(.trailing, 2)
+                                }
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(it.name).font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
                                     Text("\(it.portion) · P \(Int(s(it.protein_g).rounded())) · C \(Int(s(it.carbs_g).rounded())) · F \(Int(s(it.fat_g).rounded()))")
@@ -556,9 +610,8 @@ struct TodayMealsCard: View {
                 VStack(spacing: 0) {
                     ForEach(Array(meals.enumerated()), id: \.element.id) { i, m in
                         HStack {
-                            if let g = FoodRating.grade(kcal: m.kcal, protein: m.protein, carbs: m.carbs, fat: m.fat,
-                                                        fibre: m.fibre, sugar: m.sugar, sodium: m.sodium, satFat: m.satFat) {
-                                FoodRatingBadge(grade: g).padding(.trailing, 4)
+                            if let rating = FoodRating.rate(meal: m, planId: store.data.nutritionPlanId) {
+                                RatingBadgeButton(rating: rating, title: m.name).padding(.trailing, 4)
                             }
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(m.name).font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)

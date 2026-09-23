@@ -16,6 +16,12 @@ final class MealScanner {
             let protein_g: Double
             let carbs_g: Double
             let fat_g: Double
+
+            init(name: String, portion: String, grams: Double, kcal: Double,
+                 protein_g: Double, carbs_g: Double, fat_g: Double) {
+                self.name = name; self.portion = portion; self.grams = grams; self.kcal = kcal
+                self.protein_g = protein_g; self.carbs_g = carbs_g; self.fat_g = fat_g
+            }
         }
         let is_food: Bool
         let meal_name: String
@@ -30,9 +36,66 @@ final class MealScanner {
         func mealEntry(date: String) -> MealEntry {
             MealEntry(date: date, name: meal_name,
                       kcal: total_kcal, protein: total_protein_g, carbs: total_carbs_g, fat: total_fat_g,
+                      fibre: fibre_g, sugar: sugar_g, sodium: sodium_mg, satFat: sat_fat_g,
                       items: items.map { FoodItem(name: $0.name, portion: $0.portion, grams: $0.grams, kcal: $0.kcal,
                                                   protein: $0.protein_g, carbs: $0.carbs_g, fat: $0.fat_g) },
                       confidence: confidence, notes: notes.isEmpty ? nil : notes)
+        }
+
+        // Optional micros — decoded when the model/back-end supplies them, carried into the MealEntry
+        // so the meal-level rating can use fibre/sugar/sodium/sat-fat. Nil when unknown (unknown ≠ zero).
+        var fibre_g: Double? = nil
+        var sugar_g: Double? = nil
+        var sodium_mg: Double? = nil
+        var sat_fat_g: Double? = nil
+
+        enum CodingKeys: String, CodingKey {
+            case is_food, meal_name, items, total_kcal, total_protein_g, total_carbs_g, total_fat_g,
+                 confidence, notes, fibre_g, sugar_g, sodium_mg, sat_fat_g
+        }
+
+        // Memberwise init so a barcode product (or a test) can build an Analysis directly.
+        init(is_food: Bool, meal_name: String, items: [Item], total_kcal: Double, total_protein_g: Double,
+             total_carbs_g: Double, total_fat_g: Double, confidence: String, notes: String,
+             fibre_g: Double? = nil, sugar_g: Double? = nil, sodium_mg: Double? = nil, sat_fat_g: Double? = nil) {
+            self.is_food = is_food; self.meal_name = meal_name; self.items = items
+            self.total_kcal = total_kcal; self.total_protein_g = total_protein_g
+            self.total_carbs_g = total_carbs_g; self.total_fat_g = total_fat_g
+            self.confidence = confidence; self.notes = notes
+            self.fibre_g = fibre_g; self.sugar_g = sugar_g; self.sodium_mg = sodium_mg; self.sat_fat_g = sat_fat_g
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            is_food = (try? c.decode(Bool.self, forKey: .is_food)) ?? true
+            meal_name = (try? c.decode(String.self, forKey: .meal_name)) ?? "Meal"
+            items = (try? c.decode([Item].self, forKey: .items)) ?? []
+            total_kcal = (try? c.decode(Double.self, forKey: .total_kcal)) ?? 0
+            total_protein_g = (try? c.decode(Double.self, forKey: .total_protein_g)) ?? 0
+            total_carbs_g = (try? c.decode(Double.self, forKey: .total_carbs_g)) ?? 0
+            total_fat_g = (try? c.decode(Double.self, forKey: .total_fat_g)) ?? 0
+            confidence = (try? c.decode(String.self, forKey: .confidence)) ?? "medium"
+            notes = (try? c.decode(String.self, forKey: .notes)) ?? ""
+            fibre_g = try? c.decodeIfPresent(Double.self, forKey: .fibre_g)
+            sugar_g = try? c.decodeIfPresent(Double.self, forKey: .sugar_g)
+            sodium_mg = try? c.decodeIfPresent(Double.self, forKey: .sodium_mg)
+            sat_fat_g = try? c.decodeIfPresent(Double.self, forKey: .sat_fat_g)
+        }
+
+        /// Build an editable estimate from a scanned barcode product. One serving = 100 g by default
+        /// (the user confirms/adjusts the portion on the same result screen). Micros carry through so
+        /// the meal rating is as accurate as the packaging data allows.
+        static func fromBarcode(_ food: FoodSearch.Food) -> Analysis {
+            let m = food.per100   // per 100 g
+            let name = food.brand.map { "\($0) \(food.name)" } ?? food.name
+            let item = Item(name: food.name, portion: "100 g", grams: 100,
+                            kcal: m.kcal, protein_g: m.protein, carbs_g: m.carbs, fat_g: m.fat)
+            return Analysis(is_food: true, meal_name: name, items: [item],
+                            total_kcal: m.kcal, total_protein_g: m.protein, total_carbs_g: m.carbs,
+                            total_fat_g: m.fat, confidence: "high",
+                            notes: "From the product barcode (per 100 g). Adjust the portion to match what you ate.",
+                            fibre_g: m.fibre > 0 ? m.fibre : nil, sugar_g: m.sugar > 0 ? m.sugar : nil,
+                            sodium_mg: m.sodium > 0 ? m.sodium : nil, sat_fat_g: m.satFat > 0 ? m.satFat : nil)
         }
     }
 

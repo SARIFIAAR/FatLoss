@@ -7,11 +7,18 @@ struct AIMealComposer: View {
     @Environment(\.dismiss) private var dismiss
     let onText: (String) -> Void
     let onImage: (UIImage) -> Void
+    /// A scanned barcode resolved to a packaged product — folded into the same result surface as
+    /// text/voice/photo. Optional so existing callers keep working.
+    var onBarcode: ((FoodSearch.Food) -> Void)? = nil
 
     @State private var text = ""
     @State private var voice = VoiceInput()
     @State private var pickerItem: PhotosPickerItem?
     @State private var showCamera = false
+    @State private var showBarcode = false
+    @State private var barcodeBusy = false
+    @State private var barcodeError: String?
+    @State private var barcodeDB = FoodSearch()
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -63,6 +70,26 @@ struct AIMealComposer: View {
                                     .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.accent, lineWidth: 2))
                             }
                         }
+
+                        // Barcode as one more inline input, feeding the same result surface.
+                        if onBarcode != nil {
+                            Button { barcodeError = nil; showBarcode = true } label: {
+                                Label("Scan a barcode", systemImage: "barcode.viewfinder")
+                                    .font(.system(size: 16, weight: .bold)).foregroundStyle(Theme.blue)
+                                    .frame(maxWidth: .infinity).padding(.vertical, 14)
+                                    .background(Theme.bg, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.blue, lineWidth: 2))
+                            }
+                            if barcodeBusy {
+                                HStack(spacing: 8) {
+                                    ProgressView().tint(Theme.blue)
+                                    Text("Looking up product…").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                                }
+                            }
+                            if let barcodeError {
+                                Text(barcodeError).font(.system(size: 12)).foregroundStyle(Theme.red)
+                            }
+                        }
                     }
                     .padding(16)
                 }
@@ -93,7 +120,23 @@ struct AIMealComposer: View {
                 CameraPicker { img in showCamera = false; if let img { voice.stop(); onImage(img); dismiss() } }
                     .ignoresSafeArea()
             }
+            .fullScreenCover(isPresented: $showBarcode) {
+                BarcodeScannerView { code in Task { await lookupBarcode(code) } }
+                    .ignoresSafeArea()
+            }
             .onDisappear { voice.stop() }
+        }
+    }
+
+    /// Resolve a scanned barcode to a product, then hand it to the shared result surface.
+    private func lookupBarcode(_ code: String) async {
+        barcodeBusy = true; barcodeError = nil
+        defer { barcodeBusy = false }
+        do {
+            let food = try await barcodeDB.barcode(code)
+            voice.stop(); onBarcode?(food); dismiss()
+        } catch {
+            barcodeError = "Couldn't find that product. Try again or describe it above."
         }
     }
 }
