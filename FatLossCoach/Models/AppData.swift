@@ -305,6 +305,36 @@ struct MealEntry: Codable, Hashable, Identifiable {
     var slot: String? = nil          // Plan.meals key: breakfast / lunch / snack / dinner / evening
 }
 
+/// A progress (body) photo — a LOCAL METADATA INDEX entry. The image BYTES live in Firebase Storage at
+/// `users/{uid}/photos/{id}.jpg` (cross-device source of truth) with a small Firestore metadata doc; a
+/// local file-protected cache holds downloaded bytes for offline display (see `PhotoStore`/`PhotoSync`).
+/// This struct carries NO image bytes, so it stays cheap in the AppData sync blob; it's the on-device
+/// index PhotoSync reconciles against the cloud (guests keep it local-only until they sign in).
+struct ProgressPhoto: Codable, Hashable, Identifiable {
+    var id: String = UUID().uuidString
+    var date: String                 // DateKey (yyyy-MM-dd, local)
+    var filename: String             // cache filename in the progress-photos dir (id + ".jpg")
+    var at: Date = Date()            // capture/import timestamp (ordering within a day)
+    var weightKg: Double? = nil      // optional weight snapshot at the time
+    var note: String? = nil          // optional short note
+
+    init(id: String = UUID().uuidString, date: String, filename: String, at: Date = Date(),
+         weightKg: Double? = nil, note: String? = nil) {
+        self.id = id; self.date = date; self.filename = filename; self.at = at
+        self.weightKg = weightKg; self.note = note
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id       = c.value(.id,       default: UUID().uuidString)
+        date     = c.value(.date,     default: "")
+        filename = c.value(.filename, default: "")
+        at       = c.value(.at,       default: Date())
+        weightKg = c.value(.weightKg, default: nil)
+        note     = c.value(.note,     default: nil)
+    }
+}
+
 struct ProgramState: Codable, Hashable {
     var phase: Int = 1
     var startDate: String?      // DateKey of the day this phase was started; nil = not started
@@ -374,6 +404,10 @@ struct AppData: Codable, Hashable {
     var favoriteMeals: [MealEntry] = []                     // hearted meals for quick re-logging
     var plannedMeals: [String: [String: String]] = [:]      // date -> slot -> recipeId (persisted meal plan)
     var caffeine: [String: [CaffeineEntry]] = [:]           // date -> logged coffees (shots + mg + time)
+    // Progress-photo METADATA only (id/date/filename/optional weight+note). The image BYTES stay on-device
+    // in the progress-photos dir (PhotoStore) and are NEVER encoded here — so this can sync safely while the
+    // sensitive body photos never leave the phone. Union-merged by id like the other id-keyed collections.
+    var progressPhotos: [ProgressPhoto] = []
     var goals = Goals()
     var program = ProgramState()
     var reminders = ReminderSettings()
@@ -416,6 +450,7 @@ struct AppData: Codable, Hashable {
         favoriteMeals = c.value(.favoriteMeals, default: [])
         plannedMeals = c.value(.plannedMeals, default: [:])
         caffeine     = c.value(.caffeine,     default: [:])
+        progressPhotos = c.value(.progressPhotos, default: [])
         goals        = c.value(.goals,        default: Goals())
         program      = c.value(.program,      default: ProgramState())
         reminders    = c.value(.reminders,    default: ReminderSettings())
@@ -428,6 +463,7 @@ struct AppData: Codable, Hashable {
     var isEmpty: Bool {
         weightLogs.isEmpty && waistLogs.isEmpty && recovery.isEmpty && overload.isEmpty
             && habits.isEmpty && supplements.isEmpty && water.isEmpty && health.isEmpty && meals.isEmpty
+            && progressPhotos.isEmpty
     }
 
     /// Union merge used by cloud sync. For scalar conflicts the newer snapshot wins.
@@ -511,6 +547,13 @@ struct AppData: Codable, Hashable {
         for e in older.bodyComp { byID[e.id] = e }
         for e in out.bodyComp { byID[e.id] = e }
         out.bodyComp = byID.values.sorted { $0.date < $1.date }
+        // Progress-photo metadata: union by id (newer wins), oldest→newest. Note a merged-in entry from
+        // ANOTHER device points to a file that only exists on that device — the UI renders such an entry as
+        // a missing thumbnail, never as another user's photo (and account isolation wipes on account switch).
+        var photosByID: [String: ProgressPhoto] = [:]
+        for p in older.progressPhotos { photosByID[p.id] = p }
+        for p in out.progressPhotos { photosByID[p.id] = p }
+        out.progressPhotos = photosByID.values.sorted { $0.at < $1.at }
         // Settings (goals, programme, reminders) follow their own stamp, not the data stamp.
         let settingsSource = other.settingsUpdatedAt > settingsUpdatedAt ? other : self
         out.goals = settingsSource.goals

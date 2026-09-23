@@ -8,7 +8,12 @@ struct ProgressTabView: View {
 
     var body: some View {
         let g = store.data.goals
-        Screen(subtitle: "Toward your goal", title: "Progress") {
+        // Debug/QA (screenshots): `-progressScroll photos` scrolls to the progress-photos card on appear,
+        // matching the app's `-bodyScroll` convention (no effect in production).
+        let scrollTo = UserDefaults.standard.string(forKey: "progressScroll")
+        Screen(subtitle: "Toward your goal", title: "Progress", scrollTo: scrollTo) {
+            WeeklyRecapCard()
+            ProgressPhotosCard().id("photos")
             goalCard
             waistCard
             Card {

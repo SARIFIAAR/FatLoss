@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @main
 struct FatLossCoachApp: App {
@@ -8,6 +9,7 @@ struct FatLossCoachApp: App {
     @State private var scanner = MealScanner()
     @State private var reminders = ReminderManager()
     @State private var wearables = WearableLink()
+    @State private var photoSync = PhotoSync()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -27,12 +29,18 @@ struct FatLossCoachApp: App {
                 .environment(wearables)
                 .onOpenURL { store.handle(url: $0) }
                 .task {
-                    cloud.attach(store: store)
+                    // Photo sync: attach BEFORE cloud so the auth listener can start it once a uid resolves.
+                    photoSync.attach(store: store)
+                    store.photoSync = photoSync
+                    cloud.attach(store: store, photoSync: photoSync)
                     reminders.attach(store: store)
                     reminders.schedulePlan()
                     // Debug: `-debugLogWeight 101.5` performs a write on launch (crash repro / automation).
                     let w = UserDefaults.standard.double(forKey: "debugLogWeight")
                     if w > 0 { store.logWeight(w) }
+                    // Debug/QA (screenshots): `-seedProgressPhotos 1` seeds two SYNTHETIC placeholder photos
+                    // (never real body photos) so the timeline + compare can be captured. No-op if photos exist.
+                    if UserDefaults.standard.bool(forKey: "seedProgressPhotos") { seedDemoProgressPhotos() }
                 }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -51,6 +59,34 @@ struct FatLossCoachApp: App {
                 break
             }
         }
+    }
+
+    /// Seed two SYNTHETIC gradient placeholder images as progress photos for screenshots/QA. Never real
+    /// body photos. Dated ~6 weeks apart so the timeline + compare read as before/after.
+    private func seedDemoProgressPhotos() {
+        guard store.progressPhotosOnDevice.isEmpty else { return }
+        func placeholder(_ top: UIColor, _ bottom: UIColor, _ label: String) -> UIImage {
+            let size = CGSize(width: 600, height: 800)
+            return UIGraphicsImageRenderer(size: size).image { ctx in
+                let cg = ctx.cgContext
+                let colors = [top.cgColor, bottom.cgColor] as CFArray
+                let grad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1])!
+                cg.drawLinearGradient(grad, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.systemFont(ofSize: 40, weight: .heavy),
+                    .foregroundColor: UIColor.white.withAlphaComponent(0.85),
+                ]
+                let s = NSString(string: label)
+                let sz = s.size(withAttributes: attrs)
+                s.draw(at: CGPoint(x: (size.width - sz.width) / 2, y: size.height / 2 - sz.height / 2), withAttributes: attrs)
+            }
+        }
+        let firstDate = DateKey.key(DateKey.daysAgo(42))
+        let latestDate = DateKey.key(DateKey.daysAgo(2))
+        store.addProgressPhoto(placeholder(UIColor(hex: 0x2B3A42), UIColor(hex: 0x101518), "Week 1"),
+                               on: firstDate, weightKg: 104.5, note: "Starting out — sample photo.")
+        store.addProgressPhoto(placeholder(UIColor(hex: 0x1E4D3A), UIColor(hex: 0x101518), "Week 6"),
+                               on: latestDate, weightKg: 99.2, note: "Six weeks in — sample photo.")
     }
 }
 

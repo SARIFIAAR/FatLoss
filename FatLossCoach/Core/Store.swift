@@ -1,5 +1,11 @@
 import Foundation
 import Observation
+import UIKit
+
+extension String {
+    /// The trimmed string, or nil if it is empty after trimming.
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
 
 /// Single source of truth. Replaces the web app's localStorage; persists to one JSON file
 /// in Application Support (debounced) and notifies `CloudSync` on every change.
@@ -116,6 +122,10 @@ final class Store {
         }
         // Device-level UX counter is not account data, but reset it so it can't leak across accounts.
         UserDefaults.standard.removeObject(forKey: "aiLogCount")
+        // Wipe the on-device progress (body) photos too — they are the most sensitive local data and must
+        // never survive an account switch. The metadata was already cleared with `data` above; this removes
+        // the image files themselves so a different Apple ID never sees the previous owner's photos.
+        PhotoStore.wipeAll()
         WidgetSync.publish(from: self)
     }
 
@@ -1019,6 +1029,65 @@ final class Store {
             setHealth(steps: q["steps"].map { Int($0) }, restingHR: q["rhr"])
         }
         showToast("Apple Health synced ✓ 🍎")
+    }
+
+    // MARK: Progress photos (Firestore per-user subcollection is source of truth; PhotoStore = local cache)
+
+    /// Set by CloudSync so photo add/delete can push to / delete from the cloud. nil for guests (local-only
+    /// until sign-in, then PhotoSync uploads what's pending).
+    var photoSync: PhotoSync?
+    /// Bumped whenever the local photo cache changes (a download landed) so views re-read PhotoStore.
+    var photoCacheVersion = 0
+    func bumpPhotoCache() { photoCacheVersion &+= 1 }
+
+    /// All progress photos, oldest → newest. A metadata entry whose bytes haven't been downloaded to this
+    /// device yet (added on another device, fetch pending) is kept; the UI shows a placeholder tile.
+    var progressPhotos: [ProgressPhoto] { data.progressPhotos.sorted { $0.at < $1.at } }
+
+    /// Photos whose bytes are cached on THIS device right now (reads `photoCacheVersion` so SwiftUI re-reads
+    /// after a download lands). Used by the timeline/compare so they render only ready images.
+    var progressPhotosOnDevice: [ProgressPhoto] {
+        _ = photoCacheVersion
+        return progressPhotos.filter { PhotoStore.exists($0.filename) }
+    }
+
+    /// Save a captured/imported image: compress once, cache the bytes on-device, record the metadata, and
+    /// (when signed in) upload to the user's Firestore photos subcollection. Guests keep it local until they
+    /// sign in, when PhotoSync uploads it. Returns the new entry, or nil on failure.
+    @discardableResult
+    func addProgressPhoto(_ image: UIImage, on day: String? = nil, weightKg: Double? = nil,
+                          note: String? = nil) -> ProgressPhoto? {
+        let id = UUID().uuidString
+        guard let jpeg = PhotoStore.compress(image), let filename = PhotoStore.store(jpeg: jpeg, id: id) else {
+            showToast("Couldn't save photo")
+            return nil
+        }
+        let entry = ProgressPhoto(id: id, date: day ?? today, filename: filename, at: Date(),
+                                  weightKg: weightKg, note: note?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty)
+        data.progressPhotos.append(entry)
+        bumpPhotoCache()
+        photoSync?.uploadPending()          // no-op for guests; uploads once signed in
+        showToast("Progress photo saved 📸")
+        return entry
+    }
+
+    /// Delete a progress photo everywhere: the cached file, the local metadata, and the cloud doc.
+    func deleteProgressPhoto(_ id: String) {
+        if let entry = data.progressPhotos.first(where: { $0.id == id }) {
+            PhotoStore.delete(entry.filename)
+        }
+        data.progressPhotos.removeAll { $0.id == id }
+        photoSync?.delete(id: id)
+        bumpPhotoCache()
+        showToast("Photo deleted")
+    }
+
+    // MARK: Weekly recap (read-only aggregation of the last 7 days vs the prior 7)
+
+    /// Compute the "This week" recap: the last 7 full days (yesterday-back, day-offset 1...7) compared with
+    /// the 7 days before that (offset 8...14). Read-only; only surfaces metrics that actually have data.
+    func weeklyRecap() -> WeeklyRecap {
+        WeeklyRecap.build(from: self)
     }
 
     // MARK: Toast

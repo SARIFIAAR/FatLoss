@@ -18,6 +18,7 @@ final class CloudSync {
     var isSyncing = false
 
     private weak var store: Store?
+    private weak var photoSync: PhotoSync?
     private var listener: ListenerRegistration?
     private var authHandle: AuthStateDidChangeListenerHandle?
     private var pushTask: Task<Void, Never>?
@@ -84,8 +85,9 @@ final class CloudSync {
         Keychain.delete(markerKey)
     }
 
-    func attach(store: Store) {
+    func attach(store: Store, photoSync: PhotoSync? = nil) {
         self.store = store
+        self.photoSync = photoSync
         guard isConfigured else { status = "Cloud sync not configured"; return }
         store.onChange = { [weak self] in self?.schedulePush() }
         authHandle = Auth.auth().addStateDidChangeListener { [weak self] _, user in
@@ -108,6 +110,7 @@ final class CloudSync {
             restoreState = .idle
             pendingCollision = nil
             isResolvingSignIn = false
+            photoSync?.stop()
             return
         }
         // Whether this device carried guest-entered answers INTO this sign-in — captured before the
@@ -117,6 +120,9 @@ final class CloudSync {
         // different account never sees or re-uploads the previous user's local data.
         prepareForAccount(user.uid)
         pendingLocalGuestPlan = localHadGuestPlan && (store?.data.intake != nil || store?.data.isEmpty == false)
+        // Start photo sync for this account AFTER isolation has run (cache is either kept for the same owner
+        // or wiped for a different one), so the listener can only ever surface this uid's own photos.
+        photoSync?.start(uid: user.uid)
         status = "Connecting…"
         restoreState = .restoring
         isResolvingSignIn = true

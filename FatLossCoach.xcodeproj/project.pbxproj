@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		FC00000000000000000000A1 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = FC00000000000000000000B1 /* FirebaseAuth */; };
 		FC00000000000000000000A2 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = FC00000000000000000000B2 /* FirebaseFirestore */; };
+		FC00000000000000000000A3 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = FC00000000000000000000B3 /* FirebaseStorage */; };
 		FC00000000000000000000EB /* HumansWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = FC00000000000000000000E1 /* HumansWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -37,6 +38,7 @@
 			files = (
 				FC00000000000000000000A1 /* FirebaseAuth in Frameworks */,
 				FC00000000000000000000A2 /* FirebaseFirestore in Frameworks */,
+				FC00000000000000000000A3 /* FirebaseStorage in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -92,6 +94,7 @@
 			packageProductDependencies = (
 				FC00000000000000000000B1 /* FirebaseAuth */,
 				FC00000000000000000000B2 /* FirebaseFirestore */,
+				FC00000000000000000000B3 /* FirebaseStorage */,
 			);
 			productName = FatLossCoach;
 			productReference = FC0000000000000000000004 /* FatLossCoach.app */;
@@ -353,7 +356,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = FatLossCoach/FatLossCoach.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 59;
+				CURRENT_PROJECT_VERSION = 60;
 				DEVELOPMENT_TEAM = 9F2G8CQ45J;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -382,7 +385,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = FatLossCoach/FatLossCoach.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 59;
+				CURRENT_PROJECT_VERSION = 60;
 				DEVELOPMENT_TEAM = 9F2G8CQ45J;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -409,7 +412,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = HumansWidgetConfig/HumansWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 59;
+				CURRENT_PROJECT_VERSION = 60;
 				DEVELOPMENT_TEAM = 9F2G8CQ45J;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = HumansWidgetConfig/Info.plist;
@@ -437,7 +440,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = HumansWidgetConfig/HumansWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 59;
+				CURRENT_PROJECT_VERSION = 60;
 				DEVELOPMENT_TEAM = 9F2G8CQ45J;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = HumansWidgetConfig/Info.plist;
@@ -513,6 +516,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = FC00000000000000000000C1 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseFirestore;
+		};
+		FC00000000000000000000B3 /* FirebaseStorage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FC00000000000000000000C1 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseStorage;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

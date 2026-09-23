@@ -1,0 +1,16 @@
+rules_version = '2';
+// Firebase Storage rules. Progress (body) photos are sensitive: owner-only, per-uid path. A different
+// account can never read another user's photo objects. NOT deployed automatically (CEO approves rule
+// deploys): `firebase deploy --only storage --project fat-loss-6516d`.
+service firebase.storage {
+  match /b/{bucket}/o {
+    // users/{uid}/photos/{photoId}.jpg — the body-photo bytes, owned solely by that uid.
+    match /users/{uid}/photos/{photo} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+    // Everything else denied to clients.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
