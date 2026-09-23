@@ -17,9 +17,7 @@ struct ProfileView: View {
             DevicesHealthCard().id("devices")
             RemindersCard()
             medsCard
-            AutomationCard()
-            ImportExportCard()
-            Text("Fat Loss Coach \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""))")
+            Text("HUMANS® \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""))")
                 .font(.system(size: 11)).foregroundStyle(Theme.muted)
                 .frame(maxWidth: .infinity)
                 .padding(.top, 4)
