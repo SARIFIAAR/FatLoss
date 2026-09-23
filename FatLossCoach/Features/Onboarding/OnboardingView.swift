@@ -251,7 +251,7 @@ struct OnboardingView: View {
 
     private var welcomeScreen: some View {
         OnboardingIntro(
-            headline: "Pro-grade health, from the watch you already wear.",
+            headline: "Pro-grade health, from the wearable you already own.",
             body_: "Recovery, sleep, strain and energy — finally in one place. No extra hardware.",
             primaryTitle: "Get started",
             progress: progress,
@@ -303,7 +303,7 @@ struct OnboardingView: View {
         OnboardingIntro(
             eyebrow: "Your body, scored",
             headline: "Recovery, Strain & Sleep — every day.",
-            body_: "From your watch's heart-rate, HRV and sleep, HUMANS scores how recovered you are and how hard to train today.",
+            body_: "From your wearable's heart-rate, HRV and sleep, HUMANS scores how recovered you are and how hard to train today.",
             features: [
                 OBFeature(icon: "heart.fill", title: "Recovery", detail: "HRV, resting HR and sleep against your own baseline.", tint: Theme.primary),
                 OBFeature(icon: "bolt.fill", title: "Strain", detail: "How much load you've taken on — and your target for today.", tint: Theme.blue),
@@ -326,7 +326,7 @@ struct OnboardingView: View {
         OnboardingIntro(
             icon: "checkmark.seal.fill",
             headline: p.name.isEmpty ? "You're all set." : "You're all set, \(p.name).",
-            body_: "Your plan is ready. Log a meal, wear your watch, and check the Body tab each morning — the numbers get sharper the more you use it.",
+            body_: "Your plan is ready. Log a meal, wear your device, and check the Body tab each morning — the numbers get sharper the more you use it.",
             primaryTitle: "Start HUMANS",
             showBack: true, progress: progress,
             onBack: back, onPrimary: advance
@@ -347,7 +347,7 @@ struct OnboardingView: View {
         OnboardingIntro(
             eyebrow: "Why it works",
             icon: "waveform.path.ecg", tint: Theme.primary,
-            headline: "Built on the signals your watch already records.",
+            headline: "Built on the signals your wearable already records.",
             body_: "HUMANS reads heart-rate variability, resting heart rate and sleep — the same measurements sports scientists use to gauge recovery. Nothing is guessed, and it stays private to you.",
             features: [
                 OBFeature(icon: "heart.fill", title: "HRV & resting HR", detail: "Read straight from Apple Health — your own baseline, not an average.", tint: Theme.primary),
@@ -492,6 +492,7 @@ struct OnboardingView: View {
         OnboardingScaffold(progress: progress, title: title(.chronotype),
                            subtitle: "When do you naturally feel sharpest? We'll keep this to time reminders and training suggestions around your rhythm.",
                            showBack: idx > 0, canClose: canSkip, continueEnabled: true,
+                           centerContent: true,
                            onBack: back, onClose: { dismiss() }, onContinue: advance) {
             options(IntakeProfile.Chronotype.allCases, selected: $p.chronotype, detail: { $0.detail })
         }
@@ -518,7 +519,9 @@ struct OnboardingView: View {
             }
             HStack(spacing: 12) {
                 field("Current weight (kg)") { obNum($weightText, "90") }
-                field("Waist at navel (cm) — optional") { obNum($waistText, "100") }
+                // v5 item 3: keep the label a single line so the 2-column row stays aligned; the field's
+                // own placeholder ("optional") communicates it isn't required.
+                field("Waist at navel (cm)") { obNum($waistText, "optional") }
             }
         }
     }
@@ -637,46 +640,72 @@ struct OnboardingView: View {
     }
 
     // Buildable habit choices offered in onboarding (curated from the full HabitMetric catalog).
+    // Metric-backed habits auto-tick from Health/meals/workouts once tracked.
     private static let habitChoices: [HabitMetric] =
         [.steps, .water, .protein, .sleepDuration, .meditation, .sunExposure, .floors, .workoutCount, .mood]
+
+    // v5 item 5: extend the picker with common daily habits people actually track. These are
+    // check-in-style library templates (a single yes/no tick a day). Each carries its own name + SF Symbol
+    // glyph, so every chip has a leading glyph consistent with build 52. Ids reference HabitLibrary.all so
+    // selecting one writes a fully-configured HabitDef on apply (see Store.applyIntake).
+    private static let habitTemplateChoices: [HabitTemplate] = {
+        // Note: no "meditate" here — the metric-backed .meditation chip above already covers it.
+        let ids = ["nosugar", "read", "journal", "stretch", "noalcohol", "veggies", "coldshower", "vitamins", "breathe", "noscreens", "gratitude"]
+        return ids.compactMap { id in HabitLibrary.all.first { $0.id == id } }
+    }()
 
     private var habitsStep: some View {
         Group {
             intro("Pick a few daily habits to build. We'll add them to your tracker — you can change them any time.")
             habitChips
-            if p.wantedHabits.isEmpty {
+            if p.wantedHabits.isEmpty && p.wantedHabitTemplates.isEmpty {
                 Text("No pressure — leave this empty and we'll start you with Steps, Water and Protein.")
                     .font(.system(size: 12)).foregroundStyle(Theme.muted).lineSpacing(3)
             }
         }
     }
 
-    /// P1-4 + P2: habit chips with a leading monoline glyph (HabitMetric.icon); selected = emerald-tinted
-    /// fill + a check, matching the device-chip / explainer-card icon quality.
+    /// P1-4 + P2 + v5-5: one wrapping grid of habit chips — metric-backed first, then common check-in
+    /// habits — each with a leading monoline glyph; selected = emerald-tinted fill + a check, matching the
+    /// device-chip / explainer-card icon quality.
     private var habitChips: some View {
         FlowLayout(spacing: 8) {
             ForEach(Self.habitChoices) { m in
                 let on = p.wantedHabits.contains(m)
-                Button {
+                habitChip(icon: m.icon, title: m.title, on: on) {
                     if on { p.wantedHabits.remove(m) } else { p.wantedHabits.insert(m) }
-                } label: {
-                    HStack(spacing: 7) {
-                        Image(systemName: on ? "checkmark" : m.icon)
-                            .font(.system(size: 12, weight: .heavy))
-                            .foregroundStyle(on ? Color.black : Theme.primary)
-                        Text(m.title).font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(on ? Color.black : Theme.text)
-                    }
-                    .padding(.vertical, 9).padding(.horizontal, 13)
-                    .background(on ? Theme.primary : Theme.card, in: Capsule())
-                    .overlay(Capsule().stroke(on ? Theme.primary : Theme.border, lineWidth: 1.5))
                 }
-                .buttonStyle(.plain)
+            }
+            ForEach(Self.habitTemplateChoices) { t in
+                let on = p.wantedHabitTemplates.contains(t.id)
+                habitChip(icon: t.icon, title: t.name, on: on) {
+                    if on { p.wantedHabitTemplates.remove(t.id) } else { p.wantedHabitTemplates.insert(t.id) }
+                }
             }
         }
     }
 
+    @ViewBuilder private func habitChip(icon: String, title: String, on: Bool, toggle: @escaping () -> Void) -> some View {
+        Button(action: toggle) {
+            HStack(spacing: 7) {
+                Image(systemName: on ? "checkmark" : icon)
+                    .font(.system(size: 12, weight: .heavy))
+                    .foregroundStyle(on ? Color.black : Theme.primary)
+                Text(title).font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(on ? Color.black : Theme.text)
+            }
+            .padding(.vertical, 9).padding(.horizontal, 13)
+            .background(on ? Theme.primary : Theme.card, in: Capsule())
+            .overlay(Capsule().stroke(on ? Theme.primary : Theme.border, lineWidth: 1.5))
+        }
+        .buttonStyle(.plain)
+    }
+
     private var supplementsStep: some View {
+        // v5 item 6: these are PER-USER — supplementsWanted and currentSupplements live in this user's own
+        // IntakeProfile (defaults: [] and ""), so a brand-new profile shows NOTHING pre-ticked and an empty
+        // free-text box. No auto-select anywhere. (Seeing prefill only means an existing profile is loaded
+        // for that account — correct per-user behaviour, not a default.)
         Group {
             intro("Taking any of these? Tick the ones you want to track each day — we'll show just those on your Today screen.")
             VStack(spacing: 8) {
@@ -778,9 +807,52 @@ struct OnboardingView: View {
                            onBack: back, onContinue: advance) {
             connectDeviceCards
         }
+        // v5 item 7: mis-tap guard for "No wearable", and a brief success beat when a device links.
+        .overlay { connectConfirmOverlay }
+        // Debug: `-obConfirmPhoneOnly` auto-presents the no-wearable confirm for QA/screenshots.
+        .onAppear {
+            if UserDefaults.standard.bool(forKey: "obConfirmPhoneOnly") { confirmPhoneOnly = true }
+        }
+    }
+
+    @ViewBuilder private var connectConfirmOverlay: some View {
+        if confirmPhoneOnly {
+            OBConfirmDialog(
+                icon: "iphone",
+                tint: Theme.blue,
+                title: "Continue without a wearable?",
+                message: "Recovery, Strain & Sleep need one — you can add it any time in Settings.",
+                primaryTitle: "Use a wearable",
+                secondaryTitle: "Continue phone-only",
+                onPrimary: { withAnimation(.easeInOut(duration: 0.2)) { confirmPhoneOnly = false } },
+                onSecondary: {
+                    confirmPhoneOnly = false
+                    p.hasAppleWatch = false
+                    advance()
+                }
+            )
+        } else if let device = wearableConnected {
+            OBConfirmDialog(
+                icon: "checkmark.seal.fill",
+                tint: Theme.primary,
+                title: "\(device) connected",
+                message: "Your Recovery, Strain and Sleep scores will fill in as HUMANS reads your data.",
+                primaryTitle: "Continue",
+                secondaryTitle: "Connect another",
+                onPrimary: {
+                    wearableConnected = nil
+                    advance()
+                },
+                onSecondary: { withAnimation(.easeInOut(duration: 0.2)) { wearableConnected = nil } }
+            )
+        }
     }
 
     @State private var humansInterest = UserDefaults.standard.bool(forKey: "humansWearableInterest")
+    /// v5 item 7: mis-tap guards on the connect step. `confirmPhoneOnly` gates the "No wearable" choice;
+    /// `wearableConnected` shows a brief success beat after a device links (nil = no dialog).
+    @State private var confirmPhoneOnly = false
+    @State private var wearableConnected: String? = nil
 
     private var connectDeviceCards: some View {
         VStack(spacing: 12) {
@@ -794,7 +866,14 @@ struct OnboardingView: View {
                 enabled: hk.isAvailable && !hk.isSyncing && !hk.hasConnected
             ) {
                 p.hasAppleWatch = true
-                Task { await hk.connectAndSync(store: store, days: 30) }
+                Task {
+                    await hk.connectAndSync(store: store, days: 30)
+                    // v5 item 7: brief success beat once access is granted (a positive confirm, like the
+                    // phone-only guard). If access was denied hasConnected stays false and we show nothing.
+                    if hk.hasConnected {
+                        await MainActor.run { withAnimation(.easeInOut(duration: 0.2)) { wearableConnected = "Apple Watch" } }
+                    }
+                }
             }
 
             // Oura / WHOOP → vendor connect (reuse the existing WearableLink plumbing).
@@ -820,7 +899,8 @@ struct OnboardingView: View {
                          tint: Theme.blue) {
                 Image(systemName: "chevron.right").font(.system(size: 13, weight: .heavy)).foregroundStyle(Theme.muted)
             }
-            .onTapGesture { p.hasAppleWatch = false; advance() }
+            // v5 item 7: confirm before skipping wearable setup — a mis-tap here shouldn't advance silently.
+            .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { confirmPhoneOnly = true } }
 
             Text("Recovery, Strain and Sleep need a wearable — add one any time from Profile to unlock them.")
                 .font(.system(size: 12)).foregroundStyle(Theme.muted).lineSpacing(3)
@@ -870,7 +950,12 @@ struct OnboardingView: View {
                 }
             } else {
                 connectButtonRow(title: busy ? "Connecting…" : "Connect \(meta.1)", enabled: !busy) {
-                    Task { await link.connect(vendor, store: store) }
+                    Task {
+                        await link.connect(vendor, store: store)
+                        if link.status[vendor]?.linked == true {
+                            await MainActor.run { withAnimation(.easeInOut(duration: 0.2)) { wearableConnected = meta.1 } }
+                        }
+                    }
                 }
             }
         }
@@ -1057,14 +1142,18 @@ struct OnboardingView: View {
             ForEach(1...5, id: \.self) { n in
                 let on = p.stress == n
                 Button { p.stress = n } label: {
-                    VStack(spacing: 2) {
-                        Text(["", "", "", "", ""][n - 1]).font(.system(size: 22))
-                        Text(["Calm", "Fine", "Busy", "Stressed", "Burnt out"][n - 1]).font(.system(size: 10, weight: .bold)).foregroundStyle(on ? .white : Theme.muted)
-                    }
-                    .frame(maxWidth: .infinity).padding(.vertical, 8)
-                    .background(on ? Theme.primary : Theme.card)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(on ? Theme.primary : Theme.border, lineWidth: 1.5))
+                    // v5 item 4: label centred in the pill (multiline-centre + fixed min height so a
+                    // wrapping word like "Burnt out" doesn't shove the row out of alignment).
+                    Text(["Calm", "Fine", "Busy", "Stressed", "Burnt out"][n - 1])
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(on ? Color.black : Theme.muted)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2).minimumScaleFactor(0.8)
+                        .frame(maxWidth: .infinity, minHeight: 34)
+                        .padding(.vertical, 8)
+                        .background(on ? Theme.primary : Theme.card)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(on ? Theme.primary : Theme.border, lineWidth: 1.5))
                 }
                 .buttonStyle(.plain)
             }

@@ -57,6 +57,10 @@ struct OnboardingScaffold<Content: View>: View {
     var continueTitle: String = "Continue"
     var continueEnabled: Bool = true
     var scrollAnchor: UnitPoint? = nil   // debug: start scrolled to a position (e.g. .bottom for screenshots)
+    /// v5 item 1: vertically centre the content block (single-choice screens like chronotype). Default is
+    /// top-aligned — text-entry forms (About you, Food…) MUST stay top-aligned so the keyboard doesn't
+    /// shove a centred block around.
+    var centerContent: Bool = false
     var onBack: () -> Void
     var onClose: (() -> Void)? = nil
     var onContinue: () -> Void
@@ -92,24 +96,30 @@ struct OnboardingScaffold<Content: View>: View {
                 .padding(.top, 8)
                 .padding(.bottom, 6)
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(title).font(Theme.score(30)).foregroundStyle(Theme.text)
-                                .fixedSize(horizontal: false, vertical: true)
-                            if let subtitle {
-                                Text(subtitle).font(.system(size: 15)).foregroundStyle(Theme.muted).lineSpacing(4)
+                GeometryReader { geo in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 24) {
+                            if centerContent { Spacer(minLength: 0) }
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(title).font(Theme.score(30)).foregroundStyle(Theme.text)
                                     .fixedSize(horizontal: false, vertical: true)
+                                if let subtitle {
+                                    Text(subtitle).font(.system(size: 15)).foregroundStyle(Theme.muted).lineSpacing(4)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
                             }
+                            content
+                            if centerContent { Spacer(minLength: 0) }
                         }
-                        content
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
+                        .padding(.bottom, 28)
+                        .frame(minHeight: centerContent ? geo.size.height : nil,
+                               alignment: centerContent ? .center : .top)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 8)
-                    .padding(.bottom, 28)
+                    .scrollDismissesKeyboard(.interactively)
+                    .modifier(ScrollStartAnchor(anchor: scrollAnchor))
                 }
-                .scrollDismissesKeyboard(.interactively)
-                .modifier(ScrollStartAnchor(anchor: scrollAnchor))
 
                 // Pinned CTA over a soft fade so content scrolls under it, not into it.
                 // P1-3: when genuinely incomplete the CTA is a flat inert grey (no emerald saturation),
@@ -191,38 +201,48 @@ struct OnboardingIntro<Hero: View>: View {
                 }
                 .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 6)
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
-                        hero
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.top, 20)
-                            .padding(.bottom, 4)
+                // Vertical balance (v5 item 1): the content block is centred between the top bar and the
+                // pinned CTA — flexible spacers above and below give balanced whitespace instead of a
+                // top-stranded block over an empty lower half. On tall content the min-height scroll frame
+                // lets it scroll instead of clipping, so it never fights the CTA.
+                GeometryReader { geo in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 24) {
+                            Spacer(minLength: 0)
 
-                        VStack(alignment: .leading, spacing: 12) {
-                            if let eyebrow {
-                                Text(eyebrow.uppercased())
-                                    .font(.system(size: 12, weight: .heavy)).kerning(1.4)
-                                    .foregroundStyle(eyebrowTint)
-                            }
-                            Text(headline).font(Theme.score(34)).foregroundStyle(Theme.text)
-                                .lineSpacing(2)
-                                .fixedSize(horizontal: false, vertical: true)
-                            if let body_ {
-                                Text(body_).font(.system(size: 16)).foregroundStyle(Theme.muted).lineSpacing(6)
+                            hero
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.bottom, 4)
+
+                            VStack(alignment: .leading, spacing: 12) {
+                                if let eyebrow {
+                                    Text(eyebrow.uppercased())
+                                        .font(.system(size: 12, weight: .heavy)).kerning(1.4)
+                                        .foregroundStyle(eyebrowTint)
+                                }
+                                Text(headline).font(Theme.score(34)).foregroundStyle(Theme.text)
+                                    .lineSpacing(2)
                                     .fixedSize(horizontal: false, vertical: true)
+                                if let body_ {
+                                    Text(body_).font(.system(size: 16)).foregroundStyle(Theme.muted).lineSpacing(6)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
                             }
-                        }
 
-                        if let showcase { showcase }
+                            if let showcase { showcase }
 
-                        if !features.isEmpty {
-                            VStack(spacing: 12) {
-                                ForEach(features) { f in OBFeatureRow(f) }
+                            if !features.isEmpty {
+                                VStack(spacing: 12) {
+                                    ForEach(features) { f in OBFeatureRow(f) }
+                                }
                             }
+
+                            Spacer(minLength: 0)
                         }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 16)
+                        .frame(minHeight: geo.size.height, alignment: .center)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 24)
                 }
 
                 OBFooter {
@@ -621,6 +641,50 @@ struct CollisionConfirmView: View {
             }
             .padding(24)
             .frame(maxWidth: 320)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Theme.border, lineWidth: 1))
+            .padding(28)
+        }
+        .transition(.opacity)
+    }
+}
+
+// MARK: - Confirm dialog (v5 item 7 — mis-tap guard on the connect step)
+
+/// A two-choice confirm sheet in the onboarding style (mirrors CollisionConfirmView). Used to guard the
+/// "No wearable — use my phone" choice so a mis-tap can't silently skip wearable setup, and to show a
+/// brief success beat after a wearable connects. Primary is the higher-emphasis (emerald) action.
+struct OBConfirmDialog: View {
+    var icon: String
+    var tint: Color = Theme.primary
+    var title: String
+    var message: String
+    var primaryTitle: String
+    var secondaryTitle: String
+    var onPrimary: () -> Void
+    var onSecondary: () -> Void
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.6).ignoresSafeArea()
+            VStack(spacing: 16) {
+                Image(systemName: icon)
+                    .font(.system(size: 30, weight: .semibold)).foregroundStyle(tint)
+                Text(title)
+                    .font(.system(size: 17, weight: .heavy)).foregroundStyle(Theme.text)
+                    .multilineTextAlignment(.center).lineSpacing(2)
+                Text(message)
+                    .font(.system(size: 14)).foregroundStyle(Theme.muted)
+                    .multilineTextAlignment(.center).lineSpacing(3)
+                VStack(spacing: 10) {
+                    Button(primaryTitle) { onPrimary() }
+                        .buttonStyle(PrimaryButtonStyle())
+                    Button(secondaryTitle) { onSecondary() }
+                        .font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.muted)
+                }
+                .padding(.top, 2)
+            }
+            .padding(24)
+            .frame(maxWidth: 340)
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Theme.border, lineWidth: 1))
             .padding(28)

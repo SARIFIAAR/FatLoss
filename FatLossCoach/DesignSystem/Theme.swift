@@ -79,19 +79,30 @@ enum Readiness {
 struct Screen<Content: View>: View {
     let subtitle: String
     let title: String
+    /// Debug/QA only: scroll to a child tagged with `.id(scrollTo)` on appear (screenshots). No effect
+    /// unless set; production callers leave it nil.
+    var scrollTo: String? = nil
     @ViewBuilder var content: Content
 
     var body: some View {
         GeometryReader { geo in
-            ScrollView {
-                VStack(spacing: 0) {
-                    TopBar(subtitle: subtitle, title: title, topInset: geo.safeAreaInsets.top)
-                    VStack(spacing: 14) { content }
-                        .padding(16)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        TopBar(subtitle: subtitle, title: title, topInset: geo.safeAreaInsets.top)
+                        VStack(spacing: 14) { content }
+                            .padding(16)
+                    }
+                }
+                .scrollDismissesKeyboard(.interactively)
+                .ignoresSafeArea(edges: .top)
+                .onAppear {
+                    guard let scrollTo else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        withAnimation { proxy.scrollTo(scrollTo, anchor: .top) }
+                    }
                 }
             }
-            .scrollDismissesKeyboard(.interactively)
-            .ignoresSafeArea(edges: .top)
         }
         .background(Theme.bg)
     }

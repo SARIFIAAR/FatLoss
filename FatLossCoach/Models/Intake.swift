@@ -110,8 +110,10 @@ struct IntakeProfile: Codable, Hashable {
     var currentSupplements = ""
     var doctorCleared = false
     var smoker = false
-    // Personalization — habits to build & supplements to track (seed the tracker on first plan)
-    var wantedHabits: Set<HabitMetric> = []
+    // Personalization — habits to build & supplements to track (seed the tracker on first plan).
+    // These are PER-USER: stored in this profile only, applied to the user's own tracker on first plan.
+    var wantedHabits: Set<HabitMetric> = []      // metric-backed habits (Steps, Water, Protein…)
+    var wantedHabitTemplates: Set<String> = []   // HabitLibrary template ids (No sugar, Read, Journal…)
     var supplementsWanted: Set<String> = []      // Plan.supplements keys
     // Devices
     var hasAppleWatch = false
@@ -145,7 +147,9 @@ struct IntakeProfile: Codable, Hashable {
         mood = c.value(.mood, default: .good); anxiety = c.value(.anxiety, default: .rarely)
         currentSupplements = c.value(.currentSupplements, default: ""); doctorCleared = c.value(.doctorCleared, default: false)
         smoker = c.value(.smoker, default: false); hasAppleWatch = c.value(.hasAppleWatch, default: false)
-        wantedHabits = c.value(.wantedHabits, default: []); supplementsWanted = c.value(.supplementsWanted, default: [])
+        wantedHabits = c.value(.wantedHabits, default: [])
+        wantedHabitTemplates = c.value(.wantedHabitTemplates, default: [])
+        supplementsWanted = c.value(.supplementsWanted, default: [])
         completedAt = c.value(.completedAt, default: nil)
     }
 }

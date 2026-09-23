@@ -8,13 +8,13 @@ struct ProfileView: View {
     @State private var editPlan = false
 
     var body: some View {
-        Screen(subtitle: "Your health profile", title: "Profile") {
+        Screen(subtitle: "Your health profile", title: "Profile",
+               scrollTo: UserDefaults.standard.string(forKey: "profileScroll")) {
             headerCard
             PlanQuestionnaireCard(edit: $editPlan)
             GoalsCard()
             CloudCard()
-            HealthCard()
-            WearableConnectCard()
+            DevicesHealthCard().id("devices")
             RemindersCard()
             medsCard
             AutomationCard()
@@ -184,12 +184,21 @@ struct CloudCard: View {
     }
 }
 
-// MARK: - Apple Health
+// MARK: - Devices & Health (v5 item 8)
 
-struct HealthCard: View {
+/// One coherent "Devices & Health" section — replaces the old clashing blue-bordered "Wearables — Health
+/// Sync" card and the separate green "Connect a wearable" card. Single standard Card, one emerald accent,
+/// clear hierarchy (Apple Health first, then direct wearable links, then manual/compatibility as
+/// disclosures), comfortable spacing. Wording is wearable-neutral — WHOOP is a band, Oura a ring, not
+/// watches. All existing data wiring (HealthKitManager, WearableLink, manual sync) is preserved.
+struct DevicesHealthCard: View {
     @Environment(Store.self) private var store
     @Environment(HealthKitManager.self) private var health
+    @Environment(CloudSync.self) private var cloud
+    @Environment(WearableLink.self) private var link
+
     @State private var showManual = false
+    @State private var showCompat = false
     @State private var steps = ""
     @State private var rhr = ""
     @State private var hrv = ""
@@ -197,32 +206,63 @@ struct HealthCard: View {
     @State private var deep = ""
     @State private var rem = ""
 
+    private static let vendorMeta: [String: (name: String, note: String)] = [
+        "whoop": ("WHOOP", "HRV, recovery, sleep & workouts — the data the WHOOP band won't send to Apple Health."),
+        "oura":  ("Oura",  "HRV, readiness, sleep stages & SpO₂ straight from the Oura ring."),
+    ]
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Wearables — Health Sync").font(Theme.scoreS).foregroundStyle(Theme.blue)
-                .padding(.bottom, 8)
+        Card {
+            SectionTitle("Devices & Health")
+
+            // 1 — Apple Health (the backbone: any wearable that syncs to Health flows in here).
             Text(health.lastSync.map { "Last synced \($0.formatted(date: .abbreviated, time: .shortened))" }
-                 ?? "Reads steps, heart rate, HRV, sleep and more straight from Apple Health — from Apple Watch or any wearable that syncs to it.")
-                .font(.system(size: 12)).foregroundStyle(Theme.text).lineSpacing(3)
-                .padding(.bottom, 10)
-            Button(health.isSyncing ? "Syncing…" : (health.hasConnected ? "Sync now" : "Connect Apple Health")) {
+                 ?? "Reads steps, heart rate, HRV and sleep straight from Apple Health — from an Apple Watch, ring or band that syncs to it.")
+                .font(.system(size: 13)).foregroundStyle(Theme.muted).lineSpacing(3)
+                .padding(.bottom, 12)
+            Button(health.isSyncing ? "Syncing…" : (health.hasConnected ? "Sync Apple Health" : "Connect Apple Health")) {
                 Task {
                     if health.hasConnected { await health.sync(store: store, days: 30) }
                     else { await health.connectAndSync(store: store, days: 30) }
                 }
             }
-            .buttonStyle(PrimaryButtonStyle(color: Theme.blue))
+            .buttonStyle(PrimaryButtonStyle())
             .disabled(health.isSyncing || !health.isAvailable)
             if let e = health.lastError {
                 Text(e).font(.system(size: 12)).foregroundStyle(Theme.red).padding(.top, 8)
             }
 
-            DisclosureGroup {
+            Divider().overlay(Theme.border).padding(.vertical, 16)
+
+            // 2 — Direct wearable links (HRV + each device's own scores Apple Health can't carry).
+            Text("Connect a wearable directly")
+                .font(.system(size: 14, weight: .heavy)).foregroundStyle(Theme.text)
+            Text("Pulls HRV and each device's own scores directly, so Recovery & Stress run at full accuracy rather than estimated.")
+                .font(.system(size: 12)).foregroundStyle(Theme.muted).lineSpacing(3)
+                .padding(.top, 3).padding(.bottom, 10)
+
+            if !cloud.isSignedIn {
+                Text("Sign in with Apple (Cloud Backup & Sync, above) to link a wearable directly.")
+                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.orange)
+            } else {
+                ForEach(Array(WearableLink.vendors.enumerated()), id: \.element) { i, v in
+                    vendorRow(v)
+                    if i < WearableLink.vendors.count - 1 { Divider().overlay(Theme.border).padding(.vertical, 6) }
+                }
+            }
+            if let e = link.lastError {
+                Text(e).font(.system(size: 12)).foregroundStyle(Theme.red).padding(.top, 8)
+            }
+
+            Divider().overlay(Theme.border).padding(.vertical, 16)
+
+            // 3 — Compatibility + manual entry, tucked into disclosures so the card stays uncluttered.
+            DisclosureGroup(isExpanded: $showCompat) {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(WearableCompat.devices, id: \.name) { d in
                         HStack(alignment: .top, spacing: 8) {
                             Image(systemName: d.full ? "checkmark.circle.fill" : "checkmark.circle")
-                                .font(.system(size: 13)).foregroundStyle(d.full ? Theme.primary : Theme.blue)
+                                .font(.system(size: 13)).foregroundStyle(d.full ? Theme.primary : Theme.muted)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(d.name).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text)
                                 Text(d.note).font(.system(size: 11)).foregroundStyle(Theme.muted)
@@ -234,10 +274,9 @@ struct HealthCard: View {
                 }
                 .padding(.top, 8)
             } label: {
-                Text("Compatible devices").font(.system(size: 12, weight: .heavy)).foregroundStyle(Theme.blue)
+                Text("Compatible devices").font(.system(size: 12, weight: .heavy)).foregroundStyle(Theme.primary)
             }
-            .tint(Theme.blue)
-            .padding(.top, 12)
+            .tint(Theme.primary)
 
             DisclosureGroup(isExpanded: $showManual) {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
@@ -254,19 +293,48 @@ struct HealthCard: View {
                                      sleep: Fmt.parse(sleep), deep: Fmt.parse(deep), rem: Fmt.parse(rem))
                     steps = ""; rhr = ""; hrv = ""; sleep = ""; deep = ""; rem = ""
                 }
-                .buttonStyle(PrimaryButtonStyle(color: Theme.blue, compact: true))
+                .buttonStyle(PrimaryButtonStyle(compact: true))
                 .padding(.top, 10)
             } label: {
-                Text("Enter manually").font(.system(size: 12, weight: .heavy)).foregroundStyle(Theme.blue)
+                Text("Enter manually").font(.system(size: 12, weight: .heavy)).foregroundStyle(Theme.primary)
             }
-            .tint(Theme.blue)
-            .padding(.top, 12)
+            .tint(Theme.primary)
+            .padding(.top, 10)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(Color.adaptive(light: 0xF0F4FF, dark: 0x141C2E))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.blue, lineWidth: 1.5))
+        .task { if cloud.isSignedIn { await link.refreshStatus() } }
+    }
+
+    @ViewBuilder private func vendorRow(_ vendor: String) -> some View {
+        let m = Self.vendorMeta[vendor] ?? (vendor.capitalized, "")
+        let st = link.status[vendor]
+        let busy = link.busy == vendor
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(m.name).font(.system(size: 15, weight: .heavy)).foregroundStyle(Theme.text)
+                    Text(m.note).font(.system(size: 11)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                if st?.linked == true {
+                    Image(systemName: "checkmark.seal.fill").foregroundStyle(Theme.primary)
+                }
+            }
+            if st?.configured == false {
+                Text("Coming soon — server not yet configured for \(m.name).")
+                    .font(.system(size: 11)).foregroundStyle(Theme.muted)
+            } else if st?.linked == true {
+                HStack(spacing: 8) {
+                    Button(busy ? "Syncing…" : "Sync now") { Task { await link.sync(vendor, store: store) } }
+                        .buttonStyle(PrimaryButtonStyle(compact: true)).disabled(busy)
+                    Button("Disconnect") { Task { await link.unlink(vendor) } }
+                        .buttonStyle(SecondaryButtonStyle()).disabled(busy)
+                }
+            } else {
+                Button(busy ? "Connecting…" : "Connect \(m.name)") { Task { await link.connect(vendor, store: store) } }
+                    .buttonStyle(PrimaryButtonStyle(compact: true)).disabled(busy)
+            }
+        }
     }
 }
 

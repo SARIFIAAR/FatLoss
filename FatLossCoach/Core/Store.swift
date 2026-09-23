@@ -369,10 +369,23 @@ final class Store {
         d.reminders.startHour = min(max(p.wakeHour + 1, 6), 12)
         d.reminders.endHour = min(max(p.bedHour - 1, 18), 23)
         // Seed the habit tracker from the habits the user chose in onboarding (only before they curate).
-        if !p.wantedHabits.isEmpty && !d.didSeedHabits && d.habitDefs.isEmpty {
+        // Two sources: metric-backed habits (Steps, Water…) and common check-in library templates
+        // (No sugar, Read, Journal…). Metric-backed first (stable order), then the templates in the order
+        // they appear in HabitLibrary.all — each template's makeDef() carries its own name/icon/goal.
+        let hasChosen = !p.wantedHabits.isEmpty || !p.wantedHabitTemplates.isEmpty
+        if hasChosen && !d.didSeedHabits && d.habitDefs.isEmpty {
             let palette: [UInt32] = [0x43CB00, 0x4CA9E8, 0xA96CF0, 0xF0C930, 0xFF6B6B, 0x2DD4BF, 0xF59E0B]
-            let chosen = HabitMetric.allCases.filter { p.wantedHabits.contains($0) }   // stable order
-            d.habitDefs = chosen.enumerated().map { i, m in HabitDef(metric: m, colorHex: palette[i % palette.count]) }
+            let metricDefs = HabitMetric.allCases
+                .filter { p.wantedHabits.contains($0) }   // stable order
+                .map { HabitDef(metric: $0) }
+            let templateDefs = HabitLibrary.all
+                .filter { p.wantedHabitTemplates.contains($0.id) }   // stable order
+                .map { $0.makeDef() }
+            // Recolour everything from one palette so the tracker reads as a set (templates carry their
+            // own library colours otherwise; unify for a clean first screen).
+            d.habitDefs = (metricDefs + templateDefs).enumerated().map { i, def in
+                var def = def; def.colorHex = palette[i % palette.count]; return def
+            }
             d.didSeedHabits = true
         }
         // Track only the supplements the user selected (empty = show all, preserves old behavior).
