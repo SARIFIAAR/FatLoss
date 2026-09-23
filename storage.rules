@@ -6,7 +6,11 @@ service firebase.storage {
   match /b/{bucket}/o {
     // users/{uid}/photos/{photoId}.jpg — the body-photo bytes, owned solely by that uid.
     match /users/{uid}/photos/{photo} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read: if request.auth != null && request.auth.uid == uid;
+      // Write guard: owner-only + images only + size cap (self-scoped abuse hardening).
+      allow write: if request.auth != null && request.auth.uid == uid
+                   && request.resource.size < 15 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
     }
     // Everything else denied to clients.
     match /{allPaths=**} {
