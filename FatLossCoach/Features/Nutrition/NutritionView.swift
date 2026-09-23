@@ -130,9 +130,9 @@ struct NutritionView: View {
             .onAppear { flow.day = selectedDay }
             .onChange(of: selectedDay) { _, d in flow.day = d }
         // Diary-first: the meal plan and its per-slot logging sit right under the calendar so
-        // the plan is above the fold. Logging methods live in the compact card + "+" hub below it.
+        // the plan is above the fold. Each meal-plan slot's own "+" menu (Log with AI / Same as
+        // yesterday / Recent / Quick add) is the logging entry — no standalone "Log a meal" box.
         MealPlanCard(flow: flow, day: selectedDay)
-        LogEntryCard(flow: flow)
         TodayMealsCard(day: selectedDay)
         Group {
             TimelineView(.periodic(from: .now, by: 60)) { ctx in
