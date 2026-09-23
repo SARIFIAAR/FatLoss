@@ -258,7 +258,7 @@ struct OnboardingView: View {
             onPrimary: advance,
             hero: {
                 VStack(spacing: 18) {
-                    Image("SplashLogo").resizable().scaledToFit().frame(height: 76)
+                    Image("SplashMark").resizable().scaledToFit().frame(height: 76)
                     FlowLayout(spacing: 8) {
                         OBDeviceChip(icon: "applewatch", name: "Apple Watch")
                         OBDeviceChip(icon: "waveform.path.ecg", name: "WHOOP")
