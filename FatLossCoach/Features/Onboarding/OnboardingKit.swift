@@ -56,6 +56,10 @@ struct OnboardingScaffold<Content: View>: View {
     var canClose: Bool = false
     var continueTitle: String = "Continue"
     var continueEnabled: Bool = true
+    /// Optional low-emphasis "Skip" in the top bar (top-right). Present ONLY on the questionnaire QUESTION
+    /// steps — skipping advances using the current/default values (no data required), so the plan still
+    /// builds from defaults. Never set on the sign-in gate or the building loader.
+    var onSkip: (() -> Void)? = nil
     var scrollAnchor: UnitPoint? = nil   // debug: start scrolled to a position (e.g. .bottom for screenshots)
     /// v5 item 1: vertically centre the content block (single-choice screens like chronotype). Default is
     /// top-aligned — text-entry forms (About you, Food…) MUST stay top-aligned so the keyboard doesn't
@@ -82,6 +86,18 @@ struct OnboardingScaffold<Content: View>: View {
                         .accessibilityLabel("Back")
                     }
                     OBProgressRail(value: progress)
+                    // Low-emphasis "Skip" (top-right) on QUESTION steps — advances with current/defaults.
+                    if let onSkip {
+                        Button { onSkip() } label: {
+                            Text("Skip")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Theme.muted)
+                                .padding(.vertical, 6).padding(.horizontal, 4)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Skip this question")
+                    }
                     if canClose {
                         Button { onClose?() } label: {
                             Image(systemName: "xmark")

@@ -388,10 +388,11 @@ final class Store {
             }
             d.didSeedHabits = true
         }
-        // Track only the supplements the user selected (empty = show all, preserves old behavior).
-        if !p.supplementsWanted.isEmpty {
-            d.supplementsSelected = Plan.supplements.map(\.key).filter { p.supplementsWanted.contains($0) }
-        }
+        // Track exactly the supplements the user selected in onboarding — ALWAYS write it, even when the
+        // selection is empty (they picked "none"). An empty list on a COMPLETED profile means "track none"
+        // (SupplementsCard renders the empty state), not the legacy "show all" fallback which only applies to
+        // pre-onboarding data that never had this field written.
+        d.supplementsSelected = Plan.supplements.map(\.key).filter { p.supplementsWanted.contains($0) }
         data = d
         if data.weightLogs.isEmpty || (currentWeight ?? 0) != p.weightKg { _ = logWeight(p.weightKg) }
         if let w = p.waistCm, data.waistLogs.last?.value != w { _ = logWaist(w) }
@@ -418,6 +419,26 @@ final class Store {
     }
 
     // MARK: Supplements
+
+    /// True once the user has been through onboarding (so an empty `supplementsSelected` is an honest
+    /// "track none", not legacy pre-onboarding data). Drives SupplementsCard's empty-state vs all-fallback.
+    var didCompleteOnboarding: Bool { data.intake?.completedAt != nil }
+
+    /// The supplements the user tracks on Today. On a completed profile this is exactly what they chose
+    /// (may be empty). Only legacy pre-onboarding data (never wrote the field) falls back to showing all.
+    var trackedSupplementKeys: [String] {
+        let sel = data.supplementsSelected
+        if !sel.isEmpty { return Plan.supplements.map(\.key).filter { sel.contains($0) } }
+        return didCompleteOnboarding ? [] : Plan.supplements.map(\.key)
+    }
+
+    /// Add/remove a supplement from the Today tracker (manage sheet). Writes `supplementsSelected` in the
+    /// canonical Plan order so the card ordering stays stable. The daily taken-toggle is untouched.
+    func setSupplementTracked(_ key: String, tracked: Bool) {
+        var keys = Set(trackedSupplementKeys)
+        if tracked { keys.insert(key) } else { keys.remove(key) }
+        data.supplementsSelected = Plan.supplements.map(\.key).filter { keys.contains($0) }
+    }
 
     func isSupplementTaken(_ key: String) -> Bool { data.supplements[today]?.contains(key) ?? false }
     func toggleSupplement(_ key: String) {

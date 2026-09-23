@@ -81,6 +81,7 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .onReceive(NotificationCenter.default.publisher(for: .openBody)) { _ in tab = 5 }
         .onReceive(NotificationCenter.default.publisher(for: .openNutrition)) { _ in tab = 3 }
+        .onReceive(NotificationCenter.default.publisher(for: .openTrain)) { _ in tab = 2 }
         .overlay(alignment: .top) {
             if let t = store.toast {
                 ToastView(text: t)

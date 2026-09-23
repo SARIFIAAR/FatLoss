@@ -189,6 +189,10 @@ struct OnboardingView: View {
             while idx > 0 && shouldSkip(steps[idx]) { idx -= 1 }
         }
     }
+    /// Skip a QUESTION step without requiring valid input — the profile keeps its current/default values, so
+    /// the plan still builds from defaults. Same forward motion as `advance()` (which never gates on `valid`),
+    /// but named separately so the intent is explicit and it can never accidentally block on validation.
+    private func skip() { advance() }
     private func finish() { commitNumbers(); onDone(p); dismiss() }
 
     private func valid(_ step: Step) -> Bool {
@@ -221,6 +225,7 @@ struct OnboardingView: View {
     @ViewBuilder private func questionScaffold(_ step: Step) -> some View {
         OnboardingScaffold(progress: progress, title: title(step),
                            showBack: idx > 0, canClose: canSkip, continueEnabled: valid(step),
+                           onSkip: skip,
                            onBack: back, onClose: { dismiss() }, onContinue: advance) {
             switch step {
             case .aboutYou:  aboutYou
@@ -492,6 +497,7 @@ struct OnboardingView: View {
         OnboardingScaffold(progress: progress, title: title(.chronotype),
                            subtitle: "When do you naturally feel sharpest? We'll keep this to time reminders and training suggestions around your rhythm.",
                            showBack: idx > 0, canClose: canSkip, continueEnabled: true,
+                           onSkip: skip,
                            centerContent: true,
                            onBack: back, onClose: { dismiss() }, onContinue: advance) {
             options(IntakeProfile.Chronotype.allCases, selected: $p.chronotype, detail: { $0.detail })
@@ -803,6 +809,7 @@ struct OnboardingView: View {
                            subtitle: "Recovery, Strain and Sleep come from a wearable. Connect one now, or start phone-only and add one later.",
                            showBack: true, canClose: false,
                            continueTitle: "Continue", continueEnabled: true,
+                           onSkip: skip,
                            scrollAnchor: anchor,
                            onBack: back, onContinue: advance) {
             connectDeviceCards

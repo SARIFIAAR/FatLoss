@@ -85,26 +85,28 @@ struct Screen<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        GeometryReader { geo in
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        TopBar(subtitle: subtitle, title: title, topInset: geo.safeAreaInsets.top)
-                        VStack(spacing: 14) { content }
-                            .padding(16)
-                    }
+        // The title used to slide under the status bar/notch: the ScrollView ignored the top safe area and
+        // TopBar re-added `geo.safeAreaInsets.top`, but that inset read 0 inside the ignoring container, so
+        // no clearance was applied. Fix: let the ScrollView respect the top safe area (the system keeps the
+        // title below the clock automatically) and only paint the dark background up into the safe area, so
+        // it still looks edge-to-edge. TopBar no longer needs a manual top inset.
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 0) {
+                    TopBar(subtitle: subtitle, title: title)
+                    VStack(spacing: 14) { content }
+                        .padding(16)
                 }
-                .scrollDismissesKeyboard(.interactively)
-                .ignoresSafeArea(edges: .top)
-                .onAppear {
-                    guard let scrollTo else { return }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        withAnimation { proxy.scrollTo(scrollTo, anchor: .top) }
-                    }
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .onAppear {
+                guard let scrollTo else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    withAnimation { proxy.scrollTo(scrollTo, anchor: .top) }
                 }
             }
         }
-        .background(Theme.bg)
+        .background(Theme.bg.ignoresSafeArea())
     }
 }
 

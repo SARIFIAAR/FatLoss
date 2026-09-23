@@ -30,4 +30,6 @@ extension Notification.Name {
     static let openBody = Notification.Name("openBody")
     /// Posted by the Today nutrition card to jump to the Nutrition tab.
     static let openNutrition = Notification.Name("openNutrition")
+    /// Posted by the Today phase strip to jump to the Train tab (the programme / phases builder).
+    static let openTrain = Notification.Name("openTrain")
 }
