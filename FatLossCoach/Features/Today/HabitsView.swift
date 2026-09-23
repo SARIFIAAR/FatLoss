@@ -10,21 +10,22 @@ struct HabitsCard: View {
 
     var body: some View {
         Card {
-            Button { showAll = true } label: {
-                HStack {
-                    Text("HABITS").font(.system(size: 12, weight: .bold)).kerning(0.8).foregroundStyle(Theme.muted)
-                    Spacer()
-                    if !store.habitDefs.isEmpty {
-                        Text("See all").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.primary)
-                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.primary)
-                    } else {
-                        Button { showLibrary = true } label: {
-                            Image(systemName: "plus.circle.fill").font(.system(size: 20)).foregroundStyle(Theme.primary)
-                        }.buttonStyle(.plain)
-                    }
+            HStack(spacing: 14) {
+                Text("HABITS").font(.system(size: 12, weight: .bold)).kerning(0.8).foregroundStyle(Theme.muted)
+                Spacer()
+                if !store.habitDefs.isEmpty {
+                    Button { showAll = true } label: {
+                        HStack(spacing: 3) {
+                            Text("Manage").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.primary)
+                            Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.primary)
+                        }
+                    }.buttonStyle(.plain)
                 }
+                // Always offer add — not only when the list is empty (regression fix).
+                Button { showLibrary = true } label: {
+                    Image(systemName: "plus.circle.fill").font(.system(size: 22)).foregroundStyle(Theme.primary)
+                }.buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
             .padding(.bottom, 6)
 
             if store.habitDefs.isEmpty {
