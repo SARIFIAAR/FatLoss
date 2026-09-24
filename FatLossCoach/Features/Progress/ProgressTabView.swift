@@ -46,7 +46,7 @@ struct ProgressTabView: View {
                     SleepSeries(name: "REM", points: store.recoverySeries(days: 14, \.remH)),
                 ])
             }
-            HabitProgressCard()
+            HabitProgressCard().id("habits")
             adherenceCard
         }
         .sheet(isPresented: $showWaist) {

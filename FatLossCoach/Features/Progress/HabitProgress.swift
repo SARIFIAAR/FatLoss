@@ -33,25 +33,41 @@ struct ContributionGrid: View {
 struct HabitProgressCard: View {
     @Environment(Store.self) private var store
     @State private var showDetail = false
+    @State private var showManage = false
 
     var body: some View {
         let habits = store.habitDefs
         let doneToday = habits.filter { store.habitMet($0) }.count
         Card {
-            Button { if !habits.isEmpty { showDetail = true } } label: {
-                HStack {
-                    Text("HABITS").font(.system(size: 12, weight: .bold)).kerning(0.8).foregroundStyle(Theme.muted)
-                    Spacer()
-                    if !habits.isEmpty {
-                        Text("Details").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.primary)
-                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.primary)
+            HStack(spacing: 12) {
+                Button { if !habits.isEmpty { showDetail = true } } label: {
+                    HStack(spacing: 4) {
+                        Text("HABITS").font(.system(size: 12, weight: .bold)).kerning(0.8).foregroundStyle(Theme.muted)
+                        if !habits.isEmpty {
+                            Text("· Details").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.primary)
+                            Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.primary)
+                        }
                     }
-                }
-            }.buttonStyle(.plain).padding(.bottom, 8)
+                }.buttonStyle(.plain)
+                Spacer()
+                // Manage (add / edit / delete) — reuses the same HabitsScreen the Today card presents.
+                Button { showManage = true } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "slider.horizontal.3").font(.system(size: 11, weight: .bold))
+                        Text("Manage").font(.system(size: 12, weight: .bold))
+                    }.foregroundStyle(Theme.primary)
+                }.buttonStyle(.plain)
+                Button { showManage = true } label: {
+                    Image(systemName: "plus.circle.fill").font(.system(size: 20)).foregroundStyle(Theme.primary)
+                }.buttonStyle(.plain)
+            }.padding(.bottom, 8)
 
             if habits.isEmpty {
-                Text("Add habits on Today to see your streaks and history here.")
-                    .font(.system(size: 13)).foregroundStyle(Theme.muted).padding(.vertical, 6)
+                Button { showManage = true } label: {
+                    Text("Add your first habit — steps, water, meditate, read and more.")
+                        .font(.system(size: 13)).foregroundStyle(Theme.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
+                }.buttonStyle(.plain)
             } else {
                 HStack(alignment: .center, spacing: 16) {
                     ZStack {
@@ -67,7 +83,7 @@ struct HabitProgressCard: View {
                     .frame(width: 74, height: 74)
                     VStack(alignment: .leading, spacing: 6) {
                         Text("\(doneToday) of \(habits.count) done today").font(.system(size: 14, weight: .heavy)).foregroundStyle(Theme.text)
-                        // top 3 habits as mini rows
+                        // top 3 habits as mini rows — long-press to delete quickly.
                         ForEach(habits.prefix(3)) { def in
                             HStack(spacing: 6) {
                                 Image(systemName: def.metric.icon).font(.system(size: 10)).foregroundStyle(def.color).frame(width: 14)
@@ -81,12 +97,18 @@ struct HabitProgressCard: View {
                                     }
                                 }
                             }
+                            .contentShape(Rectangle())
+                            .contextMenu {
+                                Button { showManage = true } label: { Label("Manage habits", systemImage: "slider.horizontal.3") }
+                                Button(role: .destructive) { store.deleteHabit(def.id) } label: { Label("Delete \(def.name)", systemImage: "trash") }
+                            }
                         }
                     }
                 }
             }
         }
         .sheet(isPresented: $showDetail) { HabitProgressDetailView() }
+        .sheet(isPresented: $showManage) { HabitsScreen() }
     }
 }
 
@@ -94,19 +116,35 @@ struct HabitProgressCard: View {
 struct HabitProgressDetailView: View {
     @Environment(Store.self) private var store
     @Environment(\.dismiss) private var dismiss
+    @State private var showManage = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 12) {
-                    ForEach(store.habitDefs) { def in card(def) }
+                    ForEach(store.habitDefs) { def in
+                        card(def)
+                            .contextMenu {
+                                Button { showManage = true } label: { Label("Manage habits", systemImage: "slider.horizontal.3") }
+                                Button(role: .destructive) { store.deleteHabit(def.id) } label: { Label("Delete \(def.name)", systemImage: "trash") }
+                            }
+                    }
+                    Button { showManage = true } label: {
+                        Label("Manage habits", systemImage: "slider.horizontal.3").frame(maxWidth: .infinity)
+                    }.buttonStyle(PrimaryButtonStyle()).padding(.top, 4)
                 }
                 .padding(16)
             }
             .background(Theme.bg)
             .navigationTitle("Habit progress").navigationBarTitleDisplayMode(.inline)
             .preferredColorScheme(.dark)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .primaryAction) {
+                    Button { showManage = true } label: { Image(systemName: "slider.horizontal.3").font(.system(size: 16)).foregroundStyle(Theme.primary) }
+                }
+            }
+            .sheet(isPresented: $showManage) { HabitsScreen() }
         }
     }
 

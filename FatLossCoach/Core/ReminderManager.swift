@@ -86,10 +86,22 @@ final class ReminderManager: NSObject, UNUserNotificationCenterDelegate {
 
     func plan() async {
         guard let store else { return }
+        // Prune stale per-habit / per-supplement reminder entries before scheduling, so a deleted
+        // habit or untracked supplement can never leave a dangling nudge.
+        pruneStaleReminderEntries()
         let settings = store.data.reminders
         let pending = await center.pendingNotificationRequests().map(\.identifier)
-        center.removePendingNotificationRequests(withIdentifiers: pending.filter { $0.hasPrefix("water-") || $0.hasPrefix("walk-") || $0.hasPrefix("meal-") })
-        guard settings.waterOn || settings.walkOn || settings.mealsOn, permission == .granted else { return }
+        center.removePendingNotificationRequests(withIdentifiers: pending.filter {
+            $0.hasPrefix("water-") || $0.hasPrefix("walk-") || $0.hasPrefix("meal-")
+                || $0.hasPrefix("habit-") || $0.hasPrefix("supp-") || $0.hasPrefix("gym-")
+        })
+        guard permission == .granted else { return }
+
+        // Per-habit, per-supplement and gym-day reminders repeat every day (or every training
+        // weekday). They schedule independently of the interval-based water/walk/meals block below.
+        scheduleFixedTimeReminders(settings)
+
+        guard settings.waterOn || settings.walkOn || settings.mealsOn else { return }
 
         let cal = Calendar.current
         let now = Date()
@@ -163,6 +175,110 @@ final class ReminderManager: NSObject, UNUserNotificationCenterDelegate {
         }
 
         for r in requests.prefix(60) { try? await center.add(r) }
+    }
+
+    // MARK: Fixed-time reminders (habits, supplements, gym days)
+
+    /// Habit and supplement reminders repeat DAILY at the chosen minute-of-day; the workout reminder
+    /// repeats only on the current phase's training weekdays. All are opt-in per item and only added
+    /// when permission is granted (the caller already checked). Distinct id prefixes (habit-/supp-/gym-)
+    /// let `plan()` clear them cleanly without touching water/walk/meals.
+    private func scheduleFixedTimeReminders(_ settings: ReminderSettings) {
+        guard let store else { return }
+
+        // Habits — "Time to <habit name>", daily.
+        let habitsById = Dictionary(uniqueKeysWithValues: store.habitDefs.map { ($0.id, $0) })
+        for (id, minute) in settings.habitReminders {
+            guard let def = habitsById[id] else { continue }
+            let content = UNMutableNotificationContent()
+            content.title = "Time to \(def.name.lowercased())"
+            content.body = "A quick check-in keeps your streak going."
+            content.sound = .default
+            content.threadIdentifier = "habit"
+            center.add(UNNotificationRequest(identifier: "habit-\(id)",
+                                             content: content,
+                                             trigger: Self.dailyTrigger(minute: minute)))
+        }
+
+        // Supplements — "Take your <supplement name>", daily; add the timing hint when we have one.
+        let suppsById = Dictionary(uniqueKeysWithValues: store.trackedSupplements.map { ($0.id, $0) })
+        for (id, minute) in settings.supplementReminders {
+            guard let s = suppsById[id] else { continue }
+            let content = UNMutableNotificationContent()
+            content.title = "Take your \(s.name)"
+            if let detail = s.detail { content.body = detail }
+            content.sound = .default
+            content.threadIdentifier = "supp"
+            center.add(UNNotificationRequest(identifier: "supp-\(id)",
+                                             content: content,
+                                             trigger: Self.dailyTrigger(minute: minute)))
+        }
+
+        // Workout — fires only on the current programme phase's training weekdays.
+        if settings.workoutOn {
+            let phase = store.currentPhase
+            let weekdays = phase.trainingDays.compactMap(Self.weekday(fromDay:))
+            let days = weekdays.isEmpty ? Self.trainingWeekdays(count: store.data.intake?.trainingDays ?? 3) : weekdays
+            for wd in Set(days) {
+                let content = UNMutableNotificationContent()
+                content.title = "Time to train — \(phase.name)"
+                content.body = "Phase \(phase.number): \(phase.tagline). Log your lifts as you go."
+                content.sound = .default
+                content.threadIdentifier = "gym"
+                center.add(UNNotificationRequest(identifier: "gym-\(wd)",
+                                                 content: content,
+                                                 trigger: Self.weekdayTrigger(weekday: wd, minute: settings.workoutMinute)))
+            }
+        }
+    }
+
+    /// Remove reminder entries whose habit / supplement no longer exists (write back to the store).
+    private func pruneStaleReminderEntries() {
+        guard let store else { return }
+        let habitIds = Set(store.habitDefs.map(\.id))
+        let suppIds = Set(store.trackedSupplements.map(\.id))
+        var r = store.data.reminders
+        let prunedHabits = r.habitReminders.filter { habitIds.contains($0.key) }
+        let prunedSupps = r.supplementReminders.filter { suppIds.contains($0.key) }
+        guard prunedHabits.count != r.habitReminders.count || prunedSupps.count != r.supplementReminders.count else { return }
+        r.habitReminders = prunedHabits
+        r.supplementReminders = prunedSupps
+        store.data.reminders = r
+    }
+
+    /// A 3-letter day label ("Mon"…"Sun") → Calendar weekday (Sun = 1 … Sat = 7). nil if unknown.
+    static func weekday(fromDay day: String) -> Int? {
+        switch day.prefix(3).lowercased() {
+        case "sun": return 1; case "mon": return 2; case "tue": return 3; case "wed": return 4
+        case "thu": return 5; case "fri": return 6; case "sat": return 7; default: return nil
+        }
+    }
+
+    /// Fallback training weekdays when the phase has no explicit schedule — Mon/Wed/Fri style spread.
+    private static func trainingWeekdays(count: Int) -> [Int] {
+        switch max(1, min(count, 6)) {
+        case 1: return [2]
+        case 2: return [2, 5]
+        case 3: return [2, 4, 6]
+        case 4: return [2, 3, 5, 6]
+        case 5: return [2, 3, 4, 5, 6]
+        default: return [2, 3, 4, 5, 6, 7]
+        }
+    }
+
+    private static func dailyTrigger(minute: Int) -> UNCalendarNotificationTrigger {
+        var comps = DateComponents()
+        comps.hour = minute / 60
+        comps.minute = minute % 60
+        return UNCalendarNotificationTrigger(dateMatching: comps, repeats: true)
+    }
+
+    private static func weekdayTrigger(weekday: Int, minute: Int) -> UNCalendarNotificationTrigger {
+        var comps = DateComponents()
+        comps.weekday = weekday
+        comps.hour = minute / 60
+        comps.minute = minute % 60
+        return UNCalendarNotificationTrigger(dateMatching: comps, repeats: true)
     }
 
     private static func trigger(_ date: Date, _ cal: Calendar) -> UNCalendarNotificationTrigger {

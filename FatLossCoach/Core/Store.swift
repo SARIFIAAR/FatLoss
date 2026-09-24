@@ -378,6 +378,7 @@ final class Store {
         d.goals = PlanBuilder.goals(for: p, existing: d.goals)
         d.reminders.startHour = min(max(p.wakeHour + 1, 6), 12)
         d.reminders.endHour = min(max(p.bedHour - 1, 18), 23)
+        d.reminders.workoutMinute = p.preferredTime.minuteOfDay   // default gym-reminder time
         // Seed the habit tracker from the habits the user chose in onboarding (only before they curate).
         // Two sources: metric-backed habits (Steps, Water…) and common check-in library templates
         // (No sugar, Read, Journal…). Metric-backed first (stable order), then the templates in the order

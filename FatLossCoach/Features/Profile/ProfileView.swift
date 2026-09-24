@@ -15,7 +15,7 @@ struct ProfileView: View {
             GoalsCard().id("goals")
             CloudCard()
             DevicesHealthCard().id("devices")
-            RemindersCard()
+            RemindersCard().id("reminders")
             medsCard
             Text("HUMANS® \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""))")
                 .font(.system(size: 11)).foregroundStyle(Theme.muted)
@@ -424,7 +424,66 @@ struct RemindersCard: View {
                 }
                 .padding(.top, 6)
             }
+
+            // MARK: Workout (gym-day) reminder — fires on the current phase's training weekdays only.
+            Divider().overlay(Theme.border).padding(.vertical, 10).id("reminders-workout")
+            Toggle(isOn: binding(\.workoutOn)) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Time to train").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
+                    Text("A nudge on your training days only — \(trainingDaysLabel). Phase \(store.currentPhase.number): \(store.currentPhase.name).")
+                        .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                }
+            }
+            .tint(Theme.primary)
+            if store.data.reminders.workoutOn {
+                timePicker("At", minute: binding(\.workoutMinute)).padding(.top, 6)
+            }
+
+            // MARK: Per-habit reminders
+            if !store.habitDefs.isEmpty {
+                Divider().overlay(Theme.border).padding(.vertical, 10)
+                Text("HABIT REMINDERS").font(.system(size: 11, weight: .bold)).kerning(1).foregroundStyle(Theme.muted)
+                Text("A daily nudge for any habit you choose.").font(.system(size: 11)).foregroundStyle(Theme.muted).padding(.bottom, 2)
+                ForEach(store.habitDefs) { def in
+                    itemReminderRow(name: def.name, icon: def.metric.icon, color: def.color,
+                                    on: habitReminderOn(def.id), minute: habitReminderMinute(def.id))
+                }
+            }
+
+            // MARK: Per-supplement reminders
+            if !store.trackedSupplements.isEmpty {
+                Divider().overlay(Theme.border).padding(.vertical, 10).id("reminders-supps")
+                Text("SUPPLEMENT REMINDERS").font(.system(size: 11, weight: .bold)).kerning(1).foregroundStyle(Theme.muted)
+                Text("A daily reminder to take what you track.").font(.system(size: 11)).foregroundStyle(Theme.muted).padding(.bottom, 2)
+                ForEach(store.trackedSupplements) { s in
+                    itemReminderRow(name: s.name, icon: s.symbol, color: Theme.primary,
+                                    on: supplementReminderOn(s.id), minute: supplementReminderMinute(s.id))
+                }
+            }
         }
+    }
+
+    private var trainingDaysLabel: String {
+        let days = store.currentPhase.trainingDays
+        return days.isEmpty ? "your programme schedule" : days.joined(separator: ", ")
+    }
+
+    /// One habit/supplement row: a toggle that adds/removes the reminder entry + a time picker when on.
+    @ViewBuilder
+    private func itemReminderRow(name: String, icon: String, color: Color, on: Binding<Bool>, minute: Binding<Int>) -> some View {
+        VStack(spacing: 6) {
+            Toggle(isOn: on) {
+                HStack(spacing: 10) {
+                    Image(systemName: icon).font(.system(size: 14)).foregroundStyle(color).frame(width: 20)
+                    Text(name).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                }
+            }
+            .tint(Theme.primary)
+            if on.wrappedValue {
+                timePicker("At", minute: minute).padding(.leading, 30)
+            }
+        }
+        .padding(.vertical, 2)
     }
 
     private func mealHour(_ index: Int) -> Binding<Int> {
@@ -472,6 +531,54 @@ struct RemindersCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 6).padding(.vertical, 2)
             .background(Theme.bg).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+    }
+
+    // MARK: Habit / supplement reminder bindings
+
+    /// Toggle for a per-habit reminder — presence of the key in habitReminders = enabled (default 9 AM).
+    private func habitReminderOn(_ id: String) -> Binding<Bool> {
+        Binding(get: { store.data.reminders.habitReminders[id] != nil },
+                set: { v in
+                    if v { store.data.reminders.habitReminders[id] = store.data.reminders.habitReminders[id] ?? 9 * 60 }
+                    else { store.data.reminders.habitReminders[id] = nil }
+                    onReminderToggle(v)
+                })
+    }
+    private func habitReminderMinute(_ id: String) -> Binding<Int> {
+        Binding(get: { store.data.reminders.habitReminders[id] ?? 9 * 60 },
+                set: { v in store.data.reminders.habitReminders[id] = v; reminders.schedulePlan() })
+    }
+    private func supplementReminderOn(_ id: String) -> Binding<Bool> {
+        Binding(get: { store.data.reminders.supplementReminders[id] != nil },
+                set: { v in
+                    if v { store.data.reminders.supplementReminders[id] = store.data.reminders.supplementReminders[id] ?? 9 * 60 }
+                    else { store.data.reminders.supplementReminders[id] = nil }
+                    onReminderToggle(v)
+                })
+    }
+    private func supplementReminderMinute(_ id: String) -> Binding<Int> {
+        Binding(get: { store.data.reminders.supplementReminders[id] ?? 9 * 60 },
+                set: { v in store.data.reminders.supplementReminders[id] = v; reminders.schedulePlan() })
+    }
+
+    /// Enabling any reminder asks for permission if needed, then (re)schedules — same pattern as `binding`.
+    private func onReminderToggle(_ enabled: Bool) {
+        if enabled { Task { await reminders.requestPermission(); reminders.schedulePlan() } }
+        else { reminders.schedulePlan() }
+    }
+
+    /// Hour + minute (15-min steps) picker bound to a minutes-of-day Int.
+    @ViewBuilder
+    private func timePicker(_ label: String, minute: Binding<Int>) -> some View {
+        let hourBinding = Binding(get: { minute.wrappedValue / 60 },
+                                  set: { minute.wrappedValue = $0 * 60 + (minute.wrappedValue % 60) })
+        let minBinding = Binding(get: { (minute.wrappedValue % 60) / 15 * 15 },
+                                 set: { minute.wrappedValue = (minute.wrappedValue / 60) * 60 + $0 })
+        HStack(spacing: 8) {
+            picker(label, selection: hourBinding, options: hours) { hourLabel($0) }
+            picker("Min", selection: minBinding, options: [0, 15, 30, 45]) { String(format: ":%02d", $0) }
+            Spacer(minLength: 0)
         }
     }
 

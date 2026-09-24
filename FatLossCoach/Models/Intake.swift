@@ -27,7 +27,9 @@ struct IntakeProfile: Codable, Hashable {
     enum Equipment: String, Codable, CaseIterable, Identifiable { case dumbbells, barbell, machines, cables, bands, bench, kettlebell, none; var id: String { rawValue }
         var label: String { self == .none ? "Bodyweight only" : rawValue.capitalized } }
     enum TrainingTime: String, Codable, CaseIterable, Identifiable { case morning, midday, evening; var id: String { rawValue }
-        var label: String { rawValue.capitalized } }
+        var label: String { rawValue.capitalized }
+        /// Default minutes-of-day used to seed the workout reminder time.
+        var minuteOfDay: Int { switch self { case .morning: return 7 * 60; case .midday: return 12 * 60; case .evening: return 18 * 60 } } }
     enum EatingStyle: String, Codable, CaseIterable, Identifiable { case everything, halal, vegetarian, pescatarian, vegan; var id: String { rawValue }
         var label: String { switch self { case .everything: return "I eat everything"; case .halal: return "Halal only"; case .vegetarian: return "Vegetarian"; case .pescatarian: return "Pescatarian"; case .vegan: return "Vegan" } } }
     enum Allergy: String, Codable, CaseIterable, Identifiable { case gluten, lactose, nuts, eggs, shellfish, soy; var id: String { rawValue }

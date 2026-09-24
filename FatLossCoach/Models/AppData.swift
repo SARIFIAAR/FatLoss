@@ -359,6 +359,14 @@ struct ReminderSettings: Codable, Hashable {
     var mealHours: [Int] = [8, 13, 19] // when to nudge for each meal
     var healthAlertsPush = false       // notify when a vital is out of your typical range
     var maxHrOverride: Int?            // user-set max HR for zones (nil = 220 − age)
+    // Per-habit reminders: habitId → minutes-of-day (e.g. 8*60+30). Presence of a key = enabled.
+    // Pruned to existing habitDefs whenever the plan runs, so a deleted habit leaves no stale nudge.
+    var habitReminders: [String: Int] = [:]
+    // Per-supplement reminders: TrackedSupplement.id → minutes-of-day. Pruned to tracked supplements.
+    var supplementReminders: [String: Int] = [:]
+    // Workout reminder: fires on the current programme phase's training weekdays only.
+    var workoutOn = false
+    var workoutMinute = 18 * 60        // minutes-of-day (default 6 PM; onboarding preferredTime overrides)
 
     init() {}
     init(from decoder: Decoder) throws {
@@ -373,6 +381,10 @@ struct ReminderSettings: Codable, Hashable {
         mealHours         = c.value(.mealHours,         default: [8, 13, 19])
         healthAlertsPush  = c.value(.healthAlertsPush,  default: false)
         maxHrOverride     = c.value(.maxHrOverride,     default: nil)
+        habitReminders       = c.value(.habitReminders,       default: [:])
+        supplementReminders  = c.value(.supplementReminders,  default: [:])
+        workoutOn            = c.value(.workoutOn,            default: false)
+        workoutMinute        = c.value(.workoutMinute,        default: 18 * 60)
     }
 }
 
