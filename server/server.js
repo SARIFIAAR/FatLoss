@@ -354,14 +354,9 @@ function normaliseFood(f) {
   };
 }
 
-async function searchFoods(q) {
-  const query = q.trim().slice(0, 100);
-  if (query.length < 2) return [];
-  const cached = foodCache.get(query.toLowerCase());
-  if (cached && Date.now() - cached.at < FOOD_CACHE_TTL) return cached.foods;
-  // Our own DB first — instant, owned, offline-capable. Only hit live USDA if it's thin.
-  const local = localSearch(query, 25);
-  if (local.length >= 8) { foodCache.set(query.toLowerCase(), { at: Date.now(), foods: local }); return local; }
+/** Live USDA FoodData Central search. Throws HttpError on hard failure (no local/OFF fallback exists in
+ *  the caller when USDA itself is the only source and the query was thin). Returns normalised foods. */
+async function usdaSearch(query) {
   let res;
   try {
     res = await fetch(`https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${encodeURIComponent(USDA_KEY)}`, {
@@ -376,27 +371,113 @@ async function searchFoods(q) {
   if (res.status === 429) throw new HttpError(429, "Food database is busy — try again in a minute.");
   if (!res.ok) { console.error("usda", res.status, (await res.text()).slice(0, 200)); throw new HttpError(502, "Food database error."); }
   const json = await res.json();
-  const foods = (json.foods ?? []).map(normaliseFood).filter((f) => f.per100.kcal > 0 || f.per100.protein > 0);
-  // Generic (as-eaten) foods first — plain entries ("Banana, raw") before heavily qualified ones ("Bananas, dehydrated,
-  // or banana powder") — then packaged products. Within a tier USDA's relevance order is kept.
-  // Rank: entries containing every query word first, then the fewest extra words ("Banana, raw" beats
-  // "Banana pudding, home recipe"), then USDA's relevance order.
-  const stem = (w) => w.replace(/(es|s)$/, "");
+  return (json.foods ?? []).map(normaliseFood).filter((f) => f.per100.kcal > 0 || f.per100.protein > 0);
+}
+
+/** Open Food Facts TEXT search — millions of user-contributed branded products worldwide (the beer /
+ *  soda / snack brands USDA misses). Best-effort: short 5 s timeout, never throws (returns [] on any
+ *  failure so a slow/down OFF cannot break /foods). Uses the SAME offFood normaliser as the barcode path,
+ *  so results carry per-100 g macros + servings + brand in the shared shape. Entries whose nutriments are
+ *  missing kcal AND protein are dropped by offFood (OFF is user-contributed; quality varies). */
+async function offSearch(query) {
+  const fields = "code,product_name,product_name_en,brands,nutriments,serving_size,serving_quantity";
+  const url = "https://world.openfoodfacts.org/cgi/search.pl?" +
+    `search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=25&fields=${fields}`;
+  try {
+    const res = await fetch(url, {
+      headers: { "user-agent": "FatLossCoach/1.0 (fatloss-analyzer.fly.dev)", accept: "application/json" },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) { console.warn("off search", res.status); return []; }
+    // OFF occasionally load-sheds text search with a 200 HTML interstitial — skip the parse if it isn't JSON.
+    if (!/json/i.test(res.headers.get("content-type") || "")) { console.warn("off search: non-JSON response"); return []; }
+    const json = await res.json();
+    const products = Array.isArray(json.products) ? json.products : [];
+    return products
+      .map((p) => (p && p.code ? offFood(p, String(p.code)) : null))
+      .filter((f) => f && (f.per100.kcal > 0 || f.per100.protein > 0));
+  } catch (err) {
+    console.warn("off search:", err.message);   // log and continue — OFF is a bonus source, not required
+    return [];
+  }
+}
+
+const stem = (w) => w.replace(/(es|s)$/, "");
+/** How complete are a food's macros? Prefer entries that have all four of kcal/protein/carbs/fat.
+ *  OFF is user-contributed, so many entries are macro-thin; this pushes those toward the back. */
+function macroCompleteness(f) {
+  const p = f.per100 || {};
+  return [p.kcal, p.protein, p.carbs, p.fat].filter((v) => typeof v === "number" && v > 0).length;
+}
+/** Normalised key for name+brand dedupe across sources (a product can appear in USDA, OFF and our DB). */
+function foodKey(f) {
+  return `${(f.name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}|${(f.brand || "").toLowerCase().trim()}`;
+}
+
+/** Merge local-DB + USDA + OFF into one ranked, deduped list.
+ *  Dedupe: first by barcode, then by normalised name+brand — earlier (higher-priority) source wins.
+ *  Rank primarily by query relevance (all query words present → fewest extra words), with generic
+ *  "as-eaten" foods favoured over packaged ones at equal relevance, then macro completeness (complete
+ *  entries first, so macro-thin OFF products rank last), then the source's own order.
+ *  `local` is always kept in front and never re-ranked (it's our owned, curated result). */
+function mergeFoods({ local, usda, off, query, cap = 40 }) {
   const tokens = [...new Set(query.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 1).map(stem))];
-  const generic = foods.filter((f) => f.kind === "generic").map((f, i) => {
-    const words = f.name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).map(stem);
+  const PLAIN = new Set(["raw", "cooked", "fresh", "plain", "boiled", "grilled", "n", "a", "to", "as", "or"]);
+  const relevanceKey = (f, i) => {
+    const words = (f.name || "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).map(stem);
     const matched = tokens.filter((t) => words.includes(t)).length;
     const missing = tokens.length - matched;
     const extra = Math.max(0, words.length - matched);
-    const plain = words.every((w) => tokens.includes(w) || ["raw", "cooked", "fresh", "plain", "boiled", "grilled", "n", "a", "to", "as", "or"].includes(w)) ? 0 : 1;
-    return { f, key: missing * 1000 + plain * 100 + extra * 10 + Math.min(i, 9) / 10 };
-  }).sort((a, b) => a.key - b.key).map((x) => x.f);
-  const branded = foods.filter((f) => f.kind === "branded");
-  // Merge our local hits in front of USDA's live results (dedupe by name), and own the new ones.
-  const seen = new Set(local.map((f) => f.name.toLowerCase()));
-  const fresh = [...generic.slice(0, 15), ...branded.slice(0, 10)].filter((f) => !seen.has(f.name.toLowerCase()));
-  fresh.forEach(cacheFood);
-  const ordered = [...local, ...fresh].slice(0, 25);
+    const plain = f.kind === "generic" && words.every((w) => tokens.includes(w) || PLAIN.has(w)) ? 0 : 1;
+    const genericBias = f.kind === "generic" ? 0 : 1;
+    const incomplete = 3 - macroCompleteness(f); // 0 (all four) … 3 (none)
+    return missing * 100000 + plain * 10000 + genericBias * 5000 + incomplete * 500 + extra * 10 + Math.min(i, 9) / 10;
+  };
+
+  const seenBarcode = new Set();
+  const seenKey = new Set();
+  const take = (list) => {
+    const out = [];
+    for (const f of list) {
+      if (!f) continue;
+      if (f.barcode && seenBarcode.has(f.barcode)) continue;
+      const k = foodKey(f);
+      if (seenKey.has(k)) continue;
+      if (f.barcode) seenBarcode.add(f.barcode);
+      seenKey.add(k);
+      out.push(f);
+    }
+    return out;
+  };
+
+  // Local first (already ranked + curated), then rank the merged live sources by relevance.
+  const localOut = take(local);
+  const live = take([...usda, ...off]).map((f, i) => ({ f, key: relevanceKey(f, i) }))
+    .sort((a, b) => a.key - b.key).map((x) => x.f);
+  return [...localOut, ...live].slice(0, cap);
+}
+
+async function searchFoods(q) {
+  const query = q.trim().slice(0, 100);
+  if (query.length < 2) return [];
+  const cached = foodCache.get(query.toLowerCase());
+  if (cached && Date.now() - cached.at < FOOD_CACHE_TTL) return cached.foods;
+  // Our own DB first — instant, owned, offline-capable. Only hit the live sources if it's thin.
+  const local = localSearch(query, 25);
+  if (local.length >= 8) { foodCache.set(query.toLowerCase(), { at: Date.now(), foods: local }); return local; }
+  // USDA + Open Food Facts in parallel. USDA can hard-fail the request; OFF never does (bonus source).
+  const [usdaR, offR] = await Promise.allSettled([usdaSearch(query), offSearch(query)]);
+  if (usdaR.status === "rejected") {
+    // OFF alone can still answer (e.g. an international beer USDA doesn't carry). If OFF also gave
+    // nothing, surface USDA's error so the client shows a real "database busy/unreachable" message.
+    if (offR.status !== "fulfilled" || offR.value.length === 0) throw usdaR.reason;
+  }
+  const usda = usdaR.status === "fulfilled" ? usdaR.value : [];
+  const off = offR.status === "fulfilled" ? offR.value : [];
+  const ordered = mergeFoods({ local, usda, off, query, cap: 40 });
+  // Own the new ones (USDA branded + every OFF hit we returned) — offline + owned next time (the moat).
+  const localKeys = new Set(local.map(foodKey));
+  ordered.filter((f) => !localKeys.has(foodKey(f)) && (f.kind === "branded" || f.barcode)).forEach(cacheFood);
   foodCache.set(query.toLowerCase(), { at: Date.now(), foods: ordered });
   if (foodCache.size > 500) foodCache.delete(foodCache.keys().next().value);
   return ordered;
@@ -676,5 +757,5 @@ if (IS_MAIN) {
   server.listen(PORT, "0.0.0.0", () => console.log(`analyzer listening on ${PORT} (model ${MODEL}, firestore ${db.enabled ? "on" : "off"}, admin ${ADMIN_KEY ? "on" : "off"})`));
 }
 
-// Exported for unit tests (see tests/micros.test.mjs). No effect on the running server.
-export { MealAnalysis, micronutrients, round1 };
+// Exported for unit tests (see tests/micros.test.mjs, tests/foods.test.mjs). No effect on the running server.
+export { MealAnalysis, micronutrients, round1, offFood, mergeFoods, foodKey, macroCompleteness };
