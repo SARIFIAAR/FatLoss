@@ -113,13 +113,12 @@ final class CloudSync {
             photoSync?.stop()
             return
         }
-        // Whether this device carried guest-entered answers INTO this sign-in — captured before the
-        // isolation wipe below can clear them. Used to decide the guest→existing-account collision.
-        let localHadGuestPlan = (store?.data.intake != nil) || (store?.data.isEmpty == false)
         // Account isolation MUST run before the snapshot listener attaches / any merge happens, so a
-        // different account never sees or re-uploads the previous user's local data.
-        prepareForAccount(user.uid)
-        pendingLocalGuestPlan = localHadGuestPlan && (store?.data.intake != nil || store?.data.isEmpty == false)
+        // different account never sees or re-uploads the previous user's local data. It returns true ONLY
+        // when it ADOPTED guest (nil-marker) local answers into this account — the single case that can
+        // collide with an existing cloud plan. A returning owner (marker == uid) is NOT a collision, so the
+        // "use your saved plan?" prompt no longer fires on every launch (bug: it fired for signed-in users).
+        pendingLocalGuestPlan = prepareForAccount(user.uid)
         // Start photo sync for this account AFTER isolation has run (cache is either kept for the same owner
         // or wiped for a different one), so the listener can only ever surface this uid's own photos.
         photoSync?.start(uid: user.uid)
@@ -144,18 +143,25 @@ final class CloudSync {
     ///                    push an empty blob — no foreign data reaches `users/{newUid}`.
     /// - marker == nil  → fresh install / previously-unauthed local-only use: ADOPT the current local data
     ///                    for this uid (stamp the marker, no wipe) so offline Free users keep their data.
-    private func prepareForAccount(_ uid: String) {
+    /// Returns `true` ONLY when it adopted guest (nil-marker) local data that holds a plan — the single
+    /// case that can collide with an existing cloud plan. Same-owner (marker == uid) and different-owner
+    /// (wiped) both return `false`, so a returning signed-in user never sees the collision prompt.
+    @discardableResult
+    private func prepareForAccount(_ uid: String) -> Bool {
         let marker = Keychain.get(Self.markerKey)
-        if marker == uid { return }                       // same owner — nothing to do
+        if marker == uid { return false }                 // same owner — keep local, NOT a collision
         if marker != nil {                                // different account owns the local store
             pushTask?.cancel()                            // drop any queued push of the previous user's data
             pushTask = nil
             remoteHasProfile = false
             store?.resetLocalData()                       // local is now empty
             mirror.clearCache(for: uid)                   // no stale row hashes for the incoming account
+            Keychain.set(uid, for: Self.markerKey)
+            return false                                  // local wiped — nothing to collide
         }
-        // marker == nil → adopt (fresh/local-only): fall through to stamp, no wipe.
+        // marker == nil → adopt this device's guest/local-only data for the account (no wipe).
         Keychain.set(uid, for: Self.markerKey)
+        return (store?.data.intake != nil) || (store?.data.isEmpty == false)   // adopted a guest plan?
     }
 
     private func docRef(_ uid: String) -> DocumentReference {
