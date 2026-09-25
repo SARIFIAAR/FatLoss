@@ -20,7 +20,7 @@ import * as wear from "./integrations.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
 const PROJECT = process.env.FIREBASE_PROJECT_ID ?? "fat-loss-6516d";
-const MODEL = process.env.MODEL ?? "claude-opus-5";          // e.g. fly secrets set MODEL=claude-sonnet-5
+const MODEL = process.env.MODEL ?? "claude-sonnet-4-6";      // valid IDs: claude-sonnet-4-6 (default, vision+fast), claude-opus-4-8 (max accuracy). NOTE: "claude-opus-5"/"claude-sonnet-5" do NOT exist — using one 404s every /analyze call.
 const ADMIN_KEY = process.env.ADMIN_KEY ?? "";               // fly secrets set ADMIN_KEY=<long random string>
 const MAX_BODY = 10 * 1024 * 1024;
 const USDA_KEY = process.env.USDA_API_KEY ?? "DEMO_KEY";      // free key: https://fdc.nal.usda.gov/api-key-signup (DEMO_KEY = 30 req/h)
