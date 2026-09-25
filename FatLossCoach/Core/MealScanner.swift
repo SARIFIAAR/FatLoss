@@ -100,16 +100,21 @@ final class MealScanner {
     }
 
     enum ScanError: LocalizedError {
-        case notSignedIn, badImage, notFood, server(String)
+        case notSignedIn, badImage, notFood, timedOut, server(String)
         var errorDescription: String? {
             switch self {
             case .notSignedIn: return "Sign in with Apple (Profile tab) to use meal scanning."
             case .badImage: return "Couldn't read that photo."
             case .notFood: return "That doesn't look like food. Try again."
+            case .timedOut: return "The analyzer is taking too long — tap to retry."
             case .server(let m): return m
             }
         }
     }
+
+    /// Meal /analyze timeout. The analyzer takes ~9 s warm and longer cold, so 45 s is generous
+    /// without leaving the user staring at a spinner forever. Request and resource timeouts match.
+    static let mealTimeout: TimeInterval = 45
 
     var isAnalyzing = false
 
@@ -203,15 +208,24 @@ final class MealScanner {
 
         var request = URLRequest(url: Self.endpoint)
         request.httpMethod = "POST"
-        request.timeoutInterval = 90
+        request.timeoutInterval = Self.mealTimeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
+        // Dedicated session so the resource timeout matches the request timeout — a stalled
+        // connection can never hang the flow past `mealTimeout` seconds.
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = Self.mealTimeout
+        config.timeoutIntervalForResource = Self.mealTimeout
+        let session = URLSession(configuration: config)
+
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await session.data(for: request)
+        } catch let err as URLError where err.code == .timedOut {
+            throw ScanError.timedOut
         } catch {
             throw ScanError.server("No connection — check your internet and try again.")
         }

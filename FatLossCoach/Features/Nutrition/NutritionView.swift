@@ -21,6 +21,21 @@ final class ScanFlow {
     var showQuickAdd = false               // quick-add calories sheet
     var hubTab: LogHubTab = .methods       // which hub tab opened last
 
+    // Resilience: a single flow-owned analyzing flag drives the full-screen "Analyzing…" overlay
+    // over the Nutrition screen (the composer dismisses immediately, so the indicator must live
+    // here, not inside a card that may not even be on screen). It is set true before the /analyze
+    // await and always cleared on completion or failure (defer), so the "+" / composer can never
+    // be left in a stuck state.
+    var isAnalyzing = false
+    // The last input, kept so the error surface can offer a Retry that re-sends the SAME meal.
+    var lastInput: PendingInput?
+
+    /// What was submitted, so a failed analysis can be retried verbatim.
+    enum PendingInput {
+        case image(UIImage, slot: String?, fromAIChat: Bool)
+        case text(String, slot: String?, fromAIChat: Bool)
+    }
+
     struct PendingMeal: Identifiable {
         let id = UUID()
         let image: UIImage?                // nil when estimated from a written description
@@ -112,6 +127,23 @@ struct NutritionView: View {
         .sheet(isPresented: $flow.showCompare) { BarcodeCompareView() }
         .sheet(isPresented: $flow.showHub) { LogHubSheet(flow: flow, day: selectedDay) }
         .sheet(isPresented: $flow.showQuickAdd) { QuickAddSheet(flow: flow, day: selectedDay) }
+        // Resilience overlays: the composer dismisses immediately, so progress and errors are shown
+        // over the whole Nutrition screen — the user always sees state, never a blank/frozen screen.
+        .overlay {
+            if flow.isAnalyzing { AnalyzingOverlay() }
+        }
+        .overlay(alignment: .bottom) {
+            if let error = flow.error, !flow.isAnalyzing {
+                ScanErrorBanner(message: error,
+                                canRetry: flow.lastInput != nil,
+                                onRetry: { Task { await retry() } },
+                                onDismiss: { flow.error = nil; flow.fromAIChat = false; flow.lastInput = nil })
+                    .padding(.horizontal, 16).padding(.bottom, 24)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: flow.isAnalyzing)
+        .animation(.easeInOut(duration: 0.2), value: flow.error)
         .onAppear {
             // Debug / screenshots: `-nutritionHub methods|recents|favorites|yesterday` opens the "+"
             // hub; `-nutritionQuickAdd 1` opens quick-add; both scoped by `-nutritionSlot <key>`.
@@ -139,6 +171,15 @@ struct NutritionView: View {
                     flow.pending = ScanFlow.PendingMeal(image: nil,
                                                         analysis: MealScanner.Analysis.fromBarcode(demo),
                                                         slot: "breakfast")
+                }
+            } else if UserDefaults.standard.string(forKey: "nutritionAnalyzing") != nil {
+                // Screenshot / QA aid: show the "Analyzing your meal…" resilience overlay.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { flow.isAnalyzing = true }
+            } else if UserDefaults.standard.string(forKey: "nutritionScanError") != nil {
+                // Screenshot / QA aid: show the error + Retry surface (as after a timeout).
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    flow.lastInput = .text("2 eggs, toast and a flat white", slot: nil, fromAIChat: true)
+                    flow.error = MealScanner.ScanError.timedOut.localizedDescription
                 }
             }
         }
@@ -212,25 +253,122 @@ struct NutritionView: View {
     }
 
     private func analyze(text: String) async {
+        // Double-submit guard: rapid taps (or a retry while one is running) can't stack requests.
+        guard !flow.isAnalyzing else { return }
+        let slot = flow.slot
+        let fromAIChat = flow.fromAIChat
+        flow.lastInput = .text(text, slot: slot, fromAIChat: fromAIChat)
         flow.error = nil
+        flow.isAnalyzing = true
+        defer { flow.isAnalyzing = false }   // always clears — success, failure or timeout.
         do {
-            let hint = Plan.meal(flow.slot).map { "This is my \($0.name.dropFirst(2))." }
+            let hint = Plan.meal(slot).map { "This is my \($0.name.dropFirst(2))." }
             let a = try await scanner.analyze(text: text, hint: hint, context: context())
-            flow.pending = ScanFlow.PendingMeal(image: nil, analysis: a, slot: flow.slot)
+            flow.fromAIChat = fromAIChat
+            flow.pending = ScanFlow.PendingMeal(image: nil, analysis: a, slot: slot)
         } catch {
             flow.error = error.localizedDescription
         }
     }
 
     private func analyze(_ image: UIImage) async {
+        guard !flow.isAnalyzing else { return }
+        let slot = flow.slot
+        let fromAIChat = flow.fromAIChat
+        flow.lastInput = .image(image, slot: slot, fromAIChat: fromAIChat)
         flow.error = nil
+        flow.isAnalyzing = true
+        defer { flow.isAnalyzing = false }
         do {
-            let hint = Plan.meal(flow.slot).map { "This is my \($0.name.dropFirst(2))." }
+            let hint = Plan.meal(slot).map { "This is my \($0.name.dropFirst(2))." }
             let a = try await scanner.analyze(image, hint: hint, context: context())
-            flow.pending = ScanFlow.PendingMeal(image: image, analysis: a, slot: flow.slot)
+            flow.fromAIChat = fromAIChat
+            flow.pending = ScanFlow.PendingMeal(image: image, analysis: a, slot: slot)
         } catch {
             flow.error = error.localizedDescription
         }
+    }
+
+    /// Re-send the last submitted meal verbatim. Called from the error surface's Retry.
+    private func retry() async {
+        guard !flow.isAnalyzing, let input = flow.lastInput else { return }
+        switch input {
+        case let .image(img, slot, fromAIChat):
+            flow.slot = slot; flow.fromAIChat = fromAIChat
+            await analyze(img)
+        case let .text(t, slot, fromAIChat):
+            flow.slot = slot; flow.fromAIChat = fromAIChat
+            await analyze(text: t)
+        }
+    }
+}
+
+/// Full-screen "Analyzing your meal…" overlay shown while an AI /analyze request is in flight.
+/// The composer dismisses immediately after handing off the photo/text, so this is what the user
+/// sees during the ~9 s (warm) analysis — clear progress, never a blank or frozen screen.
+struct AnalyzingOverlay: View {
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.6).ignoresSafeArea()
+            VStack(spacing: 16) {
+                ProgressView()
+                    .controlSize(.large)
+                    .tint(Theme.primary)
+                VStack(spacing: 4) {
+                    Text("Analyzing your meal…")
+                        .font(.system(size: 17, weight: .heavy)).foregroundStyle(Theme.text)
+                    Text("Estimating calories and macros. This usually takes a few seconds.")
+                        .font(.system(size: 13)).foregroundStyle(Theme.muted)
+                        .multilineTextAlignment(.center)
+                }
+            }
+            .padding(28)
+            .frame(maxWidth: 320)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Theme.border, lineWidth: 1))
+            .padding(32)
+        }
+        .transition(.opacity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Analyzing your meal")
+    }
+}
+
+/// Dismissible error surface for a failed/timed-out analysis, with a Retry that re-sends the same
+/// meal. Sits at the bottom of the Nutrition screen so it's visible no matter which entry point ran.
+struct ScanErrorBanner: View {
+    let message: String
+    let canRetry: Bool
+    let onRetry: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 16)).foregroundStyle(Theme.orange)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(message)
+                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                if canRetry {
+                    Button(action: onRetry) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.clockwise")
+                            Text("Retry").font(.system(size: 13, weight: .bold))
+                        }
+                    }
+                    .buttonStyle(PillButtonStyle())
+                }
+            }
+            Spacer(minLength: 4)
+            Button(action: onDismiss) {
+                Image(systemName: "xmark").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.muted)
+            }.buttonStyle(.plain)
+        }
+        .padding(14)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.red.opacity(0.5), lineWidth: 1))
+        .shadow(color: .black.opacity(0.4), radius: 12, y: 4)
     }
 }
 
@@ -308,16 +446,15 @@ struct LogEntryCard: View {
             }
             .buttonStyle(SecondaryButtonStyle())
             .disabled(!cloud.isSignedIn)
-            if scanner.isAnalyzing {
+            if flow.isAnalyzing {
                 HStack(spacing: 8) {
                     ProgressView().tint(Theme.primary)
                     Text("Working out the nutrition…").font(.system(size: 12)).foregroundStyle(Theme.muted)
                 }
                 .padding(.top, 10)
             }
-            if let error = flow.error {
-                Text(error).font(.system(size: 12)).foregroundStyle(Theme.red).padding(.top, 8)
-            }
+            // Errors and Retry are surfaced by the screen-level ScanErrorBanner (single error surface),
+            // so nothing is shown twice here.
         }
     }
 }
@@ -381,7 +518,7 @@ struct MealPlanCard: View {
                                 .background(logged ? Theme.primaryLight : Theme.primary)
                                 .clipShape(Circle())
                         }
-                        .disabled(scanner.isAnalyzing || !cloud.isSignedIn)
+                        .disabled(flow.isAnalyzing || !cloud.isSignedIn)
                     }
                     .padding(.vertical, 10)
                     if i < Plan.meals.count - 1 { Divider().overlay(Theme.border) }
