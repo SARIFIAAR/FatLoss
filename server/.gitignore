@@ -1,7 +1,9 @@
 node_modules/
 *.log
-# Food DB build inputs (large raw dumps — not committed; foods.db + core-foods.json are)
+# Food DB build inputs (large raw dumps — not committed). foods.db is too large to track;
+# core-foods.json (small offline core the app ships) IS tracked via the exception below.
 data/*.json
+!data/core-foods.json
 data/*.zip
 data/*.db-wal
 data/*.db-shm
