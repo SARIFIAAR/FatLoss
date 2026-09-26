@@ -24,6 +24,7 @@ const MODEL = process.env.MODEL ?? "claude-sonnet-4-6";      // valid IDs: claud
 const ADMIN_KEY = process.env.ADMIN_KEY ?? "";               // fly secrets set ADMIN_KEY=<long random string>
 const MAX_BODY = 10 * 1024 * 1024;
 const USDA_KEY = process.env.USDA_API_KEY ?? "DEMO_KEY";      // free key: https://fdc.nal.usda.gov/api-key-signup (DEMO_KEY = 30 req/h)
+const FOODS_VERSION = process.env.FOODS_VERSION ?? "2026-09-26-off+usda"; // stamp for the deployed foods.db; bump when the DB is rebuilt/reimported
 
 // When imported by a test (not run directly) we skip the hard bootstrap requirements and the server.
 const IS_MAIN = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
@@ -271,11 +272,13 @@ const NUTRIENT = { kcal: [1008, 2048, 2047], protein: [1003], carbs: [1005], fat
                    fibre: [1079, 2033], sugar: [2000, 1063], sodium: [1093], satFat: [1258] };
 // Our own nutrition DB (USDA SR Legacy imported by build-fooddb.mjs + branded lookups cached at runtime).
 let foodDB = null;
+let foodCount = 0;                                           // rows in foods.db at boot; surfaced on /health for DB-version visibility
 try {
   const Database = (await import("better-sqlite3")).default;
   const path = existsSync("data/foods.db") ? "data/foods.db" : "/data/foods.db";
   if (existsSync(path)) { foodDB = new Database(path); foodDB.pragma("journal_mode = WAL");
-    console.log("food DB:", foodDB.prepare("SELECT COUNT(*) c FROM foods").get().c, "foods"); }
+    foodCount = foodDB.prepare("SELECT COUNT(*) c FROM foods").get().c;
+    console.log("food DB:", foodCount, "foods"); }
 } catch (e) { console.warn("food DB unavailable:", e.message); }
 
 function rowToFood(r) {
@@ -683,7 +686,7 @@ async function handleConnect(req, res, url) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://x");
   try {
-    if (req.method === "GET" && url.pathname === "/health") return send(res, 200, { ok: true, model: MODEL, firestore: db.enabled, admin: Boolean(ADMIN_KEY), foods: USDA_KEY !== "DEMO_KEY" ? "usda" : "usda-demo" });
+    if (req.method === "GET" && url.pathname === "/health") return send(res, 200, { ok: true, model: MODEL, firestore: db.enabled, admin: Boolean(ADMIN_KEY), foods: USDA_KEY !== "DEMO_KEY" ? "usda" : "usda-demo", foods_count: foodCount, foods_version: FOODS_VERSION });
 
     if (req.method === "GET" && url.pathname === "/barcode") {
       await verifyUser(req);
