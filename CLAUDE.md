@@ -2,6 +2,7 @@
 
 > **Nucleus + isolation (brain-isolation Phase 2, 2026-09-22):** This is the **canonical HUMANS/FatLoss repo** (has the HumansWidget target + app group; `~/FatLoss` is a stale clone — don't build there). A session here loads **Nucleus** (MetaTec's central brain: global `~/.claude/CLAUDE.md` + `~/MyCompany/agents/company-context.md` + the lean Nucleus `MEMORY.md`) **+ this HUMANS/FatLoss brain only**.
 > **Signing identity:** Team `9F2G8CQ45J` (Infinion Apps FZ-LLC), bundle `com.MyFatLossCoach.app` (+ widget `com.MyFatLossCoach.app.HumansWidget`) — full details in the identifiers table below (source of truth; not restated here).
+> **RevenueCat:** none. FatLoss/HUMANS is **not** in the MetaTec/Infinion RevenueCat account (the 13-project account Claude connects to, checked 2026-09-24). If IAP is added later, create/link its RC project and record the project id here.
 
 Native iOS port of a single-file web app (`my_fitness_coach_4.html`, localStorage) for one user's
 fat-loss programme. SwiftUI, iOS 17+, iPhone only. This file is the knowledge base: read it before
@@ -141,7 +142,7 @@ Check processing with `node scripts/asc_builds.mjs` (ASC API, `/v1/builds?filter
 **Analyzer + admin dashboard (Fly.io)** — from `server/`: `flyctl deploy --ha=false` (Fly account
 firas.raai@gmail.com, personal org, app `fatloss-analyzer`, one shared-cpu machine in `fra` that
 auto-stops). Secrets:
-- `ANTHROPIC_API_KEY` (required). `MODEL` (optional, default `claude-opus-5`; `claude-sonnet-5` is cheaper).
+- `ANTHROPIC_API_KEY` (required). `MODEL` (optional, default `claude-sonnet-4-6` — vision+fast; `claude-opus-4-8` for max accuracy). NOTE: `claude-opus-5`/`claude-sonnet-5` do NOT exist — setting one 404s every `/analyze` call.
 - `ADMIN_KEY` — long random string; unlocks `https://fatloss-analyzer.fly.dev/admin` (header `x-admin-key`).
 - `FIREBASE_SERVICE_ACCOUNT` — the JSON of a service-account key (Firebase console → Project settings →
   Service accounts → Generate new private key; works on Spark). Set with
