@@ -6,3 +6,6 @@ data/*.zip
 data/*.db-wal
 data/*.db-shm
 data/foods.db
+data/foods.db.bulk
+data/foods.db.*-bak
+data/*.bak
