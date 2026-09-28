@@ -8,6 +8,7 @@ struct WorkoutView: View {
         let today = Plan.todayAbbrev
         let phase = store.currentPhase
         Screen(subtitle: "Phase \(phase.number) — \(phase.name)", title: "Workout") {
+            WeeklyFocusCard()
             PhaseCard()
 
             VStack(spacing: 10) {
@@ -31,6 +32,47 @@ struct WorkoutView: View {
             // Debug: launch with `-openDay Mon` to open a session directly.
             if selected == nil, let d = UserDefaults.standard.string(forKey: "openDay") {
                 selected = store.currentPhase.workouts.first { $0.day == d }
+            }
+        }
+    }
+}
+
+/// "This week's focus" — accepted cardio/strength/intensity Physical-Age actions as checkable rows.
+/// Additive to the 3-phase programme, never a replacement. Hidden when nothing is accepted.
+struct WeeklyFocusCard: View {
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        let items = store.trainingFocusItems
+        if !items.isEmpty {
+            Card {
+                SectionTitle("This week's focus")
+                VStack(spacing: 0) {
+                    ForEach(items) { item in
+                        Button {
+                            store.togglePlanItemDone(item.id)
+                        } label: {
+                            HStack(alignment: .top, spacing: 10) {
+                                Image(systemName: item.done ? "checkmark.circle.fill" : "circle")
+                                    .font(.system(size: 18))
+                                    .foregroundStyle(item.done ? Theme.primary : Theme.muted)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.text).font(.system(size: 14, weight: .medium))
+                                        .foregroundStyle(item.done ? Theme.muted : Theme.text)
+                                        .strikethrough(item.done, color: Theme.muted)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Text(item.targetDescription).font(.system(size: 11)).foregroundStyle(Theme.muted)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .contentShape(Rectangle())
+                            .padding(.vertical, 9)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                Text("These lower your Physical Age.")
+                    .font(.system(size: 11)).foregroundStyle(Theme.muted).padding(.top, 2)
             }
         }
     }

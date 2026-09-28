@@ -367,6 +367,10 @@ struct ReminderSettings: Codable, Hashable {
     // Workout reminder: fires on the current programme phase's training weekdays only.
     var workoutOn = false
     var workoutMinute = 18 * 60        // minutes-of-day (default 6 PM; onboarding preferredTime overrides)
+    // Bedtime "wind down" nudge — a nightly reminder to protect sleep duration/consistency. Enabled when
+    // the user accepts a sleep/consistency Physical-Age prescription. Fires daily at bedtimeMinute.
+    var bedtimeOn = false
+    var bedtimeMinute = 22 * 60        // minutes-of-day (default 10 PM)
 
     init() {}
     init(from decoder: Decoder) throws {
@@ -385,6 +389,38 @@ struct ReminderSettings: Codable, Hashable {
         supplementReminders  = c.value(.supplementReminders,  default: [:])
         workoutOn            = c.value(.workoutOn,            default: false)
         workoutMinute        = c.value(.workoutMinute,        default: 18 * 60)
+        bedtimeOn            = c.value(.bedtimeOn,            default: false)
+        bedtimeMinute        = c.value(.bedtimeMinute,        default: 22 * 60)
+    }
+}
+
+/// An accepted Physical-Age action ("Add to my plan"). Non-destructive: it records the coaching
+/// commitment; the category-specific side effects (step goal, bedtime reminder, protein target) are
+/// applied once on acceptance in `Store.acceptPrescription`. Lenient decode so old JSON still opens.
+struct PlanItem: Codable, Hashable, Identifiable {
+    var id: String                     // stable per lever (the lever name) so acceptance dedupes
+    var lever: String                  // metric name, e.g. "VO2 max", "Steps"
+    var category: String               // PrescriptionCategory.rawValue (cardio/strength/sleep/steps/nutrition)
+    var text: String                   // the action text shown to the user
+    var targetDescription: String      // the concrete target, e.g. "Z1–3 ≥ 100 min/wk"
+    var acceptedAt: Date
+    var done: Bool = false
+
+    init(id: String, lever: String, category: String, text: String,
+         targetDescription: String, acceptedAt: Date = Date(), done: Bool = false) {
+        self.id = id; self.lever = lever; self.category = category; self.text = text
+        self.targetDescription = targetDescription; self.acceptedAt = acceptedAt; self.done = done
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id                = c.value(.id,                default: UUID().uuidString)
+        lever             = c.value(.lever,             default: "")
+        category          = c.value(.category,          default: "")
+        text              = c.value(.text,              default: "")
+        targetDescription = c.value(.targetDescription, default: "")
+        acceptedAt        = c.value(.acceptedAt,        default: Date(timeIntervalSince1970: 0))
+        done              = c.value(.done,              default: false)
     }
 }
 
@@ -423,6 +459,9 @@ struct AppData: Codable, Hashable {
     var goals = Goals()
     var program = ProgramState()
     var reminders = ReminderSettings()
+    // Accepted Physical-Age coaching actions ("Add to my plan"). Deduped by lever. Surfaced in Body
+    // (accepted state) and Train (this-week's-focus). Settings-stamped so it syncs like goals/reminders.
+    var physicalAgePlan: [PlanItem] = []
     var intake: IntakeProfile? = nil                        // onboarding questionnaire (nil = not done)
     var updatedAt: Date = Date()
     /// When goals / programme / reminders last changed. Merges take those three from the copy with the
@@ -466,6 +505,7 @@ struct AppData: Codable, Hashable {
         goals        = c.value(.goals,        default: Goals())
         program      = c.value(.program,      default: ProgramState())
         reminders    = c.value(.reminders,    default: ReminderSettings())
+        physicalAgePlan = c.value(.physicalAgePlan, default: [])
         intake       = c.value(.intake,       default: nil)
         // An unreadable stamp must never make a copy look newest — default to the epoch, not now.
         updatedAt    = c.value(.updatedAt,    default: Date(timeIntervalSince1970: 0))
@@ -566,6 +606,26 @@ struct AppData: Codable, Hashable {
         for p in older.progressPhotos { photosByID[p.id] = p }
         for p in out.progressPhotos { photosByID[p.id] = p }
         out.progressPhotos = photosByID.values.sorted { $0.at < $1.at }
+        // Physical-Age plan: union by id (lever), order-preserving — newer snapshot's items first, then
+        // any the older copy has that the newer one dropped. `done`/newest acceptedAt wins per lever so a
+        // completed action from one device isn't un-completed by a stale copy. Same anti-fight rule as habitDefs.
+        var planByLever: [String: PlanItem] = [:]
+        for p in older.physicalAgePlan { planByLever[p.id] = p }
+        for p in out.physicalAgePlan {
+            if let existing = planByLever[p.id] {
+                planByLever[p.id] = PlanItem(id: p.id, lever: p.lever, category: p.category, text: p.text,
+                                             targetDescription: p.targetDescription,
+                                             acceptedAt: max(existing.acceptedAt, p.acceptedAt),
+                                             done: existing.done || p.done)
+            } else {
+                planByLever[p.id] = p
+            }
+        }
+        // Preserve the newer snapshot's ordering, then append older-only items.
+        var mergedPlan: [PlanItem] = out.physicalAgePlan.compactMap { planByLever[$0.id] }
+        let mergedPlanIDs = Set(mergedPlan.map(\.id))
+        for p in older.physicalAgePlan where !mergedPlanIDs.contains(p.id) { mergedPlan.append(planByLever[p.id] ?? p) }
+        out.physicalAgePlan = mergedPlan
         // Settings (goals, programme, reminders) follow their own stamp, not the data stamp.
         let settingsSource = other.settingsUpdatedAt > settingsUpdatedAt ? other : self
         out.goals = settingsSource.goals

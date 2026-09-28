@@ -65,7 +65,8 @@ struct BodyView: View {
                     strainCard.id("strain")
                     // Vitals & composition.
                     vitalsCard.id("week")
-                    bodyCompositionCard
+                    bodyCompositionCard.id("fitnessage")
+                    improvePhysicalAgeCard.id("improve")
                     BodyCompTrackerCard()
                     // Deep analysis — always visible.
                     impactsCard
@@ -84,6 +85,12 @@ struct BodyView: View {
                 }
                 if let p = UserDefaults.standard.string(forKey: "bodyPillar") {
                     pillar = Pillar(rawValue: p)
+                }
+                // Debug: `-acceptTopRx N` accepts the top N Physical-Age prescriptions on launch
+                // (screenshot verification — this Mac's simulator has no tap gesture).
+                let n = UserDefaults.standard.integer(forKey: "acceptTopRx")
+                if n > 0 {
+                    for p in store.physicalAgePrescriptions().prefix(n) { store.acceptPrescription(p) }
                 }
             }
         }
@@ -843,7 +850,7 @@ struct BodyView: View {
             Rectangle().fill(W.divider).frame(height: 1).padding(.vertical, 12)
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("FITNESS AGE").font(W.label(9)).kerning(0.8).foregroundStyle(W.muted)
+                    Text("PHYSICAL AGE").font(W.label(9)).kerning(0.8).foregroundStyle(W.muted)
                     Text("\(Int(fa.age.rounded()))")
                         .font(W.score(34)).foregroundStyle(younger ? W.green : W.yellow)
                 }
@@ -854,14 +861,111 @@ struct BodyView: View {
                     Text("actual age \(fa.chronological)").font(.system(size: 11)).foregroundStyle(W.muted)
                 }
             }
-            if let top = fa.contributors.first {
-                Text(top.offsetYears <= 0
-                     ? "\(top.name) is keeping you youngest"
-                     : "\(top.name) is aging you most — your biggest lever")
-                    .font(.system(size: 11)).foregroundStyle(W.muted).padding(.top, 6)
+            // Full per-metric breakdown: each metric's independent age-impact in years,
+            // biggest-aging first. Aging = yellow/red, youthful = green.
+            VStack(spacing: 0) {
+                ForEach(Array(fa.contributors.enumerated()), id: \.offset) { _, c in
+                    fitnessAgeContributorRow(name: c.name, years: c.offsetYears)
+                }
             }
+            .padding(.top, 8)
+            Text("Compared to a health-optimized target — meeting the guidelines, not the average — so many people skew older. Each metric's years add up to your Physical Age.")
+                .font(.system(size: 10)).foregroundStyle(W.muted).padding(.top, 8)
             Text("Estimate from your fitness metrics — not a clinical biological age.")
                 .font(.system(size: 10)).foregroundStyle(W.muted.opacity(0.7)).padding(.top, 4)
+        }
+    }
+
+    private func fitnessAgeContributorRow(name: String, years: Double) -> some View {
+        // Positive = aging (warm), negative = youthful (green). Near-zero contributions are muted.
+        let ages = years > 0.05
+        let youthful = years < -0.05
+        let color: Color = ages ? (years >= 3 ? W.red : W.yellow) : youthful ? W.green : W.muted
+        let sign = years >= 0 ? "+" : "\u{2212}"   // + / − (true minus)
+        return HStack {
+            Text(name).font(.system(size: 13)).foregroundStyle(W.text)
+            Spacer()
+            Text("\(sign)\(String(format: "%.1f", abs(years))) yrs")
+                .font(W.score(15)).foregroundStyle(color)
+                .frame(minWidth: 64, alignment: .trailing)
+        }
+        .padding(.vertical, 7)
+    }
+
+    // MARK: Improve your Physical Age (the prescription layer)
+
+    @ViewBuilder private var improvePhysicalAgeCard: some View {
+        // Only meaningful once a Physical Age exists.
+        if let fa = store.fitnessAge() {
+            let rx = store.physicalAgePrescriptions()
+            DarkCard {
+                CardTitle("Improve your Physical Age",
+                          rx.isEmpty ? "you're ahead" : "top levers", chevron: false) {}
+                if rx.isEmpty {
+                    // Positive state — no aging levers.
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "checkmark.seal.fill").font(.system(size: 16)).foregroundStyle(W.green)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(fa.delta <= 0 ? "You're ahead — here's how to stay there" : "Nice work")
+                                .font(.system(size: 14, weight: .semibold)).foregroundStyle(W.text)
+                            Text("Keep your Zone-2 minutes, strength sessions, steps and a steady 7.5 h sleep — that's what's keeping your Physical Age low.")
+                                .font(.system(size: 12)).foregroundStyle(W.muted).lineSpacing(3)
+                        }
+                    }
+                    .padding(.top, 2)
+                } else {
+                    VStack(spacing: 10) {
+                        ForEach(rx) { p in prescriptionRow(p) }
+                    }
+                    .padding(.top, 4)
+                    Text("Projections move ONE lever to a realistic 8-week target and recompute — the achievable win, not a fantasy.")
+                        .font(.system(size: 10)).foregroundStyle(W.muted.opacity(0.7)).padding(.top, 10)
+                }
+            }
+        }
+    }
+
+    private func prescriptionRow(_ p: BodyMetrics.Prescription) -> some View {
+        let accepted = store.isInPhysicalAgePlan(p.lever)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: categoryIcon(p.category)).font(.system(size: 14)).foregroundStyle(W.vibrant)
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(p.actionText).font(.system(size: 13, weight: .medium)).foregroundStyle(W.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 8) {
+                        Text("−\(String(format: "%.1f", p.projectedDeltaYears)) yrs if you hit this")
+                            .font(.system(size: 11, weight: .semibold)).foregroundStyle(W.green)
+                        Text("· \(p.lever) now +\(String(format: "%.1f", p.currentImpactYears)) yrs")
+                            .font(.system(size: 11)).foregroundStyle(W.muted)
+                    }
+                }
+            }
+            Button {
+                store.acceptPrescription(p)
+            } label: {
+                Text(accepted ? "Added ✓" : "Add to my plan")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 9)
+                    .background(accepted ? W.card2 : W.vibrant)
+                    .foregroundStyle(accepted ? W.green : Color(hex: 0x0B1412))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(accepted)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func categoryIcon(_ c: BodyMetrics.PrescriptionCategory) -> String {
+        switch c {
+        case .cardio: "figure.run"
+        case .strength: "dumbbell.fill"
+        case .sleep: "moon.zzz.fill"
+        case .steps: "figure.walk"
+        case .nutrition: "fork.knife"
         }
     }
 

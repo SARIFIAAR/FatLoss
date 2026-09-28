@@ -312,6 +312,7 @@ enum BodyMetrics {
 
     // MARK: Fitness Age (transparent "biological age" estimate)
 
+    // user-facing name: Physical Age (the internal type stays `FitnessAge` to avoid churn)
     struct FitnessAge {
         var age: Double                 // estimated fitness age
         var chronological: Int
@@ -319,39 +320,235 @@ enum BodyMetrics {
         var contributors: [(name: String, offsetYears: Double)]   // + ages you, − keeps you young
     }
 
-    /// Compares each metric to an age/sex reference, expresses the gap in YEARS, then blends the
-    /// available ones. A motivational fitness-age estimate (same class as WHOOP Age / Hume), NOT a
-    /// clinical biological age — real biological age needs epigenetic lab testing.
+    /// WHOOP-Age model (WHOOP 2025 Healthspan white paper). "Effective age" = chronological +
+    /// the SUM of each metric's INDEPENDENT age-impact (NOT a weighted average). Each metric's
+    /// impact in years = 10·ln(HR), where HR is the all-cause-mortality hazard ratio of the
+    /// member's value vs a HEALTH-OPTIMIZED referent (one that meets public-health guidelines).
+    /// Because the referent is health-optimized — not population-average — a merely average person
+    /// correctly comes out OLDER than their chronological age. Each metric is clamped to its own
+    /// cap, then summed. A motivational fitness-age estimate (same class as WHOOP Age / Hume), NOT
+    /// a clinical biological age — real biological age needs epigenetic lab testing.
+    ///
+    /// The full 9 WHOOP-Age metrics (a metric is included ONLY if its data is present, like WHOOP
+    /// skipping lean mass when absent): VO2 max, resting HR, sleep duration, daily steps,
+    /// lean-body-mass %, sleep consistency, cardio (HR-zone 1–3 min/wk), intensity (HR-zone 4–5
+    /// min/wk), and strength-training time. HRV is deliberately NOT used (WHOOP Age doesn't use it).
+    /// The four workout/timing metrics are aggregated over the last 7 days (sleep consistency over
+    /// the last ~5 days) — see `Store.fitnessAge()`, which computes them from the collections.
+    ///
+    /// Coefficients (10·ln(HR) / piecewise forms) cite the white-paper figures inline.
+    ///
+    /// Sanity check A (5 core metrics) — 40 yo male, VO2 34, RHR 70, sleep 6.5 h, steps 6000, fat 25 %:
+    ///   VO2 max  −0.398·(34−40)          = +2.39  (below the 40 target → ages)
+    ///   Resting HR 0.0862·(70−60)         = +0.86
+    ///   Sleep     6.5 h < 7 → 1.0·(7−6.5) = +0.50
+    ///   Steps     −0.30·(6000−8000)/1000  = +0.60
+    ///   Lean mass 0.1044·(25−20)          = +0.52
+    ///   Σ = +4.87 → fitness age ≈ 45 (an average member skews older vs a health-optimized target).
+    ///
+    /// Sanity check B (all 9) — 42 yo male, VO2 38, RHR 58, sleep 7.5 h, steps 9500, fat 18 %,
+    /// sleep-consistency 80 %, cardio Z1–3 150 min/wk, intensity Z4–5 25 min/wk, strength 90 min/wk:
+    ///   VO2 max +0.32 · Resting HR −0.17 · Sleep −0.50 · Steps −0.45 · Lean mass −0.21
+    ///   Sleep consistency −0.60 · Cardio −0.25 · Intensity −0.50 · Strength −0.94
+    ///   Σ = −3.30 → fitness age ≈ 39 (a fit member above the targets skews younger).
     static func fitnessAge(chronological: Int, isMale: Bool,
-                           vo2Max: Double?, hrv: Double?, restingHR: Double?,
-                           avgSteps: Double?, avgSleepH: Double?) -> FitnessAge? {
+                           vo2Max: Double?, restingHR: Double?,
+                           avgSteps: Double?, avgSleepH: Double?, bodyFatPct: Double?,
+                           sleepConsistencyPct: Double? = nil,
+                           cardioZ13Min: Double? = nil, intensityZ45Min: Double? = nil,
+                           strengthMin: Double? = nil) -> FitnessAge? {
         let age = Double(chronological)
-        var offsets: [(String, Double, Double)] = []   // name, offsetYears, weight
+        var offsets: [(name: String, years: Double)] = []
 
-        if let v = vo2Max, v > 0 {                      // VO2 max — strongest longevity signal
-            let ref = (isMale ? 48.0 : 40.0) - 0.40 * (age - 30)
-            offsets.append(("VO2 max", max(-15, min(15, (ref - v) / 0.40)), 0.40))
+        // 1. VO2 max (cap ±8 yr). Age/sex target from WHOOP Fig 4 (linear-interpolated).
+        //    HR = 0.87 per +1 MET (3.5 mL/kg/min) → 13% lower mortality per MET.
+        //    impact = 10·ln(0.87)·(vo2 − target)/3.5 ≈ −0.398·(vo2 − target). Above target → younger.
+        if let v = vo2Max, v > 0 {
+            let target = vo2Target(age: age, isMale: isMale)
+            let impact = -0.398 * (v - target)
+            offsets.append(("VO2 max", clamp(impact, -8, 8)))
         }
-        if let h = hrv, h > 0 {                         // HRV — higher is younger
-            let ref = 55.0 - 0.5 * (age - 30)
-            offsets.append(("HRV", max(-12, min(12, (ref - h) * 0.25)), 0.25))
+
+        // 2. Resting HR (cap ±5 yr). Referent 60 bpm (M) / 64 bpm (F).
+        //    HR = 1.09 per +10 bpm → impact = 10·ln(1.09)·(rhr − ref)/10 ≈ 0.0862·(rhr − ref).
+        if let r = restingHR, r > 0 {
+            let ref = isMale ? 60.0 : 64.0
+            let impact = 0.0862 * (r - ref)
+            offsets.append(("Resting HR", clamp(impact, -5, 5)))
         }
-        if let r = restingHR, r > 0 {                   // Resting HR — higher is older
-            offsets.append(("Resting HR", max(-8, min(8, (r - 62) * 0.30)), 0.15))
+
+        // 3. Sleep duration (cap +3 / −0.5 yr). White-paper piecewise:
+        //    < 7 h → +1.0·(7 − h) short-sleep penalty (HR ≈ 1.12); 7–9 h → −0.5 slight benefit;
+        //    > 9 h → 0 neutral (WHOOP gives neither credit nor penalty for long sleep).
+        if let h = avgSleepH, h > 0 {
+            let impact: Double
+            if h < 7 { impact = 1.0 * (7 - h) }
+            else if h <= 9 { impact = -0.5 }
+            else { impact = 0 }
+            offsets.append(("Sleep", clamp(impact, -0.5, 3)))
         }
-        if let s = avgSteps, s > 0 {                    // Activity
-            offsets.append(("Activity", max(-5, min(5, (8000 - s) / 1500)), 0.10))
+
+        // 4. Daily steps (cap +3 / −1.5 yr). Referent 8,000/day.
+        //    impact = −0.30·(steps − 8000)/1000, clamped asymmetrically (benefit plateaus).
+        if let s = avgSteps, s > 0 {
+            let impact = -0.30 * (s - 8000) / 1000
+            offsets.append(("Steps", clamp(impact, -1.5, 3)))
         }
-        if let sl = avgSleepH, sl > 0 {                 // Sleep
-            offsets.append(("Sleep", max(-4, min(4, (7.5 - sl) * 1.5)), 0.10))
+
+        // 5. Lean body mass % (cap ±4 yr) — only when body-fat % is available.
+        //    Referent fat% = 20 (M) / 33 (F). HR = 1.11 per +10% body fat.
+        //    impact = 10·ln(1.11)·(fat% − ref)/10 ≈ 0.1044·(fat% − ref). More fat → older.
+        if let bf = bodyFatPct, bf > 0 {
+            let fatRef = isMale ? 20.0 : 33.0
+            let impact = 0.1044 * (bf - fatRef)
+            offsets.append(("Lean mass", clamp(impact, -4, 4)))
         }
+
+        // 6. Sleep consistency (cap +3 / −1.5 yr). Referent 70% (WHOOP). The 0–100% regularity
+        //    score is computed in Store.fitnessAge() from bed/wake-time MAD. impact = −0.06·(score − 70).
+        if let sc = sleepConsistencyPct {
+            let impact = -0.06 * (sc - 70)
+            offsets.append(("Sleep consistency", clamp(impact, -1.5, 3)))
+        }
+
+        // 7. Cardio — HR-zone 1–3 (cap +2 / −2.5 yr). Weekly zone-1..3 minutes. Referent 100 min/wk.
+        //    < 100 → +2·(100 − min)/100; else −2.5·min(min − 100, 500)/500 (benefits to ~600 min/wk).
+        if let mins = cardioZ13Min {
+            let impact: Double
+            if mins < 100 { impact = 2.0 * (100 - mins) / 100 }
+            else { impact = -2.5 * min(mins - 100, 500) / 500 }
+            offsets.append(("Cardio (Z1–3)", clamp(impact, -2.5, 2)))
+        }
+
+        // 8. Intensity — HR-zone 4–5 (cap +1 / −2 yr). Weekly zone-4..5 minutes. Referent 10 min/wk.
+        //    < 10 → +1·(10 − min)/10; else −2·min(min − 10, 60)/60.
+        if let mins = intensityZ45Min {
+            let impact: Double
+            if mins < 10 { impact = 1.0 * (10 - mins) / 10 }
+            else { impact = -2.0 * min(mins - 10, 60) / 60 }
+            offsets.append(("Intensity (Z4–5)", clamp(impact, -2, 1)))
+        }
+
+        // 9. Strength training time (cap +1 / −1.5 yr). Weekly strength-workout minutes. Referent
+        //    40 min/wk (WHOOP; U-shaped, optimal 30 min–2 h, no extra credit >120 → cap the benefit
+        //    at min−40 ≤ 80). < 40 → +1·(40 − min)/40; else −1.5·min(min − 40, 80)/80. Store only
+        //    passes this when the member logged ANY workouts this week (absence of synced workouts
+        //    is skipped, not penalized).
+        if let mins = strengthMin {
+            let impact: Double
+            if mins < 40 { impact = 1.0 * (40 - mins) / 40 }
+            else { impact = -1.5 * min(mins - 40, 80) / 80 }
+            offsets.append(("Strength", clamp(impact, -1.5, 1)))
+        }
+
         guard !offsets.isEmpty else { return nil }
 
-        let wsum = offsets.reduce(0) { $0 + $1.2 }
-        let blended = offsets.reduce(0) { $0 + $1.1 * $1.2 } / wsum
-        let capped = max(-15, min(15, blended))
+        // Effective age = chronological + Σ of independent impacts. Keep the overall delta sane.
+        let total = offsets.reduce(0) { $0 + $1.years }
+        let capped = clamp(total, -15, 15)
         return FitnessAge(age: age + capped, chronological: chronological, delta: capped,
-                          contributors: offsets.map { ($0.0, $0.1) }.sorted { abs($0.1) > abs($1.1) })
+                          contributors: offsets.map { ($0.name, $0.years) }
+                              .sorted { $0.1 > $1.1 })   // biggest-aging first (most positive → most negative)
+    }
+
+    private static func clamp(_ v: Double, _ lo: Double, _ hi: Double) -> Double { max(lo, min(hi, v)) }
+
+    /// Age/sex VO2max target (mL/kg/min) from WHOOP Fig 4 — linear-interpolated across the age
+    /// table; clamped to [20,100]. These are health-optimized targets, not population averages.
+    static func vo2Target(age: Double, isMale: Bool) -> Double {
+        let ages: [Double] = [20,25,30,35,40,45,50,55,60,65,70,75,80,85,90,95,100]
+        let male: [Double]   = [46,46,44,42,40,37,36,34,32,30,29,27,26,25,23,22,21]
+        let female: [Double] = [40,40,38,36,34,32,30,29,27,26,25,23,22,21,20,19,18]
+        let table = isMale ? male : female
+        let a = min(max(age, 20), 100)
+        if a <= ages.first! { return table.first! }
+        if a >= ages.last! { return table.last! }
+        for i in 1..<ages.count where a <= ages[i] {
+            let t = (a - ages[i-1]) / (ages[i] - ages[i-1])
+            return table[i-1] + t * (table[i] - table[i-1])
+        }
+        return table.last!
+    }
+
+    // MARK: Physical Age — prescription layer
+
+    enum PrescriptionCategory: String, Codable, CaseIterable {
+        case cardio, strength, sleep, steps, nutrition
+    }
+
+    /// A concrete, one-tap action that lowers Physical Age by reducing ONE aging lever. Non-destructive:
+    /// it PROPOSES; the user accepts. `projectedDeltaYears` is the HONEST near-term win — the years shaved
+    /// off by moving that one lever to a realistic 8-week target (recomputed, then diffed). Because each
+    /// lever's age-impact is independent and additive, this equals (currentImpact − impactAtTarget).
+    struct Prescription: Identifiable {
+        var lever: String                       // metric name, e.g. "VO2 max"
+        var currentImpactYears: Double          // its current (+) aging contribution
+        var actionText: String                  // specific + quantified
+        var targetDescription: String           // the concrete near-term target
+        var projectedDeltaYears: Double         // positive = years you'd shave off (biggest win first)
+        var category: PrescriptionCategory
+        var id: String { lever }
+    }
+
+    /// Generate prescriptions from a computed FitnessAge's contributors: one per lever with a POSITIVE
+    /// (aging) impact. Each lever's projected impact-at-target is computed with the same coefficient
+    /// formulas the metric uses, so the shown win is achievable, not a fantasy. Sorted biggest-win first,
+    /// capped to the top `limit`. Returns [] when the user has no aging levers (they're already ahead).
+    static func prescriptions(from fa: FitnessAge, isMale: Bool, limit: Int = 4) -> [Prescription] {
+        let age = Double(fa.chronological)
+        var out: [Prescription] = []
+
+        for c in fa.contributors where c.offsetYears > 0.05 {
+            // Impact of this lever if the user hits a realistic near-term target (same formula + clamp).
+            let (action, targetDesc, category, impactAtTarget): (String, String, PrescriptionCategory, Double)
+            switch c.name {
+            case "VO2 max":
+                // 8-week-achievable: +2 mL/kg/min toward target (not the whole gap). Recompute at
+                // current + 2 relative to the same target the metric used (impact = −0.398·(vo2 − target)).
+                // Moving vo2 up by 2 reduces the +impact by 0.398·2 = 0.796; clamp mirror not needed for a
+                // small step. Represented as the impact after the +2 improvement (still clamped ±8).
+                let improved = clamp(c.offsetYears - 0.398 * 2, -8, 8)
+                (action, targetDesc, category, impactAtTarget) =
+                    ("Add 2× Zone-2 sessions (30–40 min, easy pace) this week", "Z1–3 ≥ 100 min/wk", .cardio, improved)
+            case "Cardio (Z1–3)":
+                // Hitting the 100 min/wk referent zeroes the shortfall penalty.
+                (action, targetDesc, category, impactAtTarget) =
+                    ("Add 2× Zone-2 sessions (30–40 min, easy pace) this week", "Z1–3 ≥ 100 min/wk", .cardio, 0)
+            case "Intensity (Z4–5)":
+                (action, targetDesc, category, impactAtTarget) =
+                    ("Add 1× interval session (e.g. 4×4 min hard) this week", "Z4–5 ≥ 10 min/wk", .cardio, 0)
+            case "Strength":
+                (action, targetDesc, category, impactAtTarget) =
+                    ("Add 2× strength sessions (~20 min each)", "Strength ≥ 40 min/wk", .strength, 0)
+            case "Sleep":
+                // Target 7.5 h: within the 7–9 h band → −0.5 (a slight benefit), clamped.
+                (action, targetDesc, category, impactAtTarget) =
+                    ("Get to bed 45 min earlier — aim for 7.5 h", "Sleep 7.5 h", .sleep, clamp(-0.5, -0.5, 3))
+            case "Sleep consistency":
+                // Target 75%: impact = −0.06·(75 − 70) = −0.30.
+                (action, targetDesc, category, impactAtTarget) =
+                    ("Keep bed/wake times within ~30 min daily", "Consistency 75%", .sleep, clamp(-0.06 * (75 - 70), -1.5, 3))
+            case "Steps":
+                // Target 8,000/day: impact = −0.30·(8000 − 8000)/1000 = 0.
+                (action, targetDesc, category, impactAtTarget) =
+                    ("Raise your daily step goal to 8,000", "8,000 steps/day", .steps, 0)
+            case "Lean mass":
+                // Nutrition lever: protein supports muscle. Model a modest −2% body-fat move toward the
+                // referent (impact = 0.1044·(fat% − ref); −2% fat reduces the +impact by 0.1044·2 = 0.209).
+                let improved = clamp(c.offsetYears - 0.1044 * 2, -4, 4)
+                (action, targetDesc, category, impactAtTarget) =
+                    ("Hit your protein target daily to build/keep muscle", "Toward lean-mass target", .nutrition, improved)
+            default:
+                continue
+            }
+            _ = age   // (targets are absolute; age is captured for future age-scaled targets)
+            let projected = max(0, c.offsetYears - impactAtTarget)   // years shaved off (never negative)
+            guard projected > 0.01 else { continue }
+            out.append(Prescription(lever: c.name, currentImpactYears: c.offsetYears,
+                                    actionText: action, targetDescription: targetDesc,
+                                    projectedDeltaYears: projected, category: category))
+        }
+        return Array(out.sorted { $0.projectedDeltaYears > $1.projectedDeltaYears }.prefix(limit))
     }
 
     // MARK: Vitals typical ranges (health-monitor style)

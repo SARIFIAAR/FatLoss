@@ -17,7 +17,7 @@ final class Store {
             guard data != oldValue else { return }
             if !isApplyingRemote {
                 lastModified = Date()
-                if data.goals != oldValue.goals || data.program != oldValue.program || data.reminders != oldValue.reminders || data.intake != oldValue.intake {
+                if data.goals != oldValue.goals || data.program != oldValue.program || data.reminders != oldValue.reminders || data.intake != oldValue.intake || data.physicalAgePlan != oldValue.physicalAgePlan {
                     settingsModified = Date()
                 }
             }
@@ -943,20 +943,146 @@ final class Store {
         return nil
     }
 
-    /// Fitness-age estimate from recent metrics (28-day averages of HRV/RHR/steps/sleep + latest VO2).
+    /// Fitness-age estimate (WHOOP-Age model, the full 9 metrics) from recent metrics: 28-day
+    /// averages of RHR / steps / sleep + latest VO2 max + latest body-fat %, plus four weekly
+    /// workout/timing metrics computed here from the collections — sleep consistency (last ~5
+    /// days of bed/wake regularity), cardio Z1–3 min/wk, intensity Z4–5 min/wk, and strength
+    /// min/wk (all over the last 7 days). HRV is deliberately not used (WHOOP Age doesn't use it).
+    /// Body-fat % comes from the same source `bodyComposition()` uses (InBody/manual entry preferred,
+    /// else Apple Health BIA) so the lean-mass metric only appears when the data exists. Each metric
+    /// is nil when its data is absent, so it's simply skipped (never a fabricated or penalized zero).
     func fitnessAge() -> BodyMetrics.FitnessAge? {
         guard let intake = data.intake else { return nil }
         func avg(_ vals: [Double]) -> Double? { vals.isEmpty ? nil : vals.reduce(0, +) / Double(vals.count) }
-        let hrv = avg(bodyHistory(\.hrv, days: 28))
         let rhr = avg(bodyHistory(\.rhr, days: 28))
         let sleep = avg(bodyHistory(\.sleepH, days: 28))
         let steps = avg((1...28).compactMap { n -> Double? in
             let s = data.health[DateKey.key(DateKey.daysAgo(n))]?.steps ?? 0
             return s > 0 ? Double(s) : nil
         })
+        let bodyFat = bodyComposition()?.bodyFatPct
+
+        // Sleep consistency (last 5 days, ≥3 with both bed & wake time). Regularity = mean absolute
+        // deviation from the median of bed-minute-of-day and wake-minute-of-day (bedtimes before
+        // ~noon shifted +24 h so a 1 AM bedtime doesn't read as far from an 11 PM one); score =
+        // 100 − avg-MAD/1.8 (≈90 min MAD → 50%). See BodyMetrics metric 6.
+        let sleepConsistency = fitnessSleepConsistency(days: 5)
+
+        // Weekly workout aggregates over the last 7 days.
+        var z13 = 0.0, z45 = 0.0, strengthMin = 0.0, anyWorkoutInWeek = false
+        var hasZoneData = false
+        let strengthTerms = ["strength", "weight", "lifting", "powerlifting", "functional", "hiit",
+                             "pilates", "yoga", "barre", "crossfit", "resistance", "strength trainer"]
+        for n in 1...7 {
+            let dk = DateKey.key(DateKey.daysAgo(n))
+            for w in data.workouts[dk] ?? [] {
+                anyWorkoutInWeek = true
+                if w.zoneMin.count >= 1 && w.zoneMin.contains(where: { $0 > 0 }) {
+                    hasZoneData = true
+                    z13 += w.zoneMin.prefix(3).reduce(0, +)
+                    if w.zoneMin.count > 3 { z45 += w.zoneMin[3...].reduce(0, +) }
+                }
+                let name = w.name.lowercased()
+                if strengthTerms.contains(where: { name.contains($0) }) { strengthMin += w.minutes }
+            }
+        }
+        // Zone metrics only when the member logged workouts WITH zone data this week.
+        let cardio = hasZoneData ? z13 : nil
+        let intensity = hasZoneData ? z45 : nil
+        // Strength only when the member logged ANY workouts this week (don't penalize people who
+        // simply don't sync workouts — but do reflect little/no strength within a logged week).
+        let strength = anyWorkoutInWeek ? strengthMin : nil
+
         return BodyMetrics.fitnessAge(chronological: intake.age, isMale: intake.sex == .male,
-                                      vo2Max: latestVO2(), hrv: hrv, restingHR: rhr,
-                                      avgSteps: steps, avgSleepH: sleep)
+                                      vo2Max: latestVO2(), restingHR: rhr,
+                                      avgSteps: steps, avgSleepH: sleep, bodyFatPct: bodyFat,
+                                      sleepConsistencyPct: sleepConsistency,
+                                      cardioZ13Min: cardio, intensityZ45Min: intensity,
+                                      strengthMin: strength)
+    }
+
+    /// 0–100% sleep-regularity score from bed/wake times over the last `days` days (needs ≥3 valid
+    /// days with both bedTime and wakeTime), for the Fitness-Age sleep-consistency metric. Returns
+    /// nil when there aren't enough valid days.
+    private func fitnessSleepConsistency(days: Int = 5) -> Double? {
+        let cal = Calendar.current
+        var bedMins: [Double] = [], wakeMins: [Double] = []
+        for n in 1...days {
+            guard let r = data.recovery[DateKey.key(DateKey.daysAgo(n))],
+                  let bed = r.bedTime, let wake = r.wakeTime else { continue }
+            func minuteOfDay(_ d: Date) -> Double {
+                let c = cal.dateComponents([.hour, .minute], from: d)
+                return Double((c.hour ?? 0) * 60 + (c.minute ?? 0))
+            }
+            var b = minuteOfDay(bed)
+            if b < 12 * 60 { b += 24 * 60 }   // shift after-midnight bedtimes so they sit near evening ones
+            bedMins.append(b)
+            wakeMins.append(minuteOfDay(wake))
+        }
+        guard bedMins.count >= 3 else { return nil }
+        func mad(_ xs: [Double]) -> Double {
+            let med = xs.sorted()[xs.count / 2]
+            return xs.map { abs($0 - med) }.reduce(0, +) / Double(xs.count)
+        }
+        let avgMad = (mad(bedMins) + mad(wakeMins)) / 2
+        return max(0, min(100, 100 - avgMad / 1.8))
+    }
+
+    // MARK: Physical Age — prescription layer (non-destructive: propose → user accepts)
+
+    /// Top ~4 concrete actions that would most lower the user's Physical Age (derived from the aging
+    /// levers of the current fitnessAge). Empty when there's no estimate or no aging lever (they're ahead).
+    func physicalAgePrescriptions(limit: Int = 4) -> [BodyMetrics.Prescription] {
+        guard let fa = fitnessAge(), let intake = data.intake else { return [] }
+        return BodyMetrics.prescriptions(from: fa, isMale: intake.sex == .male, limit: limit)
+    }
+
+    /// Whether a prescription's lever has already been accepted into the plan.
+    func isInPhysicalAgePlan(_ lever: String) -> Bool {
+        data.physicalAgePlan.contains { $0.id == lever }
+    }
+
+    /// "Add to my plan" — non-destructive acceptance. Appends the PlanItem (dedupe by lever) and applies
+    /// the category-specific side effect once: steps→raise step goal to 8k (only if lower); sleep/
+    /// consistency→enable a nightly bedtime wind-down reminder; nutrition→raise protein target; cardio/
+    /// strength/intensity→record only (they surface in Train). Never rewrites the 3-phase programme.
+    func acceptPrescription(_ p: BodyMetrics.Prescription) {
+        guard !isInPhysicalAgePlan(p.lever) else { return }
+        let item = PlanItem(id: p.lever, lever: p.lever, category: p.category.rawValue,
+                            text: p.actionText, targetDescription: p.targetDescription)
+        data.physicalAgePlan.append(item)
+
+        switch p.category {
+        case .steps:
+            if data.goals.stepsGoal < 8000 { data.goals.stepsGoal = 8000 }
+        case .sleep:
+            if !data.reminders.bedtimeOn {
+                data.reminders.bedtimeOn = true
+                onWaterChange?()   // re-plan reminders now (same hook the water/habit reminders use)
+            }
+        case .nutrition:
+            // Ensure/raise the protein target toward a muscle-supporting 2.0 g/kg of goal weight (never lower it).
+            if let intake = data.intake {
+                let target = Int((2.0 * intake.goalWeightKg).rounded())
+                if target > data.goals.protein { data.goals.protein = target }
+            }
+        case .cardio, .strength:
+            break   // recorded only — surfaced in Train "This week's focus"
+        }
+        showToast("Added to your plan ✓")
+    }
+
+    /// Toggle an accepted training action done/undone (from the Train "This week's focus" card).
+    func togglePlanItemDone(_ id: String) {
+        guard let i = data.physicalAgePlan.firstIndex(where: { $0.id == id }) else { return }
+        data.physicalAgePlan[i].done.toggle()
+    }
+
+    /// Accepted cardio/strength/intensity actions to surface in Train (recorded, not done, first).
+    var trainingFocusItems: [PlanItem] {
+        data.physicalAgePlan.filter { $0.category == BodyMetrics.PrescriptionCategory.cardio.rawValue
+            || $0.category == BodyMetrics.PrescriptionCategory.strength.rawValue }
+            .sorted { ($0.done ? 1 : 0, $1.acceptedAt) < ($1.done ? 1 : 0, $0.acceptedAt) }
     }
 
     /// Mifflin-St Jeor BMR from intake (matches PlanBuilder).

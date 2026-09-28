@@ -94,6 +94,7 @@ final class ReminderManager: NSObject, UNUserNotificationCenterDelegate {
         center.removePendingNotificationRequests(withIdentifiers: pending.filter {
             $0.hasPrefix("water-") || $0.hasPrefix("walk-") || $0.hasPrefix("meal-")
                 || $0.hasPrefix("habit-") || $0.hasPrefix("supp-") || $0.hasPrefix("gym-")
+                || $0.hasPrefix("bedtime-")
         })
         guard permission == .granted else { return }
 
@@ -212,6 +213,19 @@ final class ReminderManager: NSObject, UNUserNotificationCenterDelegate {
             center.add(UNNotificationRequest(identifier: "supp-\(id)",
                                              content: content,
                                              trigger: Self.dailyTrigger(minute: minute)))
+        }
+
+        // Bedtime "wind down" — nightly nudge to protect sleep duration/consistency. Enabled when the
+        // user accepts a sleep/consistency Physical-Age prescription.
+        if settings.bedtimeOn {
+            let content = UNMutableNotificationContent()
+            content.title = "Wind down for sleep 😴"
+            content.body = "Aim for 7.5 h and a steady bedtime — it lowers your Physical Age."
+            content.sound = .default
+            content.threadIdentifier = "bedtime"
+            center.add(UNNotificationRequest(identifier: "bedtime-nightly",
+                                             content: content,
+                                             trigger: Self.dailyTrigger(minute: settings.bedtimeMinute)))
         }
 
         // Workout — fires only on the current programme phase's training weekdays.
