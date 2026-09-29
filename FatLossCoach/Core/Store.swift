@@ -1085,6 +1085,33 @@ final class Store {
             .sorted { ($0.done ? 1 : 0, $1.acceptedAt) < ($1.done ? 1 : 0, $0.acceptedAt) }
     }
 
+    // MARK: Physical-Age training engine (the Workout/Train tab driver)
+
+    /// The week's generated training programme, driven by the Physical-Age aging levers and
+    /// recovery-adjusted for today (the clinical recovery gate). nil until there's an intake to
+    /// reason about — the Workout tab shows a connect/onboard state then.
+    func weeklyProgramme() -> BodyMetrics.WeeklyProgramme? {
+        guard let intake = data.intake else { return nil }
+        let scores = bodyDay()   // today's recovery / strain / workload
+        let targetBand = scores.recovery.map { BodyMetrics.targetStrain(recovery: $0.score) } ?? (6.0...12.0)
+        let gate = BodyMetrics.recoveryGate(recovery: scores.recovery, strain: scores.strain,
+                                            targetBand: targetBand, workload: scores.workload)
+        func avg(_ vals: [Double]) -> Double? { vals.isEmpty ? nil : vals.reduce(0, +) / Double(vals.count) }
+        let rhr = avg(bodyHistory(\.rhr, days: 28))
+        let bodyFat = bodyComposition()?.bodyFatPct
+        return BodyMetrics.weeklyProgramme(fa: fitnessAge(), age: intake.age, isMale: intake.sex == .male,
+                                           restingHR: rhr, vo2Max: latestVO2(), bodyFatPct: bodyFat,
+                                           trainingDaysTarget: intake.trainingDays, gate: gate)
+    }
+
+    /// The legacy exercise-catalogue day backing a generated strength session's lift-logging (from the
+    /// parked LegacyPlan Full-Gym schedule). Progressive-overload logging is unchanged — it just reads
+    /// its exercise list from here now instead of from the live phase. nil for non-strength sessions.
+    func catalogDay(for session: BodyMetrics.PlannedSession) -> WorkoutDay? {
+        guard let key = session.loggableCatalogDay else { return nil }
+        return LegacyPlan.phase(3).workouts.first { $0.day == key }
+    }
+
     /// Mifflin-St Jeor BMR from intake (matches PlanBuilder).
     var bmr: Int? {
         guard let p = data.intake else { return nil }

@@ -1,246 +1,138 @@
 import SwiftUI
 
+/// The Workout/Train tab. Now driven by the Physical-Age engine (aging levers + recovery gate),
+/// replacing the static 3-phase programme (parked in Legacy/). Sessions stay checkable and loggable;
+/// progressive-overload lift logging is unchanged (see SessionSheet / ExerciseRow below).
 struct WorkoutView: View {
+    var body: some View { PhysicalAgePlanView() }
+}
+
+/// "Your Physical Age plan" — the week generated from the user's aging levers, recovery-adjusted.
+struct PhysicalAgePlanView: View {
     @Environment(Store.self) private var store
     @State private var selected: WorkoutDay?
 
     var body: some View {
-        let today = Plan.todayAbbrev
-        let phase = store.currentPhase
-        Screen(subtitle: "Phase \(phase.number) — \(phase.name)", title: "Workout") {
-            WeeklyFocusCard()
-            PhaseCard()
-
-            VStack(spacing: 10) {
-                ForEach(phase.workouts) { d in
-                    DayCard(day: d, isToday: d.day == today) {
-                        if d.isTraining { selected = d }
-                    }
+        Screen(subtitle: "Generated from your Physical Age", title: "Your plan") {
+            if let wk = store.weeklyProgramme() {
+                planHeader(wk)
+                if wk.gate.restToday { recoveryBanner(wk.gate) }
+                VStack(spacing: 10) {
+                    ForEach(wk.sessions) { s in SessionCard(session: s) { openLog(s) } }
+                }
+                Card {
+                    Text(wk.note).font(.system(size: 12)).foregroundStyle(Theme.muted).lineSpacing(3)
+                }
+            } else {
+                Card {
+                    SectionTitle("Your plan")
+                    Text("Connect Apple Health and finish your quick setup — your training plan is generated from your Physical Age and adjusts to your recovery each day.")
+                        .font(.system(size: 13)).foregroundStyle(Theme.muted).lineSpacing(3)
                 }
             }
-
-            Card {
-                SectionTitle("Progression rule — Phase \(phase.number)")
-                Text(phase.tip)
-                    .font(.system(size: 13)).foregroundStyle(Theme.muted).lineSpacing(4)
-            }
         }
-        .sheet(item: $selected) { day in
-            SessionSheet(day: day)
-        }
+        .sheet(item: $selected) { day in SessionSheet(day: day) }
         .onAppear {
-            // Debug: launch with `-openDay Mon` to open a session directly.
+            // Debug: `-openDay Mon` opens that strength session's log sheet directly.
             if selected == nil, let d = UserDefaults.standard.string(forKey: "openDay") {
-                selected = store.currentPhase.workouts.first { $0.day == d }
+                selected = LegacyPlan.phase(3).workouts.first { $0.day == d }
             }
         }
     }
-}
 
-/// "This week's focus" — accepted cardio/strength/intensity Physical-Age actions as checkable rows.
-/// Additive to the 3-phase programme, never a replacement. Hidden when nothing is accepted.
-struct WeeklyFocusCard: View {
-    @Environment(Store.self) private var store
-
-    var body: some View {
-        let items = store.trainingFocusItems
-        if !items.isEmpty {
-            Card {
-                SectionTitle("This week's focus")
-                VStack(spacing: 0) {
-                    ForEach(items) { item in
-                        Button {
-                            store.togglePlanItemDone(item.id)
-                        } label: {
-                            HStack(alignment: .top, spacing: 10) {
-                                Image(systemName: item.done ? "checkmark.circle.fill" : "circle")
-                                    .font(.system(size: 18))
-                                    .foregroundStyle(item.done ? Theme.primary : Theme.muted)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(item.text).font(.system(size: 14, weight: .medium))
-                                        .foregroundStyle(item.done ? Theme.muted : Theme.text)
-                                        .strikethrough(item.done, color: Theme.muted)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                    Text(item.targetDescription).font(.system(size: 11)).foregroundStyle(Theme.muted)
-                                }
-                                Spacer(minLength: 0)
-                            }
-                            .contentShape(Rectangle())
-                            .padding(.vertical, 9)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                Text("These lower your Physical Age.")
-                    .font(.system(size: 11)).foregroundStyle(Theme.muted).padding(.top, 2)
-            }
-        }
+    private func openLog(_ s: BodyMetrics.PlannedSession) {
+        // Only strength sessions have a lift-logging catalogue day; cardio/recover cards aren't loggable.
+        if let day = store.catalogDay(for: s) { selected = day }
     }
-}
 
-/// "Where am I" — 3-segment programme bar, current-phase week counter, start / advance controls.
-struct PhaseCard: View {
-    @Environment(Store.self) private var store
-    @State private var confirmPhase: Int?
-
-    var body: some View {
-        let phase = store.currentPhase
-        let prog = store.phaseProgress
+    private func planHeader(_ wk: BodyMetrics.WeeklyProgramme) -> some View {
         Card {
-            HStack(alignment: .firstTextBaseline) {
-                SectionTitle("Programme · Phase \(phase.number) of \(Plan.phases.count)")
-                Spacer()
-                Menu {
-                    ForEach(Plan.phases) { ph in
-                        Button {
-                            confirmPhase = ph.number
-                        } label: {
-                            Label("Phase \(ph.number): \(ph.name)", systemImage: ph.number == phase.number ? "checkmark" : "circle")
-                        }
-                    }
-                    Divider()
-                    Button("Restart current phase today") { store.setPhase(phase.number, startToday: true) }
-                } label: {
-                    Label("Change", systemImage: "slider.horizontal.3")
-                        .font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.primary)
+            SectionTitle(wk.headline)
+            if let lever = wk.priorityLever {
+                HStack(spacing: 6) {
+                    Image(systemName: wk.strengthPromoted ? "dumbbell.fill" : "target")
+                        .font(.system(size: 12)).foregroundStyle(Theme.primary)
+                    Text(wk.strengthPromoted
+                         ? "Leaning into strength — your biggest lever right now"
+                         : "Focused on \(lever) — your biggest lever right now")
+                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.bottom, 10)
-            }
-
-            PhaseTrack()
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(phase.name).font(Theme.scoreM).foregroundStyle(Theme.text)
-                    Text(phase.tagline).font(.system(size: 13)).foregroundStyle(Theme.muted)
-                    Spacer()
-                    Text(prog.started ? "Week \(prog.week) of \(prog.totalWeeks)" : "Not started")
-                        .font(.system(size: 12, weight: .heavy))
-                        .foregroundStyle(prog.started ? Theme.primary : Theme.orange)
-                        .padding(.vertical, 3).padding(.horizontal, 9)
-                        .background((prog.started ? Theme.primary : Theme.orange).opacity(0.12))
-                        .clipShape(Capsule())
-                }
-                ProgressBar(value: prog.fraction, height: 10, fill: AnyShapeStyle(Theme.primary))
-                    .padding(.top, 2)
-                HStack {
-                    Text(prog.started
-                         ? (prog.isComplete ? "Phase complete" : "\(prog.daysLeft) days left in this phase")
-                         : "\(phase.weeks) weeks · \(phase.trainingDays.count)× training per week")
-                    Spacer()
-                    if let sd = store.data.program.startDate, let d = DateKey.date(sd) {
-                        Text("Started \(d.formatted(.dateTime.day().month(.abbreviated)))")
-                    }
-                }
-                .font(.system(size: 11)).foregroundStyle(Theme.muted)
-            }
-            .padding(.top, 12)
-
-            Text(phase.goal)
-                .font(.system(size: 13)).foregroundStyle(Theme.text).lineSpacing(3)
-                .padding(.top, 10)
-
-            if !prog.started {
-                Button("︎ Start Phase \(phase.number) today") { store.startCurrentPhase() }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .padding(.top, 12)
-            } else if prog.isComplete, phase.number < Plan.phases.count {
-                Button("Advance to Phase \(phase.number + 1): \(Plan.phase(phase.number + 1).name)") { store.advancePhase() }
-                    .buttonStyle(PrimaryButtonStyle(color: Theme.orange))
-                    .padding(.top, 12)
-            }
-        }
-        .confirmationDialog(
-            confirmPhase.map { "Switch to Phase \($0): \(Plan.phase($0).name)?" } ?? "",
-            isPresented: Binding(get: { confirmPhase != nil }, set: { if !$0 { confirmPhase = nil } }),
-            titleVisibility: .visible
-        ) {
-            if let n = confirmPhase {
-                Button("Switch and start today") { store.setPhase(n, startToday: true) }
-                Button("Switch, start later") { store.setPhase(n, startToday: false) }
-                Button("Cancel", role: .cancel) {}
+                .padding(.top, 2)
             }
         }
     }
-}
 
-/// Three segments, one per phase; filled to each phase's completion.
-struct PhaseTrack: View {
-    @Environment(Store.self) private var store
-    var compact = false
-
-    var body: some View {
-        let current = store.currentPhase.number
-        VStack(spacing: 6) {
-            HStack(spacing: 4) {
-                ForEach(Plan.phases) { ph in
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(Theme.border)
-                            Capsule().fill(ph.number < current ? Theme.primaryLight : Theme.primary)
-                                .frame(width: geo.size.width * store.phaseFill(ph.number))
-                        }
-                        .overlay(Capsule().stroke(ph.number == current ? Theme.primary : Color.clear, lineWidth: 1.5))
-                    }
-                    .frame(height: compact ? 8 : 12)
-                }
-            }
-            if !compact {
-                HStack(spacing: 4) {
-                    ForEach(Plan.phases) { ph in
-                        Text("\(ph.number) · \(ph.name)")
-                            .font(.system(size: 10, weight: ph.number == current ? .heavy : .semibold))
-                            .foregroundStyle(ph.number == current ? Theme.primary : Theme.muted)
-                            .frame(maxWidth: .infinity)
-                    }
+    private func recoveryBanner(_ gate: BodyMetrics.RecoveryGate) -> some View {
+        Card {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "heart.text.square.fill").font(.system(size: 16)).foregroundStyle(Theme.orange)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Take it easy today").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text)
+                    Text(gate.reason ?? "Your recovery is low today — the plan has eased off. Come back to it when you're recovered.")
+                        .font(.system(size: 12)).foregroundStyle(Theme.muted).lineSpacing(3)
                 }
             }
         }
     }
 }
 
-struct DayCard: View {
-    let day: WorkoutDay
-    let isToday: Bool
-    let action: () -> Void
+/// One generated session row. Strength cards are tappable to open lift logging; held-back sessions
+/// grey out and show WHY so nothing contradicts the recovery ring.
+struct SessionCard: View {
+    let session: BodyMetrics.PlannedSession
+    let onTap: () -> Void
+
+    private var icon: String {
+        switch session.kind {
+        case .strength: "dumbbell.fill"
+        case .zone2: "figure.run"
+        case .intervals: "bolt.heart.fill"
+        case .walk: "figure.walk"
+        case .recover: "moon.zzz.fill"
+        }
+    }
+    private var loggable: Bool { session.kind == .strength && session.loggableCatalogDay != nil && !session.heldBack }
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Text(day.day)
-                    .font(Theme.scoreS).foregroundStyle(Theme.muted)
-                    .frame(minWidth: 36, alignment: .leading)
-                VStack(alignment: .leading, spacing: 2) {
+        Button(action: onTap) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: icon).font(.system(size: 18))
+                    .foregroundStyle(session.heldBack ? Theme.muted : Theme.primary)
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
-                        Text(day.label).font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.text)
-                        if isToday {
-                            Text("Today")
-                                .font(.system(size: 11, weight: .heavy)).foregroundStyle(Theme.primary)
-                                .padding(.vertical, 2).padding(.horizontal, 8)
-                                .background(Color(hex: 0xD8F3DC)).clipShape(Capsule())
+                        Text(session.title).font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(session.heldBack ? Theme.muted : Theme.text)
+                        if session.heldBack {
+                            Text("eased off").font(.system(size: 10, weight: .heavy)).foregroundStyle(Theme.orange)
+                                .padding(.vertical, 2).padding(.horizontal, 7)
+                                .background(Theme.orange.opacity(0.12)).clipShape(Capsule())
                         }
                     }
-                    Text(day.tag).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    Text(session.detail).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(session.why).font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.accent)
+                        .fixedSize(horizontal: false, vertical: true).padding(.top, 1)
+                    if let r = session.heldReason {
+                        Text(r).font(.system(size: 11)).foregroundStyle(Theme.orange).padding(.top, 1)
+                    }
                 }
-                Spacer()
-                if day.isTraining {
-                    Text("Start")
-                        .font(.system(size: 11, weight: isToday ? .heavy : .regular))
-                        .foregroundStyle(isToday ? Theme.primary : Theme.muted)
+                Spacer(minLength: 0)
+                if loggable {
+                    Text("Log").font(.system(size: 11, weight: .heavy)).foregroundStyle(Theme.primary)
                         .padding(.vertical, 3).padding(.horizontal, 9)
-                        .background(isToday ? Theme.accent : Theme.bg)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .background(Theme.accent).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
             }
             .padding(.vertical, 14).padding(.horizontal, 16)
-            .background(day.isTraining ? Theme.card : Theme.bg)
+            .background(session.heldBack ? Theme.bg : Theme.card)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(isToday ? Theme.primary : (day.isTraining ? Theme.accent : Theme.border), lineWidth: 2))
-            .shadow(color: day.isTraining ? Theme.primary.opacity(0.1) : .clear, radius: 5, y: 2)
+                .stroke(session.heldBack ? Theme.border : Theme.accent, lineWidth: 2))
         }
         .buttonStyle(.plain)
-        .disabled(!day.isTraining)
+        .disabled(!loggable)
     }
 }
 

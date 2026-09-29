@@ -856,7 +856,7 @@ struct BodyView: View {
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(younger ? "\(Int(-fa.delta.rounded())) yrs younger" : "\(Int(fa.delta.rounded())) yrs older")
+                    Text(younger ? "~\(Int(-fa.delta.rounded())) yrs below your age" : "~\(Int(fa.delta.rounded())) yrs above your age")
                         .font(W.score(15)).foregroundStyle(younger ? W.green : W.yellow)
                     Text("actual age \(fa.chronological)").font(.system(size: 11)).foregroundStyle(W.muted)
                 }
@@ -871,7 +871,7 @@ struct BodyView: View {
             .padding(.top, 8)
             Text("Compared to a health-optimized target — meeting the guidelines, not the average — so many people skew older. Each metric's years add up to your Physical Age.")
                 .font(.system(size: 10)).foregroundStyle(W.muted).padding(.top, 8)
-            Text("Estimate from your fitness metrics — not a clinical biological age.")
+            Text("Physical Age is a fitness estimate — not a clinical or biological age, and not a predictor of life expectancy.")
                 .font(.system(size: 10)).foregroundStyle(W.muted.opacity(0.7)).padding(.top, 4)
         }
     }
@@ -935,9 +935,9 @@ struct BodyView: View {
                     Text(p.actionText).font(.system(size: 13, weight: .medium)).foregroundStyle(W.text)
                         .fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 8) {
-                        Text("−\(String(format: "%.1f", p.projectedDeltaYears)) yrs if you hit this")
+                        Text("could lower your Physical Age estimate by ~\(String(format: "%.1f", p.projectedDeltaYears)) yrs")
                             .font(.system(size: 11, weight: .semibold)).foregroundStyle(W.green)
-                        Text("· \(p.lever) now +\(String(format: "%.1f", p.currentImpactYears)) yrs")
+                        Text("· \(p.lever) adds ~+\(String(format: "%.1f", p.currentImpactYears)) yrs to the estimate")
                             .font(.system(size: 11)).foregroundStyle(W.muted)
                     }
                 }

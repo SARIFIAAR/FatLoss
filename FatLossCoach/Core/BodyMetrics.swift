@@ -551,6 +551,199 @@ enum BodyMetrics {
         return Array(out.sorted { $0.projectedDeltaYears > $1.projectedDeltaYears }.prefix(limit))
     }
 
+    // MARK: Physical-Age training engine (aging-lever driven weekly programme)
+    //
+    // WELLNESS logic only. Language stays soft ("consider", "when you're recovered"); Physical Age
+    // remains a fitness estimate, not a clinical/biological age. There is deliberately NO red-flag
+    // "see a professional" nudge here — that sub-feature is held for a Regulatory Affairs review.
+    // The recovery gate mirrors the existing Recovery ring / ACWR so nothing on screen contradicts it.
+
+    enum SessionKind: String { case strength, zone2, intervals, walk, recover }
+
+    /// One planned session in the generated week.
+    struct PlannedSession: Identifiable {
+        var kind: SessionKind
+        var title: String                 // "Strength session", "Zone-2 easy", …
+        var detail: String                 // duration / structure, soft-phrased
+        var targetsLever: String           // which aging lever it addresses ("Strength", "Cardio (Z1–3)", …)
+        var why: String                    // plain-language rationale
+        var heldBack: Bool                 // recovery gate tripped → shown as easy/recover with a reason
+        var heldReason: String?            // "held back — low recovery today"
+        var loggableCatalogDay: String?    // legacy WorkoutDay.day whose exercise list backs lift-logging (strength only)
+        var id: String { title }
+    }
+
+    /// The recovery state that gates a day's plan (mirrors the Recovery ring + ACWR).
+    struct RecoveryGate {
+        var restToday: Bool                // hard downshift: no added intensity/volume today
+        var reason: String?                // why (shown so it never contradicts the ring)
+        var recoveryScore: Int?
+    }
+
+    struct WeeklyProgramme {
+        var sessions: [PlannedSession]
+        var gate: RecoveryGate
+        var headline: String               // e.g. "This week: 3× strength, 1× Zone-2"
+        var priorityLever: String?         // the lever the week leans into (for the UI "your biggest lever")
+        var strengthPromoted: Bool         // true when the physiology rule promoted strength over cardio
+        var note: String                   // soft framing shown under the plan
+    }
+
+    /// Decide the day's recovery gate from today's recovery score, strain-vs-target, and ACWR zone.
+    /// HARD rule: red recovery, strain already at/over the recovery-appropriate ceiling, or a high/danger
+    /// ACWR → rest/easy today; never add intensity or volume on those days.
+    static func recoveryGate(recovery: Recovery?, strain: Strain, targetBand: ClosedRange<Double>,
+                             workload: Workload?) -> RecoveryGate {
+        var rest = false
+        var reason: String? = nil
+        if let r = recovery, r.zone == .red {
+            rest = true; reason = "held back — low recovery today"
+        } else if strain.score >= targetBand.upperBound {
+            rest = true; reason = "held back — you've already hit today's strain target"
+        } else if let w = workload, w.zone == .high || w.zone == .danger {
+            rest = true; reason = "eased off — your training load has ramped up fast, so a lighter day may help"
+        }
+        return RecoveryGate(restToday: rest, reason: reason, recoveryScore: recovery.map(\.score))
+    }
+
+    /// Generate the week from the aging levers + the clinical rules (recovery gate, physiology-aware
+    /// priority, low-RHR redirect). `fa` supplies the trainable-lever offsets; the rest are the
+    /// physiology inputs. `trainingDaysTarget` is how many days/week the user said they can train.
+    static func weeklyProgramme(fa: FitnessAge?, age: Int, isMale: Bool,
+                                restingHR: Double?, vo2Max: Double?, bodyFatPct: Double?,
+                                trainingDaysTarget: Int,
+                                gate: RecoveryGate) -> WeeklyProgramme {
+        // Trainable aging levers (skip non-trainable ones like RHR/sleep here — those have their own
+        // prescriptions). Positive offset = aging → worth training.
+        func offset(_ name: String) -> Double {
+            fa?.contributors.first { $0.name == name }?.offsetYears ?? 0
+        }
+        let cardioAge = max(offset("Cardio (Z1–3)"), offset("VO2 max"))   // aerobic base lever
+        let intensityAge = offset("Intensity (Z4–5)")
+        let strengthAge = max(offset("Strength"), offset("Lean mass"))    // muscle lever (trained + fed)
+
+        // ---- Physiology-aware priority (the medical-review rules) ----
+        let rhrRef = isMale ? 60.0 : 64.0
+        let lowRHR = (restingHR ?? .greatestFiniteMagnitude) <= rhrRef        // strong aerobic base
+        let vo2AtOrAboveTarget = (vo2Max ?? 0) >= vo2Target(age: Double(age), isMale: isMale)
+        let leanHeadroom: Bool = {                                            // room to add muscle
+            guard let bf = bodyFatPct else { return true }                    // unknown → assume headroom
+            let fatRef = isMale ? 20.0 : 33.0
+            return bf >= fatRef - 3                                           // not already very lean
+        }()
+        // Promote strength above cardio for 45+ adults whose aerobic base is already strong (low RHR
+        // and/or VO2 at target) and who have lean-mass headroom: keeping muscle is a high-value wellness
+        // goal as we age, and extra cardio on an already-fit aerobic system is low-return and steals
+        // recovery budget from strength.
+        let strengthPromoted = age >= 45 && (lowRHR || vo2AtOrAboveTarget) && leanHeadroom
+
+        // Low-RHR rule: a strong aerobic base CAPS "add more cardio" and forbids extra intensity as a
+        // "license to push" — redirect that budget to strength instead.
+        let capCardio = lowRHR
+        let allowIntensity = !lowRHR && intensityAge > 0.05 && !gate.restToday
+
+        // ---- Build the week (respecting the user's available days) ----
+        let days = max(2, min(trainingDaysTarget, 6))
+        var sessions: [PlannedSession] = []
+
+        // Decide strength vs cardio emphasis.
+        let strengthCount: Int
+        let cardioCount: Int
+        if strengthPromoted || strengthAge >= cardioAge {
+            strengthCount = min(days - (capCardio ? 0 : 1), max(2, days - 1))
+            cardioCount = max(0, days - strengthCount)
+        } else {
+            cardioCount = min(2, days - 1)
+            strengthCount = max(1, days - cardioCount)
+        }
+
+        // Strength sessions (each backed by a legacy exercise-catalogue day so lift-logging survives).
+        let strengthCatalogDays = ["Mon", "Thu", "Fri"]   // Full-Gym push/pull/legs-ish, from LegacyPlan
+        for i in 0..<max(0, strengthCount) {
+            let heldBack = gate.restToday
+            sessions.append(PlannedSession(
+                kind: .strength,
+                title: "Strength session \(strengthCount > 1 ? "\(i + 1)" : "")".trimmingCharacters(in: .whitespaces),
+                detail: heldBack ? "Keep it light today — a few easy sets, stop well short of failure"
+                                 : "~30–45 min · 4–6 compound lifts · 2 reps in reserve",
+                targetsLever: "Strength",
+                why: strengthPromoted
+                    ? "builds strength — often your highest-value focus, and it helps you keep muscle as you age"
+                    : "supports muscle and strength — the strength lever",
+                heldBack: heldBack,
+                heldReason: heldBack ? gate.reason : nil,
+                loggableCatalogDay: strengthCatalogDays[i % strengthCatalogDays.count]))
+        }
+
+        // Zone-2 cardio (aerobic base) — capped/removed by the low-RHR rule.
+        let zone2Count = capCardio ? min(cardioCount, 1) : cardioCount
+        for _ in 0..<max(0, zone2Count) {
+            let heldBack = gate.restToday
+            sessions.append(PlannedSession(
+                kind: .zone2,
+                title: "Zone-2 easy",
+                detail: heldBack ? "An easy walk is plenty today" : "30–40 min easy pace — you can hold a conversation",
+                targetsLever: "Cardio (Z1–3)",
+                why: capCardio
+                    ? "your recent easy-cardio numbers already look solid — one easy session helps keep them there"
+                    : "builds your aerobic base — the cardio lever",
+                heldBack: heldBack,
+                heldReason: heldBack ? gate.reason : nil,
+                loggableCatalogDay: nil))
+        }
+
+        // One interval session ONLY when allowed (not gated, not capped by low RHR, and it's a real lever).
+        if allowIntensity {
+            sessions.append(PlannedSession(
+                kind: .intervals,
+                title: "Intervals",
+                detail: "e.g. 4×4 min hard / 3 min easy — when you're feeling recovered",
+                targetsLever: "Intensity (Z4–5)",
+                why: "a little high-intensity work sharpens VO2 max — the intensity lever",
+                heldBack: false, heldReason: nil, loggableCatalogDay: nil))
+        } else if intensityAge > 0.05 && (lowRHR || gate.restToday) {
+            // Show WHY we're not prescribing intensity (never silently drop it).
+            sessions.append(PlannedSession(
+                kind: .recover,
+                title: "Skip hard intervals this week",
+                detail: gate.restToday ? "Your recovery says ease off — add intensity back when you're fresh"
+                                       : "Your easy-cardio numbers already look solid — consider putting the effort into strength instead",
+                targetsLever: "Intensity (Z4–5)",
+                why: "pushing intensity now would steal recovery from the sessions that matter more for you",
+                heldBack: true,
+                heldReason: gate.restToday ? gate.reason : "shifted toward strength this week",
+                loggableCatalogDay: nil))
+        }
+
+        // If the recovery gate is fully tripped, front the week with an explicit recover card.
+        if gate.restToday {
+            sessions.insert(PlannedSession(
+                kind: .recover, title: "Recover today",
+                detail: "A walk, mobility or full rest. Come back to the plan when you're recovered.",
+                targetsLever: "Recovery",
+                why: gate.reason ?? "consider recovering before adding more load",
+                heldBack: true, heldReason: gate.reason, loggableCatalogDay: nil), at: 0)
+        }
+
+        let sCount = sessions.filter { $0.kind == .strength }.count
+        let zCount = sessions.filter { $0.kind == .zone2 }.count
+        let iCount = sessions.filter { $0.kind == .intervals }.count
+        var parts: [String] = []
+        if sCount > 0 { parts.append("\(sCount)× strength") }
+        if zCount > 0 { parts.append("\(zCount)× Zone-2") }
+        if iCount > 0 { parts.append("\(iCount)× intervals") }
+        let headline = parts.isEmpty ? "This week: recover" : "This week: " + parts.joined(separator: ", ")
+
+        let priority = strengthPromoted ? "Strength"
+            : (strengthAge >= cardioAge ? "Strength" : "Cardio (Z1–3)")
+        let note = strengthPromoted
+            ? "At your age with a strong aerobic base, muscle is the highest-return lever — so this week leans into strength. Physical Age is a fitness estimate, not a medical assessment."
+            : "Your plan is generated from your Physical Age levers and adjusts to your recovery each day. It's a fitness estimate, not a medical assessment."
+
+        return WeeklyProgramme(sessions: sessions, gate: gate, headline: headline,
+                               priorityLever: priority, strengthPromoted: strengthPromoted, note: note)
+    }
+
     // MARK: Vitals typical ranges (health-monitor style)
 
     struct VitalRange {
