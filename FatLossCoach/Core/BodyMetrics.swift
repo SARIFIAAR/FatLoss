@@ -316,8 +316,14 @@ enum BodyMetrics {
     struct FitnessAge {
         var age: Double                 // estimated fitness age
         var chronological: Int
-        var delta: Double               // age − chronological (negative = younger than your years)
-        var contributors: [(name: String, offsetYears: Double)]   // + ages you, − keeps you young
+        var delta: Double               // age − chronological (negative = younger than your years), ±15-CLAMPED
+        var contributors: [(name: String, offsetYears: Double)]   // + ages you, − keeps you young (UNCLAMPED)
+
+        /// Sum of the raw per-lever impacts BEFORE the ±15 total clamp (what the breakdown rows show).
+        var rawSum: Double { contributors.reduce(0) { $0 + $1.offsetYears } }
+        /// True when the raw per-lever contributions sum past the ±15 cap, so the displayed rows can't
+        /// literally add up to the (clamped) headline delta — the UI shows a reconciling footnote then.
+        var isClamped: Bool { abs(rawSum) > 15 + 0.05 }
     }
 
     /// WHOOP-Age model (WHOOP 2025 Healthspan white paper). "Effective age" = chronological +
@@ -406,14 +412,16 @@ enum BodyMetrics {
 
         // 6. Sleep consistency (cap +3 / −1.5 yr). Referent 70% (WHOOP). The 0–100% regularity
         //    score is computed in Store.fitnessAge() from bed/wake-time MAD. impact = −0.06·(score − 70).
-        if let sc = sleepConsistencyPct {
+        //    Guard: score must be a finite 0–100 value (a negative/NaN would fabricate worst-case aging).
+        if let sc = sleepConsistencyPct, sc.isFinite, sc >= 0, sc <= 100 {
             let impact = -0.06 * (sc - 70)
             offsets.append(("Sleep consistency", clamp(impact, -1.5, 3)))
         }
 
         // 7. Cardio — HR-zone 1–3 (cap +2 / −2.5 yr). Weekly zone-1..3 minutes. Referent 100 min/wk.
         //    < 100 → +2·(100 − min)/100; else −2.5·min(min − 100, 500)/500 (benefits to ~600 min/wk).
-        if let mins = cardioZ13Min {
+        //    Guard: finite, non-negative minutes only (a negative would read as extreme aging).
+        if let mins = cardioZ13Min, mins.isFinite, mins >= 0 {
             let impact: Double
             if mins < 100 { impact = 2.0 * (100 - mins) / 100 }
             else { impact = -2.5 * min(mins - 100, 500) / 500 }
@@ -422,7 +430,8 @@ enum BodyMetrics {
 
         // 8. Intensity — HR-zone 4–5 (cap +1 / −2 yr). Weekly zone-4..5 minutes. Referent 10 min/wk.
         //    < 10 → +1·(10 − min)/10; else −2·min(min − 10, 60)/60.
-        if let mins = intensityZ45Min {
+        //    Guard: finite, non-negative minutes only.
+        if let mins = intensityZ45Min, mins.isFinite, mins >= 0 {
             let impact: Double
             if mins < 10 { impact = 1.0 * (10 - mins) / 10 }
             else { impact = -2.0 * min(mins - 10, 60) / 60 }
@@ -434,7 +443,8 @@ enum BodyMetrics {
         //    at min−40 ≤ 80). < 40 → +1·(40 − min)/40; else −1.5·min(min − 40, 80)/80. Store only
         //    passes this when the member logged ANY workouts this week (absence of synced workouts
         //    is skipped, not penalized).
-        if let mins = strengthMin {
+        //    Guard: finite, non-negative minutes only.
+        if let mins = strengthMin, mins.isFinite, mins >= 0 {
             let impact: Double
             if mins < 40 { impact = 1.0 * (40 - mins) / 40 }
             else { impact = -1.5 * min(mins - 40, 80) / 80 }
@@ -609,10 +619,24 @@ enum BodyMetrics {
     /// Generate the week from the aging levers + the clinical rules (recovery gate, physiology-aware
     /// priority, low-RHR redirect). `fa` supplies the trainable-lever offsets; the rest are the
     /// physiology inputs. `trainingDaysTarget` is how many days/week the user said they can train.
+    /// `intensityZ45Min` is the ACTUAL recent weekly Z4–5 minutes (not the shortfall term) — a hard
+    /// interval session is only prescribed to someone with real high-intensity exposure. `avgSteps`
+    /// is the 28-day daily-step average, used with VO2 for the low-function intensity ceiling.
+    /// How the user wants training delivered (preference tunes HOW; the algo decides WHAT).
+    struct TrainingPreference {
+        var style: IntakeProfile.TrainingStyle = .balanced
+        var intensity: IntakeProfile.IntensityPref = .moderate
+        var sessionMinutes: Int = 40
+        var homeOnly: Bool = false          // no gym → bodyweight/minimal-equipment framing
+        var lowImpact: Bool = false         // low-impact preference → no hard intervals, gentler cardio
+    }
+
     static func weeklyProgramme(fa: FitnessAge?, age: Int, isMale: Bool,
                                 restingHR: Double?, vo2Max: Double?, bodyFatPct: Double?,
-                                trainingDaysTarget: Int,
-                                gate: RecoveryGate) -> WeeklyProgramme {
+                                trainingDaysTarget: Int, gate: RecoveryGate,
+                                intensityZ45Min: Double? = nil, avgSteps: Double? = nil,
+                                hrLoweringMed: Bool = false,
+                                preference: TrainingPreference = TrainingPreference()) -> WeeklyProgramme {
         // Trainable aging levers (skip non-trainable ones like RHR/sleep here — those have their own
         // prescriptions). Positive offset = aging → worth training.
         func offset(_ name: String) -> Double {
@@ -623,38 +647,80 @@ enum BodyMetrics {
         let strengthAge = max(offset("Strength"), offset("Lean mass"))    // muscle lever (trained + fed)
 
         // ---- Physiology-aware priority (the medical-review rules) ----
-        let rhrRef = isMale ? 60.0 : 64.0
-        let lowRHR = (restingHR ?? .greatestFiniteMagnitude) <= rhrRef        // strong aerobic base
         let vo2AtOrAboveTarget = (vo2Max ?? 0) >= vo2Target(age: Double(age), isMale: isMale)
+        let rhrRef = isMale ? 60.0 : 64.0
+        // ⭐ Beta-blocker / HR-lowering-med suppression (at-source): a pharmacologically low RHR is NOT
+        // aerobic fitness, so we ignore RHR entirely for the aerobic-base signal when the user declared
+        // an HR-lowering medication. Complements the VO2-corroboration fix (a low RHR without VO2 support
+        // already didn't count; this also stops a low RHR that HAPPENS to pair with an ok VO2 from reading
+        // as a "strong base" when the RHR is drug-driven).
+        let rhrLow = !hrLoweringMed && (restingHR ?? .greatestFiniteMagnitude) <= rhrRef
+        // A low RHR only signals a STRONG AEROBIC BASE when VO2 corroborates. A low RHR with LOW VO2
+        // (e.g. beta-blockers / deconditioning) is NOT fitness — do not treat it as one, and do not
+        // cap the cardio that person actually needs. (Fix #2 + the HR-med suppression above.)
+        let strongAerobicBase = rhrLow && vo2AtOrAboveTarget
         let leanHeadroom: Bool = {                                            // room to add muscle
             guard let bf = bodyFatPct else { return true }                    // unknown → assume headroom
             let fatRef = isMale ? 20.0 : 33.0
             return bf >= fatRef - 3                                           // not already very lean
         }()
-        // Promote strength above cardio for 45+ adults whose aerobic base is already strong (low RHR
-        // and/or VO2 at target) and who have lean-mass headroom: keeping muscle is a high-value wellness
+        // Promote strength above cardio for 45+ adults whose aerobic base is CORROBORATED-strong (low RHR
+        // AND VO2 at target) and who have lean-mass headroom: keeping muscle is a high-value wellness
         // goal as we age, and extra cardio on an already-fit aerobic system is low-return and steals
         // recovery budget from strength.
-        let strengthPromoted = age >= 45 && (lowRHR || vo2AtOrAboveTarget) && leanHeadroom
+        let strengthPromoted = age >= 45 && strongAerobicBase && leanHeadroom
 
-        // Low-RHR rule: a strong aerobic base CAPS "add more cardio" and forbids extra intensity as a
-        // "license to push" — redirect that budget to strength instead.
-        let capCardio = lowRHR
-        let allowIntensity = !lowRHR && intensityAge > 0.05 && !gate.restToday
+        // Cap "add more cardio" only when the aerobic base is corroborated-strong (not on a bare low RHR).
+        let capCardio = strongAerobicBase
+
+        // ---- Interval-prescription correctness rule (Fix #1a) ----
+        // A hard interval session is prescribed ONLY to someone with REAL recent high-intensity exposure
+        // (actual Z4–5 minutes logged) — never off a zero/low shortfall term. Prescribing max-effort
+        // "4×4 hard" from NO intensity history is simply wrong (the shortfall term inverts absence-of-data
+        // into "do the hardest thing"). This is a data-correctness fix, not an age/frailty policy block —
+        // residual training risk is covered by the liability declaration / T&C, not by hard clinical gates.
+        // (It still organically protects light-activity users, who by definition have no Z4–5 data.)
+        let hasRealIntensity = (intensityZ45Min ?? 0) >= 5            // meaningful Z4–5 minutes, not a shortfall
+        // Preference tunes HOW: a low-impact / gentle preference removes hard intervals (the algo still
+        // decides WHAT lever to work — it just gets delivered as easy cardio instead of max-effort).
+        let prefAllowsIntensity = !preference.lowImpact && preference.intensity != .gentle
+        let allowIntensity = hasRealIntensity && prefAllowsIntensity && !strongAerobicBase && !gate.restToday
+        // Whether the user has a real intensity SHORTFALL worth addressing (drives the downgrade card).
+        let intensityShortfall = intensityAge > 0.05
+        _ = avgSteps   // reserved (age/function ceiling dropped per CEO scope: data-driven, T&C-covered)
 
         // ---- Build the week (respecting the user's available days) ----
         let days = max(2, min(trainingDaysTarget, 6))
         var sessions: [PlannedSession] = []
 
-        // Decide strength vs cardio emphasis.
-        let strengthCount: Int
-        let cardioCount: Int
+        // Session-shape strings from the user's preference (HOW), independent of the algo's WHAT.
+        let mins = max(15, preference.sessionMinutes)
+        let strengthDetail = preference.homeOnly
+            ? "~\(mins) min · bodyweight / minimal-equipment circuit · 2 reps in reserve"
+            : "~\(mins) min · 4–6 compound lifts · 2 reps in reserve"
+        let zone2Detail = "~\(mins) min easy pace — you can hold a conversation"
+
+        // Decide strength vs cardio emphasis: the algo's lever priority FIRST, then the user's style nudges
+        // the split within the days they have (never overriding a promoted lever, just shaping the balance).
+        var strengthCount: Int
+        var cardioCount: Int
         if strengthPromoted || strengthAge >= cardioAge {
             strengthCount = min(days - (capCardio ? 0 : 1), max(2, days - 1))
             cardioCount = max(0, days - strengthCount)
         } else {
             cardioCount = min(2, days - 1)
             strengthCount = max(1, days - cardioCount)
+        }
+        // Preference nudge (respects the algo's minimum for the promoted lever):
+        switch preference.style {
+        case .strength where !strengthPromoted:
+            strengthCount = min(days - 1, strengthCount + 1); cardioCount = max(0, days - strengthCount)
+        case .cardio where !strengthPromoted:
+            cardioCount = min(days - 1, cardioCount + 1); strengthCount = max(1, days - cardioCount)
+        case .lowImpact:
+            // Gentle, more even split leaning on easy cardio; keep at least one strength session.
+            cardioCount = max(cardioCount, days - 1); strengthCount = max(1, days - cardioCount)
+        default: break
         }
 
         // Strength sessions (each backed by a legacy exercise-catalogue day so lift-logging survives).
@@ -664,8 +730,7 @@ enum BodyMetrics {
             sessions.append(PlannedSession(
                 kind: .strength,
                 title: "Strength session \(strengthCount > 1 ? "\(i + 1)" : "")".trimmingCharacters(in: .whitespaces),
-                detail: heldBack ? "Keep it light today — a few easy sets, stop well short of failure"
-                                 : "~30–45 min · 4–6 compound lifts · 2 reps in reserve",
+                detail: heldBack ? "Keep it light today — a few easy sets, stop well short of failure" : strengthDetail,
                 targetsLever: "Strength",
                 why: strengthPromoted
                     ? "builds strength — often your highest-value focus, and it helps you keep muscle as you age"
@@ -682,7 +747,7 @@ enum BodyMetrics {
             sessions.append(PlannedSession(
                 kind: .zone2,
                 title: "Zone-2 easy",
-                detail: heldBack ? "An easy walk is plenty today" : "30–40 min easy pace — you can hold a conversation",
+                detail: heldBack ? "An easy walk is plenty today" : zone2Detail,
                 targetsLever: "Cardio (Z1–3)",
                 why: capCardio
                     ? "your recent easy-cardio numbers already look solid — one easy session helps keep them there"
@@ -692,26 +757,41 @@ enum BodyMetrics {
                 loggableCatalogDay: nil))
         }
 
-        // One interval session ONLY when allowed (not gated, not capped by low RHR, and it's a real lever).
+        // One interval session ONLY when allowed: real recent high-intensity exposure, not a strong
+        // aerobic base, not low-function, and not gated. Otherwise show WHY (never silently drop).
         if allowIntensity {
             sessions.append(PlannedSession(
                 kind: .intervals,
                 title: "Intervals",
                 detail: "e.g. 4×4 min hard / 3 min easy — when you're feeling recovered",
                 targetsLever: "Intensity (Z4–5)",
-                why: "a little high-intensity work sharpens VO2 max — the intensity lever",
+                why: "a little high-intensity work sharpens your fitness — the intensity lever",
                 heldBack: false, heldReason: nil, loggableCatalogDay: nil))
-        } else if intensityAge > 0.05 && (lowRHR || gate.restToday) {
-            // Show WHY we're not prescribing intensity (never silently drop it).
+        } else if intensityShortfall || (intensityZ45Min ?? 0) > 0 {
+            // We have an intensity signal to address but are choosing NOT to prescribe hard intervals —
+            // explain why and downgrade to an easy option (never silently drop it): recovery first, then
+            // a strong-aerobic-base redirect to strength, then a gentle build-up when there's no recent
+            // high-intensity history to safely prescribe max-effort work from.
+            let downgradeDetail: String
+            let reason: String
+            if gate.restToday {
+                downgradeDetail = "Your recovery says ease off — add intensity back when you're fresh"
+                reason = gate.reason ?? "recovery comes first today"
+            } else if strongAerobicBase {
+                downgradeDetail = "Your easy-cardio numbers already look solid — consider putting the effort into strength instead"
+                reason = "shifted toward strength this week"
+            } else {
+                downgradeDetail = "Start with brisk walks or easy cardio — we'll add intervals once you've built some intensity"
+                reason = "no recent high-intensity training logged, so we start easy"
+            }
             sessions.append(PlannedSession(
                 kind: .recover,
-                title: "Skip hard intervals this week",
-                detail: gate.restToday ? "Your recovery says ease off — add intensity back when you're fresh"
-                                       : "Your easy-cardio numbers already look solid — consider putting the effort into strength instead",
+                title: "Easy cardio instead of intervals",
+                detail: downgradeDetail,
                 targetsLever: "Intensity (Z4–5)",
-                why: "pushing intensity now would steal recovery from the sessions that matter more for you",
+                why: "we add hard intervals once there's recent intensity to build on — easy cardio still helps in the meantime",
                 heldBack: true,
-                heldReason: gate.restToday ? gate.reason : "shifted toward strength this week",
+                heldReason: reason,
                 loggableCatalogDay: nil))
         }
 
@@ -725,14 +805,21 @@ enum BodyMetrics {
                 heldBack: true, heldReason: gate.reason, loggableCatalogDay: nil), at: 0)
         }
 
-        let sCount = sessions.filter { $0.kind == .strength }.count
-        let zCount = sessions.filter { $0.kind == .zone2 }.count
-        let iCount = sessions.filter { $0.kind == .intervals }.count
-        var parts: [String] = []
-        if sCount > 0 { parts.append("\(sCount)× strength") }
-        if zCount > 0 { parts.append("\(zCount)× Zone-2") }
-        if iCount > 0 { parts.append("\(iCount)× intervals") }
-        let headline = parts.isEmpty ? "This week: recover" : "This week: " + parts.joined(separator: ", ")
+        // Headline counts only sessions the user is actually being told to do (not held-back ones), so a
+        // gated/red-recovery day says "take it easy — recover" instead of advertising the full volume.
+        let sCount = sessions.filter { $0.kind == .strength && !$0.heldBack }.count
+        let zCount = sessions.filter { $0.kind == .zone2 && !$0.heldBack }.count
+        let iCount = sessions.filter { $0.kind == .intervals && !$0.heldBack }.count
+        let headline: String
+        if gate.restToday {
+            headline = "This week: take it easy — recover"
+        } else {
+            var parts: [String] = []
+            if sCount > 0 { parts.append("\(sCount)× strength") }
+            if zCount > 0 { parts.append("\(zCount)× Zone-2") }
+            if iCount > 0 { parts.append("\(iCount)× intervals") }
+            headline = parts.isEmpty ? "This week: take it easy — recover" : "This week: " + parts.joined(separator: ", ")
+        }
 
         let priority = strengthPromoted ? "Strength"
             : (strengthAge >= cardioAge ? "Strength" : "Cardio (Z1–3)")

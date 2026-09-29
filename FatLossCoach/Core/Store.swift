@@ -17,7 +17,7 @@ final class Store {
             guard data != oldValue else { return }
             if !isApplyingRemote {
                 lastModified = Date()
-                if data.goals != oldValue.goals || data.program != oldValue.program || data.reminders != oldValue.reminders || data.intake != oldValue.intake || data.physicalAgePlan != oldValue.physicalAgePlan {
+                if data.goals != oldValue.goals || data.program != oldValue.program || data.reminders != oldValue.reminders || data.intake != oldValue.intake || data.physicalAgePlan != oldValue.physicalAgePlan || data.consent != oldValue.consent {
                     settingsModified = Date()
                 }
             }
@@ -373,6 +373,15 @@ final class Store {
     func applyIntake(_ intake: IntakeProfile) {
         var p = intake
         p.completedAt = Date()
+        // Belt-and-braces: also derive the HR-lowering-med flag from the free-text meds field, so an
+        // existing beta-blocker mention sets the suppression even if the user didn't toggle the new switch.
+        if !p.hrLoweringMed {
+            let meds = p.medications.lowercased()
+            p.hrLoweringMed = ["beta block", "propranolol", "metoprolol", "atenolol", "bisoprolol", "carvedilol", "nebivolol"]
+                .contains { meds.contains($0) }
+        }
+        // Mirror the structured Apple-Watch answer into the legacy flag used by PlanBuilder/TDEE.
+        if p.wearable == .appleWatch { p.hasAppleWatch = true }
         var d = data
         d.intake = p
         d.goals = PlanBuilder.goals(for: p, existing: d.goals)
@@ -523,6 +532,13 @@ final class Store {
     }
     func resetWater() { data.water[today] = 0; onWaterChange?() }
 
+    /// Record provable acceptance of the health disclaimer + assumption-of-risk + Terms (first-run gate).
+    /// Version-stamped + timestamped; cloud-mirrors with the rest of `data`. Settings-stamped so it syncs.
+    func acceptConsent() {
+        data.consent.acceptedVersion = Legal.termsVersion
+        data.consent.acceptedAt = Date()
+    }
+
     func setHealthAlertsPush(_ on: Bool) { data.reminders.healthAlertsPush = on }
     func setMaxHR(_ bpm: Int?) { data.reminders.maxHrOverride = bpm }
 
@@ -595,7 +611,7 @@ final class Store {
         let k = day ?? today
         var r = data.recovery[k] ?? RecoveryDay()
         mutate(&r)
-        if r.isEmpty { data.recovery.removeValue(forKey: k) } else { data.recovery[k] = r }
+        if r.isEmpty { data.recovery.removeValue(forKey: k) } else { data.recovery[k] = r; noteFirstData() }
     }
 
     /// Merge normalised wearable-API data (Whoop / Oura) into recovery days + workouts. Feeds the
@@ -880,6 +896,7 @@ final class Store {
         if let bpDiastolic { h.bpDiastolic = bpDiastolic }
         if let hrrBpm { h.hrrBpm = hrrBpm }
         data.health[k] = h
+        noteFirstData()
     }
 
     /// Apple Health hydration fills a day only if the user hasn't logged more water manually.
@@ -943,6 +960,60 @@ final class Store {
         return nil
     }
 
+    // MARK: Physical-Age calibration (WHOOP-style "~2 weeks" gate)
+
+    /// Days of data required before Physical Age + the aging-algo programme unlock. WHOOP tells members to
+    /// wear it ~2 weeks before trusting the age; we mirror that at 14 days, distinct from the recovery
+    /// baseline (`BodyMetrics.minCalibrationDays`).
+    static let physicalAgeCalibrationDays = 14
+    /// Minimum distinct CORE metrics (VO2 / RHR / sleep / steps / body-fat) needed — so the sparse-data
+    /// "single-metric age" the stress test flagged can never show.
+    static let physicalAgeMinMetrics = 3
+
+    struct PhysicalAgeCalibration {
+        var daysCollected: Int          // days since first data (clamped ≥0)
+        var daysRequired: Int           // 14
+        var coreMetrics: Int            // how many of VO2/RHR/sleep/steps/bodyfat have a usable value
+        var minMetrics: Int             // 3
+        var unlocked: Bool { daysCollected >= daysRequired && coreMetrics >= minMetrics }
+        var daysRemaining: Int { max(0, daysRequired - daysCollected) }
+        var fraction: Double { min(1, Double(daysCollected) / Double(max(1, daysRequired))) }
+    }
+
+    /// The first calendar day we hold ANY usable data (recovery or health), used to start the 14-day clock.
+    /// Computed from the data if `firstDataDate` wasn't stamped yet (fresh installs stamp it in `noteFirstData`).
+    private var earliestDataKey: String? {
+        if let d = data.firstDataDate { return d }
+        let keys = Array(data.recovery.keys) + Array(data.health.keys)
+        return keys.min()
+    }
+
+    /// Physical-Age calibration status for the gate + the calibration UI.
+    var physicalAgeCalibration: PhysicalAgeCalibration {
+        let required = Self.physicalAgeCalibrationDays
+        let days: Int = {
+            guard let k = earliestDataKey, let start = DateKey.date(k) else { return 0 }
+            let elapsed = Calendar.current.dateComponents([.day], from: start, to: DateKey.daysAgo(0)).day ?? 0
+            return max(0, elapsed + 1)   // day 1 = the first day of data
+        }()
+        // Count distinct CORE metrics that actually have a usable value.
+        func has(_ vals: [Double]) -> Bool { !vals.isEmpty }
+        var metrics = 0
+        if latestVO2() != nil { metrics += 1 }
+        if has(bodyHistory(\.rhr, days: 28)) { metrics += 1 }
+        if has(bodyHistory(\.sleepH, days: 28)) { metrics += 1 }
+        if (1...28).contains(where: { (data.health[DateKey.key(DateKey.daysAgo($0))]?.steps ?? 0) > 0 }) { metrics += 1 }
+        if bodyComposition()?.bodyFatPct != nil { metrics += 1 }
+        return PhysicalAgeCalibration(daysCollected: days, daysRequired: required,
+                                      coreMetrics: metrics, minMetrics: Self.physicalAgeMinMetrics)
+    }
+
+    /// Stamp the first-data date once, when data first arrives (idempotent). Call from data-write paths.
+    func noteFirstData() {
+        guard data.firstDataDate == nil else { return }
+        if let k = earliestDataKey { data.firstDataDate = k } else { data.firstDataDate = today }
+    }
+
     /// Fitness-age estimate (WHOOP-Age model, the full 9 metrics) from recent metrics: 28-day
     /// averages of RHR / steps / sleep + latest VO2 max + latest body-fat %, plus four weekly
     /// workout/timing metrics computed here from the collections — sleep consistency (last ~5
@@ -951,8 +1022,12 @@ final class Store {
     /// Body-fat % comes from the same source `bodyComposition()` uses (InBody/manual entry preferred,
     /// else Apple Health BIA) so the lean-mass metric only appears when the data exists. Each metric
     /// is nil when its data is absent, so it's simply skipped (never a fabricated or penalized zero).
+    ///
+    /// GATED: returns nil until the 14-day / ≥3-core-metric calibration completes (WHOOP-style). The UI
+    /// shows a calibration state during that window instead of a low-confidence single-metric age.
     func fitnessAge() -> BodyMetrics.FitnessAge? {
         guard let intake = data.intake else { return nil }
+        guard physicalAgeCalibration.unlocked else { return nil }
         func avg(_ vals: [Double]) -> Double? { vals.isEmpty ? nil : vals.reduce(0, +) / Double(vals.count) }
         let rhr = avg(bodyHistory(\.rhr, days: 28))
         let sleep = avg(bodyHistory(\.sleepH, days: 28))
@@ -960,7 +1035,9 @@ final class Store {
             let s = data.health[DateKey.key(DateKey.daysAgo(n))]?.steps ?? 0
             return s > 0 ? Double(s) : nil
         })
-        let bodyFat = bodyComposition()?.bodyFatPct
+        // Body-fat for the lean-mass lever: measured (InBody/BIA) first, else the user's self-reported
+        // onboarding value if they gave one — so the lever appears for people without a smart scale.
+        let bodyFat = bodyComposition()?.bodyFatPct ?? intake.bodyFatKnownPct
 
         // Sleep consistency (last 5 days, ≥3 with both bed & wake time). Regularity = mean absolute
         // deviation from the median of bed-minute-of-day and wake-minute-of-day (bedtimes before
@@ -1092,6 +1169,9 @@ final class Store {
     /// reason about — the Workout tab shows a connect/onboard state then.
     func weeklyProgramme() -> BodyMetrics.WeeklyProgramme? {
         guard let intake = data.intake else { return nil }
+        // Gated with Physical Age: during the 14-day calibration the Train tab shows starter guidance,
+        // not the full aging-algo plan (they unlock together).
+        guard physicalAgeCalibration.unlocked else { return nil }
         let scores = bodyDay()   // today's recovery / strain / workload
         let targetBand = scores.recovery.map { BodyMetrics.targetStrain(recovery: $0.score) } ?? (6.0...12.0)
         let gate = BodyMetrics.recoveryGate(recovery: scores.recovery, strain: scores.strain,
@@ -1099,9 +1179,35 @@ final class Store {
         func avg(_ vals: [Double]) -> Double? { vals.isEmpty ? nil : vals.reduce(0, +) / Double(vals.count) }
         let rhr = avg(bodyHistory(\.rhr, days: 28))
         let bodyFat = bodyComposition()?.bodyFatPct
+        // Actual recent high-intensity exposure (last-7-day Z4–5 minutes) — drives whether a HARD interval
+        // session may be prescribed at all (the shortfall term alone must not). Only counts workouts that
+        // carry zone data, matching how fitnessAge() aggregates the intensity metric.
+        var z45 = 0.0; var hasZoneData = false
+        for n in 1...7 {
+            for w in data.workouts[DateKey.key(DateKey.daysAgo(n))] ?? [] {
+                if w.zoneMin.contains(where: { $0 > 0 }) {
+                    hasZoneData = true
+                    if w.zoneMin.count > 3 { z45 += w.zoneMin[3...].reduce(0, +) }
+                }
+            }
+        }
+        let intensityMin: Double? = hasZoneData ? z45 : nil
+        let steps = avg((1...28).compactMap { n -> Double? in
+            let s = data.health[DateKey.key(DateKey.daysAgo(n))]?.steps ?? 0
+            return s > 0 ? Double(s) : nil
+        })
+        // Preference (HOW): style / intensity / session length / equipment from the intake profile.
+        let pref = BodyMetrics.TrainingPreference(
+            style: intake.trainingStyle,
+            intensity: intake.intensityPref,
+            sessionMinutes: intake.sessionLength.minutes,
+            homeOnly: intake.location == .home || intake.equipment == [.none],
+            lowImpact: intake.trainingStyle == .lowImpact || intake.intensityPref == .gentle)
         return BodyMetrics.weeklyProgramme(fa: fitnessAge(), age: intake.age, isMale: intake.sex == .male,
                                            restingHR: rhr, vo2Max: latestVO2(), bodyFatPct: bodyFat,
-                                           trainingDaysTarget: intake.trainingDays, gate: gate)
+                                           trainingDaysTarget: intake.trainingDays, gate: gate,
+                                           intensityZ45Min: intensityMin, avgSteps: steps,
+                                           hrLoweringMed: intake.hrLoweringMed, preference: pref)
     }
 
     /// The legacy exercise-catalogue day backing a generated strength session's lift-logging (from the

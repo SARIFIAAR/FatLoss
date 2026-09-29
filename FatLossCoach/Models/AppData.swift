@@ -424,6 +424,25 @@ struct PlanItem: Codable, Hashable, Identifiable {
     }
 }
 
+/// Provable record of the user accepting the health disclaimer + assumption-of-risk + Terms of Use
+/// (first-run consent gate). Version-stamped so a MATERIAL change to the terms can re-prompt; the
+/// accepted version + timestamp are cloud-mirrored for provability. NOTE: the disclaimer/terms COPY is
+/// a regulatory-affairs DRAFT (`docs/legal/humans-terms-and-disclaimer.md`) pending UAE-lawyer review +
+/// CEO sign-off before ship — this is the wiring, not the final legal text.
+struct ConsentRecord: Codable, Hashable {
+    /// Bump when the terms materially change → users re-prompted. Keep in sync with `Legal.termsVersion`.
+    var acceptedVersion: Int = 0
+    var acceptedAt: Date? = nil
+    var accepted: Bool { acceptedAt != nil && acceptedVersion >= Legal.termsVersion }
+
+    init() {}
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        acceptedVersion = c.value(.acceptedVersion, default: 0)
+        acceptedAt      = c.value(.acceptedAt,      default: nil)
+    }
+}
+
 /// Everything the app persists. One JSON file on disk, mirrored to Firestore when signed in.
 struct AppData: Codable, Hashable {
     var weightLogs: [MeasurementEntry] = []                 // was "weight-logs" (+ "cur-weight")
@@ -463,6 +482,12 @@ struct AppData: Codable, Hashable {
     // (accepted state) and Train (this-week's-focus). Settings-stamped so it syncs like goals/reminders.
     var physicalAgePlan: [PlanItem] = []
     var intake: IntakeProfile? = nil                        // onboarding questionnaire (nil = not done)
+    // First calendar day we ever collected usable data (set once, never moved). Physical Age + the aging-algo
+    // programme stay in a CALIBRATION state until ≥14 days of data exist since this date (WHOOP "~2 weeks").
+    var firstDataDate: String? = nil
+    // Provable acceptance of the health disclaimer + assumption-of-risk + T&C (first-run consent gate).
+    // Version-stamped + timestamped so a material terms change can re-prompt; cloud-mirrored for provability.
+    var consent = ConsentRecord()
     var updatedAt: Date = Date()
     /// When goals / programme / reminders last changed. Merges take those three from the copy with the
     /// newer settings stamp, so a copy that is "newer" only because of health or meal writes can't revert them.
@@ -507,6 +532,8 @@ struct AppData: Codable, Hashable {
         reminders    = c.value(.reminders,    default: ReminderSettings())
         physicalAgePlan = c.value(.physicalAgePlan, default: [])
         intake       = c.value(.intake,       default: nil)
+        firstDataDate = c.value(.firstDataDate, default: nil)
+        consent      = c.value(.consent,      default: ConsentRecord())
         // An unreadable stamp must never make a copy look newest — default to the epoch, not now.
         updatedAt    = c.value(.updatedAt,    default: Date(timeIntervalSince1970: 0))
         settingsUpdatedAt = c.value(.settingsUpdatedAt, default: Date(timeIntervalSince1970: 0))
@@ -626,6 +653,15 @@ struct AppData: Codable, Hashable {
         let mergedPlanIDs = Set(mergedPlan.map(\.id))
         for p in older.physicalAgePlan where !mergedPlanIDs.contains(p.id) { mergedPlan.append(planByLever[p.id] ?? p) }
         out.physicalAgePlan = mergedPlan
+        // First-data date: the EARLIEST non-nil across both copies wins (it only ever moves earlier), so the
+        // 14-day calibration clock reflects the true start of data collection across devices.
+        out.firstDataDate = [firstDataDate, other.firstDataDate].compactMap { $0 }.min()
+        // Consent: the acceptance with the highest version (then latest timestamp) wins — accepting on one
+        // device counts everywhere, and a re-accept after a terms bump is never reverted by a stale copy.
+        let consents = [consent, other.consent]
+        out.consent = consents.max {
+            ($0.acceptedVersion, $0.acceptedAt ?? .distantPast) < ($1.acceptedVersion, $1.acceptedAt ?? .distantPast)
+        } ?? consent
         // Settings (goals, programme, reminders) follow their own stamp, not the data stamp.
         let settingsSource = other.settingsUpdatedAt > settingsUpdatedAt ? other : self
         out.goals = settingsSource.goals

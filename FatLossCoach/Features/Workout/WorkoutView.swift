@@ -17,12 +17,19 @@ struct PhysicalAgePlanView: View {
             if let wk = store.weeklyProgramme() {
                 planHeader(wk)
                 if wk.gate.restToday { recoveryBanner(wk.gate) }
+                // Extra-prominent safety line the first time a higher-intensity (interval) session appears.
+                if wk.sessions.contains(where: { $0.kind == .intervals }) { intensityDisclaimer }
                 VStack(spacing: 10) {
                     ForEach(wk.sessions) { s in SessionCard(session: s) { openLog(s) } }
                 }
                 Card {
                     Text(wk.note).font(.system(size: 12)).foregroundStyle(Theme.muted).lineSpacing(3)
+                    Text(Legal.placementShort)
+                        .font(.system(size: 10)).foregroundStyle(Theme.muted.opacity(0.7)).padding(.top, 8)
                 }
+            } else if store.data.intake != nil {
+                // In the 14-day calibration window → gentle starter guidance, not the full algo plan.
+                calibrationStarterCard
             } else {
                 Card {
                     SectionTitle("Your plan")
@@ -63,6 +70,17 @@ struct PhysicalAgePlanView: View {
         }
     }
 
+    /// Extra-prominent, wellness-framed safety line shown when the week includes a higher-intensity session.
+    private var intensityDisclaimer: some View {
+        Card {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 15)).foregroundStyle(Theme.orange)
+                Text(Legal.intensityFirstTime)
+                    .font(.system(size: 12)).foregroundStyle(Theme.text).lineSpacing(3)
+            }
+        }
+    }
+
     private func recoveryBanner(_ gate: BodyMetrics.RecoveryGate) -> some View {
         Card {
             HStack(alignment: .top, spacing: 8) {
@@ -73,6 +91,43 @@ struct PhysicalAgePlanView: View {
                         .font(.system(size: 12)).foregroundStyle(Theme.muted).lineSpacing(3)
                 }
             }
+        }
+    }
+
+    /// Shown during the 14-day Physical-Age calibration: a gentle starter routine (no algo plan yet) plus
+    /// the unlock countdown. Consistent with the Body-tab calibration state — both unlock together at day 14.
+    @ViewBuilder private var calibrationStarterCard: some View {
+        let cal = store.physicalAgeCalibration
+        Card {
+            SectionTitle("Getting to know you")
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Theme.card2)
+                    Capsule().fill(Theme.primary).frame(width: geo.size.width * cal.fraction)
+                }
+            }
+            .frame(height: 8).padding(.vertical, 8)
+            Text(cal.daysRemaining > 0
+                 ? "Day \(min(cal.daysCollected, cal.daysRequired)) of \(cal.daysRequired) — your personalized Physical Age plan unlocks in \(cal.daysRemaining) day\(cal.daysRemaining == 1 ? "" : "s")."
+                 : "Almost there — connect a few more days of data and your plan unlocks.")
+                .font(.system(size: 13)).foregroundStyle(Theme.text).lineSpacing(3)
+            Text("Until then, keep it simple and consistent:")
+                .font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.muted).padding(.top, 8)
+            VStack(alignment: .leading, spacing: 6) {
+                starterLine("figure.walk", "A daily 20–30 min brisk walk")
+                starterLine("dumbbell.fill", "2 easy full-body strength sessions this week")
+                starterLine("moon.zzz.fill", "Aim for a steady 7–8 h sleep")
+            }
+            .padding(.top, 6)
+            Text(Legal.placementShort)
+                .font(.system(size: 10)).foregroundStyle(Theme.muted.opacity(0.7)).padding(.top, 10)
+        }
+    }
+
+    private func starterLine(_ icon: String, _ text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon).font(.system(size: 13)).foregroundStyle(Theme.primary).frame(width: 18)
+            Text(text).font(.system(size: 13)).foregroundStyle(Theme.text)
         }
     }
 }

@@ -33,6 +33,7 @@ struct OnboardingView: View {
         case medExplainer              // NEW (v4 item 4) — shown ONLY if medications entered; HR-calibration
         case habits, supplements
         case connectDevice             // Apple Watch / Oura / WHOOP / HUMANS soon / phone-only
+        case preferences               // build-67: goal type + training style/intensity/session length (the "how")
         case building, summary, valueProp
     }
 
@@ -57,6 +58,7 @@ struct OnboardingView: View {
     @State private var waistText: String
     @State private var goalText: String
     @State private var birthYearText: String
+    @State private var bodyFatText: String
 
     init(existing: IntakeProfile? = nil, canSkip: Bool = false, onDone: @escaping (IntakeProfile) -> Void) {
         let start = existing ?? IntakeProfile()
@@ -66,6 +68,7 @@ struct OnboardingView: View {
         _waistText = State(initialValue: start.waistCm.map(Fmt.num) ?? "")
         _goalText = State(initialValue: Fmt.num(start.goalWeightKg))
         _birthYearText = State(initialValue: String(start.birthYear))
+        _bodyFatText = State(initialValue: start.bodyFatKnownPct.map(Fmt.num) ?? "")
         self.onDone = onDone
         self.canSkip = canSkip
     }
@@ -78,10 +81,10 @@ struct OnboardingView: View {
     /// linear order). Editing from Profile is questions-only (no marketing, no auth, no device step).
     private var steps: [Step] {
         isEditing
-            ? [.aboutYou, .goal, .activity, .training, .food, .lifestyle, .chronotype, .health, .habits, .supplements, .summary]
+            ? [.aboutYou, .goal, .activity, .training, .preferences, .food, .lifestyle, .chronotype, .health, .habits, .supplements, .summary]
             : [.welcome, .privacy, .bodyExplainer, .energyExplainer, .socialProof, .signIn,
                .aboutYou, .goal, .goalPreview, .activity, .activityPreview,
-               .recoveryExplainer, .training, .food,
+               .recoveryExplainer, .training, .preferences, .food,
                .sleepExplainer, .lifestyle, .chronotype, .health, .medExplainer,
                .habits, .supplements,
                .connectDevice, .building, .summary, .valueProp]
@@ -209,6 +212,7 @@ struct OnboardingView: View {
         case .goal:      return "Your goal"
         case .activity:  return "Daily activity"
         case .training:  return "Training"
+        case .preferences: return "How you like to train"
         case .food:      return "Food"
         case .lifestyle: return "Lifestyle"
         case .chronotype: return "Your body clock"
@@ -232,6 +236,7 @@ struct OnboardingView: View {
             case .goal:      goal
             case .activity:  activity
             case .training:  training
+            case .preferences: preferences
             case .food:      food
             case .lifestyle: lifestyle
             case .health:    health
@@ -510,6 +515,9 @@ struct OnboardingView: View {
         p.waistCm = Fmt.parse(waistText)
         if let v = Fmt.parse(goalText) { p.goalWeightKg = v }
         if let v = Int(birthYearText) { p.birthYear = v }
+        // Optional body-fat %: only accept a sane 3–70 value; blank clears it.
+        let bf = Fmt.parse(bodyFatText)
+        p.bodyFatKnownPct = (bf.map { $0 >= 3 && $0 <= 70 } == true) ? bf : nil
     }
 
     // MARK: steps
@@ -639,9 +647,41 @@ struct OnboardingView: View {
             field("Over the last few weeks, my mood has been…") { options(IntakeProfile.Mood.allCases, selected: $p.mood) }
             field("Do you feel anxious or on edge?") { options(IntakeProfile.Anxiety.allCases, selected: $p.anxiety) }
             field("Medications you take (optional)") { TextField("e.g. metformin, sertraline", text: $p.medications, axis: .vertical).lineLimit(1...3).textFieldStyle(.roundedBorder) }
+            // ⭐ Structured HR-med flag — feeds the training engine so a drug-lowered resting HR is never
+            // read as aerobic fitness. Kept plain-language and non-diagnostic.
+            Toggle(isOn: $p.hrLoweringMed) { VStack(alignment: .leading, spacing: 2) {
+                Text("I take a medication that lowers my heart rate").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
+                Text("e.g. a beta-blocker — so we read your heart rate the right way").font(.system(size: 11)).foregroundStyle(Theme.muted)
+            } }.tint(Theme.primary)
+            Toggle(isOn: $p.pregnant) { Text("I'm pregnant or recently gave birth").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text) }.tint(Theme.primary)
+            if p.pregnant || p.conditions.contains(.heart) {
+                Text(Legal.checkProfessional)
+                    .font(.system(size: 11)).foregroundStyle(Theme.orange).lineSpacing(3).padding(.top, 2)
+            }
             field("Supplements you already take (optional)") { TextField("e.g. vitamin D, omega-3", text: $p.currentSupplements).textFieldStyle(.roundedBorder) }
             Toggle(isOn: $p.smoker) { Text("I smoke or vape").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text) }.tint(Theme.primary)
             Toggle(isOn: $p.doctorCleared) { Text("A doctor has cleared me for diet and exercise").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text) }.tint(Theme.primary)
+        }
+    }
+
+    /// Build-67 "preferred mode" step — the HOW. Wired into `weeklyProgramme` (style/intensity/session
+    /// length tune delivery; the aging algo still decides WHAT lever to work). Also captures wearable +
+    /// optional body-fat for model-completeness.
+    private var preferences: some View {
+        Group {
+            intro("Tell us how you like to train — we'll shape your plan around it. The science decides WHAT to work; you decide HOW.")
+            field("What's your main goal?") { options(IntakeProfile.GoalType.allCases, selected: $p.goalType) }
+            field("Training style you enjoy") { options(IntakeProfile.TrainingStyle.allCases, selected: $p.trainingStyle) }
+            field("How hard should we push you?") { segmented($p.intensityPref) }
+            field("Time you have per session") { segmented($p.sessionLength) }
+            field("Do you wear a tracker or watch?") { options(IntakeProfile.Wearable.allCases, selected: $p.wearable) }
+            if !p.wearable.autoSyncs && p.wearable != .none {
+                Text("Great — where your \(p.wearable.label) doesn't auto-sync to Apple Health, you can enter numbers manually and everything still works.")
+                    .font(.system(size: 11)).foregroundStyle(Theme.muted).lineSpacing(3)
+            }
+            field("Body-fat % (optional — if you know it from a scale)") {
+                TextField("e.g. 22", text: $bodyFatText).keyboardType(.decimalPad).textFieldStyle(.roundedBorder)
+            }
         }
     }
 
@@ -1182,6 +1222,11 @@ extension IntakeProfile.Condition: LabeledOption {}
 extension IntakeProfile.Chronotype: LabeledOption {}
 extension IntakeProfile.Mood: LabeledOption {}
 extension IntakeProfile.Anxiety: LabeledOption {}
+extension IntakeProfile.Wearable: LabeledOption {}
+extension IntakeProfile.GoalType: LabeledOption {}
+extension IntakeProfile.TrainingStyle: LabeledOption {}
+extension IntakeProfile.IntensityPref: LabeledOption {}
+extension IntakeProfile.SessionLength: LabeledOption {}
 
 /// Simple wrapping layout for chips.
 struct FlowLayout: Layout {

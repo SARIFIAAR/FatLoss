@@ -17,7 +17,7 @@ struct RootRouter: View {
     @Environment(Store.self) private var store
     @Environment(CloudSync.self) private var cloud
 
-    enum Route: Equatable { case splash, onboarding, app }
+    enum Route: Equatable { case splash, consent, onboarding, app }
     @State private var route: Route = .splash
     /// When resolving involves a cloud round-trip, show the honest "Welcome back / Restoring" beat on the
     /// splash rather than a bare logo, so a returning user on a slow network sees progress (not a stall).
@@ -29,6 +29,13 @@ struct RootRouter: View {
             switch route {
             case .splash:
                 SplashView(restoring: restoring, name: splashName)
+            case .consent:
+                // First-run BLOCKING gate: the health disclaimer + assumption-of-risk + T&C must be
+                // accepted (unchecked box, no skip) before anything else. Persists version + timestamp.
+                ConsentGateView {
+                    store.acceptConsent()
+                    Task { await resolvePostConsent() }
+                }
             case .app:
                 // Home is constructed ONLY here — after the route is decided. It can never precede the splash.
                 ContentView()
@@ -69,6 +76,13 @@ struct RootRouter: View {
             let hold = max(0, d.double(forKey: "splashHold"))
             if hold > 0 { try? await Task.sleep(for: .seconds(hold)) }
         }
+        // `-consentGate 1` forces the first-run consent gate for screenshots/QA.
+        if d.bool(forKey: "consentGate") {
+            withAnimation(.easeInOut(duration: 0.25)) { route = .consent }
+            return
+        }
+        // `-skipConsent 1` records acceptance up-front so other-flow screenshots aren't blocked by the gate.
+        if d.bool(forKey: "skipConsent") && !store.data.consent.accepted { store.acceptConsent() }
         // `-showCollision` exercises the in-app collision overlay (ContentView owns it) → route to the app.
         if d.bool(forKey: "showCollision") {
             withAnimation(.easeInOut(duration: 0.25)) { route = .app }
@@ -80,9 +94,10 @@ struct RootRouter: View {
             return
         }
 
-        // 2. Local plan already on device → returning user, go straight to the app (no flash of onboarding).
+        // 2. Local plan already on device → returning user (consent gate below still applies if the terms
+        //    changed materially, so check consent before dropping into the app).
         if store.data.intake != nil || !store.data.isEmpty {
-            withAnimation(.easeInOut(duration: 0.25)) { route = .app }
+            routeAfterConsent(hasPlan: true)
             return
         }
 
@@ -99,7 +114,23 @@ struct RootRouter: View {
             }
         }
 
-        // 4. Decide. Data present → app; still empty → genuinely new/signed-out → onboarding.
+        // 4. Decide. Consent gate first (blocks first use / re-prompts on a material terms change),
+        //    then data present → app; still empty → genuinely new/signed-out → onboarding.
+        let hasPlan = store.data.intake != nil || !store.data.isEmpty
+        routeAfterConsent(hasPlan: hasPlan)
+    }
+
+    /// Route to the consent gate first when terms aren't accepted (or a material change bumped the
+    /// version); otherwise straight to app/onboarding. The gate is BLOCKING — no skip.
+    private func routeAfterConsent(hasPlan: Bool) {
+        let next: Route = hasPlan ? .app : .onboarding
+        withAnimation(.easeInOut(duration: 0.3)) {
+            route = store.data.consent.accepted ? next : .consent
+        }
+    }
+
+    /// Continue after the user accepts consent on the gate.
+    private func resolvePostConsent() async {
         let hasPlan = store.data.intake != nil || !store.data.isEmpty
         withAnimation(.easeInOut(duration: 0.3)) { route = hasPlan ? .app : .onboarding }
     }

@@ -62,6 +62,36 @@ struct IntakeProfile: Codable, Hashable {
             case .cholesterol: return "High cholesterol"; case .thyroid: return "Thyroid"; case .pcos: return "PCOS"
             case .joints: return "Joint / back pain"; case .heart: return "Heart condition"; case .kidney: return "Kidney condition" } } }
 
+    // MARK: Build-67 structured questions (model-completeness + preferred mode)
+
+    /// What the user wears (sets manual-vs-auto data expectations; feeds body-metric confidence).
+    enum Wearable: String, Codable, CaseIterable, Identifiable { case appleWatch, oura, whoop, garmin, fitbit, other, none; var id: String { rawValue }
+        var label: String { switch self {
+            case .appleWatch: return "Apple Watch"; case .oura: return "Oura Ring"; case .whoop: return "WHOOP"
+            case .garmin: return "Garmin"; case .fitbit: return "Fitbit"; case .other: return "Another tracker"; case .none: return "No tracker — phone only" } }
+        /// Whether this device auto-writes HR/HRV/sleep to Apple Health (Apple Watch) vs manual/limited sync.
+        var autoSyncs: Bool { self == .appleWatch } }
+
+    /// Primary goal — now includes healthspan/longevity, not just fat loss.
+    enum GoalType: String, Codable, CaseIterable, Identifiable { case fatLoss, buildMuscle, healthspan, fitness, maintain; var id: String { rawValue }
+        var label: String { switch self {
+            case .fatLoss: return "Lose fat"; case .buildMuscle: return "Build muscle"; case .healthspan: return "Healthspan / longevity"
+            case .fitness: return "Get fitter"; case .maintain: return "Maintain & feel good" } } }
+
+    /// Training-style preference — tunes HOW the algo's WHAT is delivered.
+    enum TrainingStyle: String, Codable, CaseIterable, Identifiable { case strength, cardio, balanced, lowImpact; var id: String { rawValue }
+        var label: String { switch self {
+            case .strength: return "Mostly strength"; case .cardio: return "Mostly cardio"; case .balanced: return "A balance"; case .lowImpact: return "Low-impact / gentle" } } }
+
+    /// How hard the user wants to be pushed.
+    enum IntensityPref: String, Codable, CaseIterable, Identifiable { case gentle, moderate, pushHard; var id: String { rawValue }
+        var label: String { switch self { case .gentle: return "Gentle"; case .moderate: return "Moderate"; case .pushHard: return "Push me hard" } } }
+
+    /// Preferred session length (minutes).
+    enum SessionLength: String, Codable, CaseIterable, Identifiable { case short, medium, long; var id: String { rawValue }
+        var label: String { switch self { case .short: return "~20 min"; case .medium: return "~40 min"; case .long: return "60+ min" } }
+        var minutes: Int { switch self { case .short: return 20; case .medium: return 40; case .long: return 60 } } }
+
     // About you
     var name = ""
     var sex: Sex = .male
@@ -112,6 +142,20 @@ struct IntakeProfile: Codable, Hashable {
     var currentSupplements = ""
     var doctorCleared = false
     var smoker = false
+    // Build-67 structured health flags (complement the free-text `medications`/`conditions`):
+    /// Takes a medication that lowers heart rate (e.g. beta-blocker). ⭐ When true, the Physical-Age
+    /// training engine SUPPRESSES the low-RHR-as-fitness logic entirely — a pharmacologically low RHR
+    /// must never read as a strong aerobic base. Direct at-source fix for the beta-blocker edge case.
+    var hrLoweringMed = false
+    /// Pregnant or recently gave birth — strengthens the consult-a-professional disclaimer (no medical gate here).
+    var pregnant = false
+    // Build-67 model-completeness + preferred-mode:
+    var wearable: Wearable = .none
+    var bodyFatKnownPct: Double? = nil          // optional self-reported / smart-scale body-fat % (feeds lean-mass lever)
+    var goalType: GoalType = .fatLoss
+    var trainingStyle: TrainingStyle = .balanced
+    var intensityPref: IntensityPref = .moderate
+    var sessionLength: SessionLength = .medium
     // Personalization — habits to build & supplements to track (seed the tracker on first plan).
     // These are PER-USER: stored in this profile only, applied to the user's own tracker on first plan.
     var wantedHabits: Set<HabitMetric> = []      // metric-backed habits (Steps, Water, Protein…)
@@ -150,6 +194,14 @@ struct IntakeProfile: Codable, Hashable {
         mood = c.value(.mood, default: .good); anxiety = c.value(.anxiety, default: .rarely)
         currentSupplements = c.value(.currentSupplements, default: ""); doctorCleared = c.value(.doctorCleared, default: false)
         smoker = c.value(.smoker, default: false); hasAppleWatch = c.value(.hasAppleWatch, default: false)
+        hrLoweringMed = c.value(.hrLoweringMed, default: false)
+        pregnant = c.value(.pregnant, default: false)
+        wearable = c.value(.wearable, default: .none)
+        bodyFatKnownPct = c.value(.bodyFatKnownPct, default: nil)
+        goalType = c.value(.goalType, default: .fatLoss)
+        trainingStyle = c.value(.trainingStyle, default: .balanced)
+        intensityPref = c.value(.intensityPref, default: .moderate)
+        sessionLength = c.value(.sessionLength, default: .medium)
         wantedHabits = c.value(.wantedHabits, default: [])
         wantedHabitTemplates = c.value(.wantedHabitTemplates, default: [])
         supplementsWanted = c.value(.supplementsWanted, default: [])

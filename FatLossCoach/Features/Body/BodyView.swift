@@ -871,9 +871,51 @@ struct BodyView: View {
             .padding(.top, 8)
             Text("Compared to a health-optimized target — meeting the guidelines, not the average — so many people skew older. Each metric's years add up to your Physical Age.")
                 .font(.system(size: 10)).foregroundStyle(W.muted).padding(.top, 8)
+            if fa.isClamped {
+                // The raw per-lever years can sum past the ±15 cap; be honest that the rows above then
+                // total more than the (capped) headline number rather than letting them silently mismatch.
+                Text("Your individual factors add up to more than \(Int(fa.delta.rounded())) yrs — we cap the total at ±15 yrs, so the number above is the capped figure.")
+                    .font(.system(size: 10)).foregroundStyle(W.muted).padding(.top, 4)
+            }
             Text("Physical Age is a fitness estimate — not a clinical or biological age, and not a predictor of life expectancy.")
                 .font(.system(size: 10)).foregroundStyle(W.muted.opacity(0.7)).padding(.top, 4)
+            Text(Legal.placementShort)
+                .font(.system(size: 10)).foregroundStyle(W.muted.opacity(0.7)).padding(.top, 2)
+        } else if store.data.intake != nil {
+            // Not yet unlocked → WHOOP-style calibration state (no number until enough history exists).
+            physicalAgeCalibrationRow
         }
+    }
+
+    @ViewBuilder private var physicalAgeCalibrationRow: some View {
+        let cal = store.physicalAgeCalibration
+        Rectangle().fill(W.divider).frame(height: 1).padding(.vertical, 12)
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("PHYSICAL AGE").font(W.label(9)).kerning(0.8).foregroundStyle(W.muted)
+                Text("—").font(W.score(34)).foregroundStyle(W.muted)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("Day \(min(cal.daysCollected, cal.daysRequired)) / \(cal.daysRequired)")
+                    .font(W.score(15)).foregroundStyle(W.vibrant)
+                Text("calibrating").font(.system(size: 11)).foregroundStyle(W.muted)
+            }
+        }
+        // Progress bar toward day 14.
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(W.card2)
+                Capsule().fill(W.vibrant).frame(width: geo.size.width * cal.fraction)
+            }
+        }
+        .frame(height: 8).padding(.top, 10)
+        Text(cal.daysRemaining > 0
+             ? "Collecting your data — your Physical Age unlocks in \(cal.daysRemaining) day\(cal.daysRemaining == 1 ? "" : "s")."
+             : "Almost there — connect at least \(cal.minMetrics) of VO₂ max, resting HR, sleep, steps or body-fat to unlock.")
+            .font(.system(size: 11)).foregroundStyle(W.muted).padding(.top, 10)
+        Text("Like WHOOP, we wait about two weeks of data before showing your Physical Age, so the number you see is trustworthy.")
+            .font(.system(size: 10)).foregroundStyle(W.muted.opacity(0.7)).padding(.top, 4)
     }
 
     private func fitnessAgeContributorRow(name: String, years: Double) -> some View {
@@ -920,6 +962,12 @@ struct BodyView: View {
                     .padding(.top, 4)
                     Text("Projections move ONE lever to a realistic 8-week target and recompute — the achievable win, not a fantasy.")
                         .font(.system(size: 10)).foregroundStyle(W.muted.opacity(0.7)).padding(.top, 10)
+                    if fa.isClamped {
+                        // Same reconciliation note as the breakdown: the per-lever "adds +X yrs" figures
+                        // are raw and can total past the ±15-capped headline; say so rather than mislead.
+                        Text("Per-factor years are before the ±15-yr cap, so they can add up to more than your capped Physical Age total.")
+                            .font(.system(size: 10)).foregroundStyle(W.muted.opacity(0.7)).padding(.top, 4)
+                    }
                 }
             }
         }
