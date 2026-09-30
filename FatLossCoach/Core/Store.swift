@@ -960,19 +960,24 @@ final class Store {
         return nil
     }
 
-    // MARK: Physical-Age calibration (WHOOP-style "~2 weeks" gate)
+    // MARK: Physical-Age calibration ("~a week of data" gate)
 
-    /// Days of data required before Physical Age + the aging-algo programme unlock. WHOOP tells members to
-    /// wear it ~2 weeks before trusting the age; we mirror that at 14 days, distinct from the recovery
-    /// baseline (`BodyMetrics.minCalibrationDays`).
-    static let physicalAgeCalibrationDays = 14
+    /// Distinct days of REAL data required before Physical Age + the aging-algo programme unlock. We wait
+    /// ~a week of data so the number is trustworthy; crucially this counts the ~30 days of HealthKit history
+    /// that Apple Watch users already have (backfilled on first sync) — an existing wearer unlocks
+    /// immediately, a fresh phone-only user accumulates ~7 days first. Distinct from the recovery baseline
+    /// (`BodyMetrics.minCalibrationDays`).
+    static let physicalAgeCalibrationDays = 7
     /// Minimum distinct CORE metrics (VO2 / RHR / sleep / steps / body-fat) needed — so the sparse-data
     /// "single-metric age" the stress test flagged can never show.
     static let physicalAgeMinMetrics = 3
+    /// Trailing window we scan for days-with-data. 28 days so a full month of backfilled Apple Watch history
+    /// counts, and a user who wore it a week ago (but not since) still unlocks.
+    static let physicalAgeWindowDays = 28
 
     struct PhysicalAgeCalibration {
-        var daysCollected: Int          // days since first data (clamped ≥0)
-        var daysRequired: Int           // 14
+        var daysCollected: Int          // distinct days WITH usable data in the trailing window (clamped ≥0)
+        var daysRequired: Int           // 7
         var coreMetrics: Int            // how many of VO2/RHR/sleep/steps/bodyfat have a usable value
         var minMetrics: Int             // 3
         var unlocked: Bool { daysCollected >= daysRequired && coreMetrics >= minMetrics }
@@ -980,29 +985,40 @@ final class Store {
         var fraction: Double { min(1, Double(daysCollected) / Double(max(1, daysRequired))) }
     }
 
-    /// The first calendar day we hold ANY usable data (recovery or health), used to start the 14-day clock.
-    /// Computed from the data if `firstDataDate` wasn't stamped yet (fresh installs stamp it in `noteFirstData`).
-    private var earliestDataKey: String? {
-        if let d = data.firstDataDate { return d }
-        let keys = Array(data.recovery.keys) + Array(data.health.keys)
-        return keys.min()
+    /// Count of distinct calendar days in the trailing `physicalAgeWindowDays` window (including today) that
+    /// hold ANY usable recovery- or health-metric data. This is what "days of data" means for calibration —
+    /// backfilled Apple Watch history counts, so an existing wearer is not made to wait a fresh clock.
+    /// A day counts if it has any recovery metric (HRV/RHR/sleep/resp/...) or any health metric
+    /// (steps/energy/RHR/VO2/body-fat/...) with a real, non-zero value.
+    private var daysWithUsableData: Int {
+        var count = 0
+        for n in 0...Self.physicalAgeWindowDays {
+            let k = DateKey.key(DateKey.daysAgo(n))
+            let recoveryHasData = data.recovery[k]?.hasMetrics ?? false
+            let healthHasData: Bool = {
+                guard let h = data.health[k] else { return false }
+                return h.steps > 0 || (h.restingHR ?? 0) > 0 || (h.activeKcal ?? 0) > 0
+                    || (h.basalKcal ?? 0) > 0 || (h.vo2Max ?? 0) > 0 || (h.bodyFatPct ?? 0) > 0
+                    || (h.leanMassKg ?? 0) > 0
+            }()
+            if recoveryHasData || healthHasData { count += 1 }
+        }
+        return count
     }
 
     /// Physical-Age calibration status for the gate + the calibration UI.
     var physicalAgeCalibration: PhysicalAgeCalibration {
         let required = Self.physicalAgeCalibrationDays
-        let days: Int = {
-            guard let k = earliestDataKey, let start = DateKey.date(k) else { return 0 }
-            let elapsed = Calendar.current.dateComponents([.day], from: start, to: DateKey.daysAgo(0)).day ?? 0
-            return max(0, elapsed + 1)   // day 1 = the first day of data
-        }()
+        // Days of data = distinct days in the trailing window that actually carry data (NOT elapsed days
+        // since install). Backfilled HealthKit history counts, so a week+ of existing data unlocks now.
+        let days = daysWithUsableData
         // Count distinct CORE metrics that actually have a usable value.
         func has(_ vals: [Double]) -> Bool { !vals.isEmpty }
         var metrics = 0
         if latestVO2() != nil { metrics += 1 }
-        if has(bodyHistory(\.rhr, days: 28)) { metrics += 1 }
-        if has(bodyHistory(\.sleepH, days: 28)) { metrics += 1 }
-        if (1...28).contains(where: { (data.health[DateKey.key(DateKey.daysAgo($0))]?.steps ?? 0) > 0 }) { metrics += 1 }
+        if has(bodyHistory(\.rhr, days: Self.physicalAgeWindowDays)) { metrics += 1 }
+        if has(bodyHistory(\.sleepH, days: Self.physicalAgeWindowDays)) { metrics += 1 }
+        if (1...Self.physicalAgeWindowDays).contains(where: { (data.health[DateKey.key(DateKey.daysAgo($0))]?.steps ?? 0) > 0 }) { metrics += 1 }
         if bodyComposition()?.bodyFatPct != nil { metrics += 1 }
         return PhysicalAgeCalibration(daysCollected: days, daysRequired: required,
                                       coreMetrics: metrics, minMetrics: Self.physicalAgeMinMetrics)
@@ -1010,8 +1026,10 @@ final class Store {
 
     /// Stamp the first-data date once, when data first arrives (idempotent). Call from data-write paths.
     func noteFirstData() {
+        // Vestigial stamp (calibration now counts days-with-data, not elapsed days) — kept for the sync
+        // model + earliest-wins merge; harmless if never read.
         guard data.firstDataDate == nil else { return }
-        if let k = earliestDataKey { data.firstDataDate = k } else { data.firstDataDate = today }
+        data.firstDataDate = today
     }
 
     /// Fitness-age estimate (WHOOP-Age model, the full 9 metrics) from recent metrics: 28-day

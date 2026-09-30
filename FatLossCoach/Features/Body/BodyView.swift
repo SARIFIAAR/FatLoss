@@ -882,7 +882,7 @@ struct BodyView: View {
             Text(Legal.placementShort)
                 .font(.system(size: 10)).foregroundStyle(W.muted.opacity(0.7)).padding(.top, 2)
         } else if store.data.intake != nil {
-            // Not yet unlocked → WHOOP-style calibration state (no number until enough history exists).
+            // Not yet unlocked → calibration state (no number until ~a week of history exists).
             physicalAgeCalibrationRow
         }
     }
@@ -902,7 +902,7 @@ struct BodyView: View {
                 Text("calibrating").font(.system(size: 11)).foregroundStyle(W.muted)
             }
         }
-        // Progress bar toward day 14.
+        // Progress bar toward the ~1-week data threshold.
         GeometryReader { geo in
             ZStack(alignment: .leading) {
                 Capsule().fill(W.card2)
@@ -914,7 +914,7 @@ struct BodyView: View {
              ? "Collecting your data — your Physical Age unlocks in \(cal.daysRemaining) day\(cal.daysRemaining == 1 ? "" : "s")."
              : "Almost there — connect at least \(cal.minMetrics) of VO₂ max, resting HR, sleep, steps or body-fat to unlock.")
             .font(.system(size: 11)).foregroundStyle(W.muted).padding(.top, 10)
-        Text("Like WHOOP, we wait about two weeks of data before showing your Physical Age, so the number you see is trustworthy.")
+        Text("We collect about a week of your data first, so your Physical Age is accurate. If your watch already has history, it counts.")
             .font(.system(size: 10)).foregroundStyle(W.muted.opacity(0.7)).padding(.top, 4)
     }
 
