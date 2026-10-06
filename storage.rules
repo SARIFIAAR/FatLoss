@@ -12,6 +12,14 @@ service firebase.storage {
                    && request.resource.size < 15 * 1024 * 1024
                    && request.resource.contentType.matches('image/.*');
     }
+    // Content images for meal programs & recipes (banners, recipe photos). Uploaded ONLY by the
+    // Admin SDK (upload_program.mjs), which bypasses these rules. Public read so the app loads them
+    // via a plain ?alt=media download URL with no auth token; clients can never write here.
+    match /content/{allContent=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // Everything else denied to clients.
     match /{allPaths=**} {
       allow read, write: if false;

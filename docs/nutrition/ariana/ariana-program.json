@@ -1,0 +1,310 @@
+{
+  "programId": "ariana",
+  "name": "The Ariana Program",
+  "blurb": "Whole-food porridge & overnight-oat bowls. One simple base — rolled oats, a milk of your choice, and real fruit — finished with seeds, nuts, and warming spices. Build your own: pick the base, pick the fruit, pick the toppings. Food, not medicine.",
+  "bannerImage": "photos/ariana-program-banner.jpg",
+  "order": 1,
+  "published": true,
+  "recipes": [
+    {
+      "recipeId": "ariana-b01",
+      "title": "Golden Turmeric Porridge",
+      "category": "breakfast",
+      "image": "photos/ariana-01-studio.jpg",
+      "serves": 1,
+      "timeMin": 11,
+      "type": "Hot porridge",
+      "ingredients": [
+        "50 g rolled oats",
+        "200 ml milk of choice (or water)",
+        "1/2 ripe banana (~60 g), mashed into the porridge",
+        "1/4 tsp ground turmeric",
+        "pinch of black pepper (helps the turmeric; optional)",
+        "60 g fresh blueberries",
+        "15 g pecans (about 4 halves)",
+        "10 g walnuts",
+        "drizzle of honey or maple — to taste, optional"
+      ],
+      "method": [
+        "Simmer oats and milk 5–6 min, stirring, until creamy.",
+        "Stir in the mashed banana, turmeric, and a pinch of black pepper.",
+        "Spoon into a bowl. Top with blueberries, pecans, and walnuts.",
+        "Finish with an optional drizzle of honey."
+      ],
+      "nutrition": { "kcal": 455, "protein": 14, "carbs": 55, "fat": 20, "fibre": 9, "sugar": 20 },
+      "note": "Assumes semi-skimmed milk; honey not counted (adds ~20 kcal/tsp). Values are estimates, not lab-measured.",
+      "order": 1,
+      "published": true
+    },
+    {
+      "recipeId": "ariana-b02",
+      "title": "Blood-Orange & Apple Bircher",
+      "category": "breakfast",
+      "image": "photos/ariana-02-studio.jpg",
+      "serves": 1,
+      "timeMin": 10,
+      "type": "Overnight / Bircher",
+      "ingredients": [
+        "50 g rolled oats",
+        "150 ml milk of choice",
+        "60 g plain yoghurt (dairy or plant)",
+        "1 small apple (~100 g), grated",
+        "1/2 banana (~60 g), sliced",
+        "1/2 blood/red orange (~75 g), segmented",
+        "1 tbsp ground flax seeds (~10 g)"
+      ],
+      "method": [
+        "The night before, mix oats, milk, yoghurt, and grated apple. Cover and chill overnight.",
+        "In the morning, loosen with a splash of milk if needed.",
+        "Top with banana slices, orange segments, and a sprinkle of flax."
+      ],
+      "nutrition": { "kcal": 420, "protein": 15, "carbs": 66, "fat": 11, "fibre": 11, "sugar": 30 },
+      "note": "Assumes semi-skimmed milk + low-fat yoghurt. Overnight soak, no cooking. Values are estimates.",
+      "order": 2,
+      "published": true
+    },
+    {
+      "recipeId": "ariana-b03",
+      "title": "Banana-Apple Porridge with Chia & Sunflower",
+      "category": "breakfast",
+      "image": "photos/ariana-03-studio.jpg",
+      "serves": 1,
+      "timeMin": 11,
+      "type": "Hot porridge",
+      "ingredients": [
+        "50 g rolled oats",
+        "200 ml milk of choice",
+        "1/2 banana (~60 g), mashed in",
+        "1/2 apple (~75 g) grated into the porridge, plus a few slices to serve",
+        "1 tbsp chia seeds (~12 g)",
+        "1 tbsp sunflower seeds (~10 g)",
+        "60 g red grapes"
+      ],
+      "method": [
+        "Cook oats and milk 5–6 min until creamy; stir in the mashed banana and grated apple.",
+        "Spoon into a bowl.",
+        "Top with a line of chia and sunflower seeds, apple slices, and grapes."
+      ],
+      "nutrition": { "kcal": 470, "protein": 15, "carbs": 66, "fat": 16, "fibre": 12, "sugar": 28 },
+      "note": "Assumes semi-skimmed milk. Values are estimates.",
+      "order": 3,
+      "published": true
+    },
+    {
+      "recipeId": "ariana-b04",
+      "title": "Flax & Chia Overnight Porridge with Summer Fruits",
+      "category": "breakfast",
+      "image": "photos/ariana-04-studio.jpg",
+      "serves": 1,
+      "timeMin": 8,
+      "type": "Overnight oats",
+      "ingredients": [
+        "50 g rolled oats",
+        "220 ml milk of choice",
+        "1 tbsp chia seeds (~12 g)",
+        "1 tbsp ground flax seeds (~10 g)",
+        "1/2 banana (~60 g), mashed in (optional, for sweetness)",
+        "1 peach or nectarine (~120 g), diced",
+        "4 strawberries (~60 g), sliced"
+      ],
+      "method": [
+        "The night before, stir oats, milk, chia, flax, and mashed banana together. Cover and chill.",
+        "In the morning, stir — it will be thick and pudding-like; loosen with milk if you like.",
+        "Top with diced peach and sliced strawberry."
+      ],
+      "nutrition": { "kcal": 440, "protein": 16, "carbs": 58, "fat": 16, "fibre": 14, "sugar": 24 },
+      "note": "Assumes semi-skimmed milk. Overnight soak, no cooking. Values are estimates.",
+      "order": 4,
+      "published": true
+    },
+    {
+      "recipeId": "ariana-b05",
+      "title": "Build-Your-Own Porridge (Pistachio & Kiwi)",
+      "category": "breakfast",
+      "image": "photos/ariana-05-studio.jpg",
+      "serves": 1,
+      "timeMin": 11,
+      "type": "Hot porridge",
+      "ingredients": [
+        "50 g rolled oats",
+        "200 ml milk of choice",
+        "1/2 banana (~60 g), sliced or mashed",
+        "15 g pistachios (shelled)",
+        "10 g pecans",
+        "1 kiwi (~75 g), sliced",
+        "40 g blueberries"
+      ],
+      "method": [
+        "Cook oats and milk 5–6 min until creamy; stir in banana.",
+        "Spoon into a bowl.",
+        "Top with pistachios, pecans, kiwi, and blueberries — arrange however you like."
+      ],
+      "nutrition": { "kcal": 460, "protein": 15, "carbs": 58, "fat": 19, "fibre": 9, "sugar": 20 },
+      "note": "Assumes semi-skimmed milk. Numbers shift with your chosen toppings — this is the template bowl. Values are estimates.",
+      "order": 5,
+      "published": true
+    },
+    {
+      "recipeId": "ariana-b06",
+      "title": "Banana-Cinnamon Porridge with Fresh Berries",
+      "category": "breakfast",
+      "image": "photos/ariana-06-studio.jpg",
+      "serves": 1,
+      "timeMin": 11,
+      "type": "Hot porridge",
+      "ingredients": [
+        "50 g rolled oats",
+        "200 ml milk of choice",
+        "1 small banana (~90 g), half mashed in + half sliced on top",
+        "1/2 tsp ground cinnamon",
+        "40 g raspberries",
+        "50 g red grapes",
+        "10 g pecans"
+      ],
+      "method": [
+        "Cook oats and milk 5–6 min; stir in mashed banana and most of the cinnamon.",
+        "Spoon into a bowl; lay banana slices, raspberries, grapes, and pecans on top.",
+        "Dust with the remaining cinnamon."
+      ],
+      "nutrition": { "kcal": 430, "protein": 13, "carbs": 68, "fat": 13, "fibre": 10, "sugar": 30 },
+      "note": "Assumes semi-skimmed milk. Values are estimates.",
+      "order": 6,
+      "published": true
+    },
+    {
+      "recipeId": "ariana-b07",
+      "title": "Forest-Fruits Porridge with Almond Butter & Nuts",
+      "category": "breakfast",
+      "image": "photos/ariana-07-studio.jpg",
+      "serves": 1,
+      "timeMin": 11,
+      "type": "Hot porridge",
+      "ingredients": [
+        "50 g rolled oats",
+        "200 ml milk of choice",
+        "80 g mixed frozen forest fruits (blueberry, blackberry, raspberry, cherry), stirred in while cooking",
+        "1 tbsp almond butter (~16 g)",
+        "10 g walnuts",
+        "8 g almonds",
+        "8 g pecans",
+        "pinch of cinnamon — optional"
+      ],
+      "method": [
+        "Cook oats and milk 5–6 min, adding the forest fruits for the last 2 min so they soften and colour the porridge.",
+        "Spoon into a bowl; swirl the almond butter on top.",
+        "Scatter walnuts, almonds, and pecans; add a pinch of cinnamon."
+      ],
+      "nutrition": { "kcal": 515, "protein": 17, "carbs": 52, "fat": 27, "fibre": 11, "sugar": 17 },
+      "note": "Assumes semi-skimmed milk. The richest bowl in the set — almond butter + three nuts. Values are estimates.",
+      "order": 7,
+      "published": true
+    },
+    {
+      "recipeId": "ariana-b08",
+      "title": "Rose & Berry Forest Porridge",
+      "category": "breakfast",
+      "image": "photos/ariana-08-studio.jpg",
+      "serves": 1,
+      "timeMin": 11,
+      "type": "Hot porridge",
+      "ingredients": [
+        "50 g rolled oats",
+        "200 ml milk of choice",
+        "80 g mixed forest fruits (blueberry, cherry, raspberry), stirred in",
+        "1/4 tsp rose water (to taste — start small)",
+        "1/2 banana (~60 g), mashed in",
+        "12 g walnuts",
+        "8 g pecans"
+      ],
+      "method": [
+        "Cook oats and milk 5–6 min; add forest fruits for the last 2 min, then the mashed banana.",
+        "Stir in the rose water a few drops at a time, tasting as you go.",
+        "Spoon into a bowl and top with walnuts and pecans."
+      ],
+      "nutrition": { "kcal": 430, "protein": 14, "carbs": 56, "fat": 17, "fibre": 10, "sugar": 20 },
+      "note": "Assumes semi-skimmed milk; rose water is negligible calories. Best with high-quality, organic ingredients. Values are estimates.",
+      "order": 8,
+      "published": true
+    },
+    {
+      "recipeId": "ariana-b09",
+      "title": "Pan-Cooked Banana Porridge with Fresh Berries",
+      "category": "breakfast",
+      "image": "photos/ariana-09-studio.jpg",
+      "serves": 1,
+      "timeMin": 12,
+      "type": "Hot porridge (one pan)",
+      "ingredients": [
+        "50 g rolled oats",
+        "220 ml milk of choice (or water)",
+        "1 ripe banana (~100 g), mashed",
+        "5 strawberries (~75 g), diced",
+        "50 g blueberries",
+        "pinch of cinnamon — optional"
+      ],
+      "method": [
+        "Cook oats, milk, and mashed banana together 6–7 min, stirring, until thick and creamy.",
+        "Off the heat, fold in most of the strawberries and blueberries.",
+        "Scatter the rest on top; add a pinch of cinnamon."
+      ],
+      "nutrition": { "kcal": 395, "protein": 13, "carbs": 72, "fat": 7, "fibre": 9, "sugar": 30 },
+      "note": "Assumes semi-skimmed milk. The lightest bowl in the set — no added nuts or seeds. Values are estimates.",
+      "order": 9,
+      "published": true
+    },
+    {
+      "recipeId": "ariana-b10",
+      "title": "Banana & Coconut Porridge with Mixed Nuts",
+      "category": "breakfast",
+      "image": "photos/ariana-10-studio.jpg",
+      "serves": 1,
+      "timeMin": 11,
+      "type": "Hot porridge",
+      "ingredients": [
+        "50 g rolled oats",
+        "200 ml milk of choice",
+        "1/2 banana (~60 g) mashed in + a few slices on top",
+        "10 g desiccated coconut",
+        "Mixed nuts (~25 g total): pecan, walnut, hazelnut, almond, pistachio"
+      ],
+      "method": [
+        "Cook oats and milk 5–6 min until creamy; stir in the mashed banana.",
+        "Spoon into a bowl.",
+        "Sprinkle desiccated coconut down one side; pile the mixed nuts and banana slices on the other."
+      ],
+      "nutrition": { "kcal": 500, "protein": 15, "carbs": 52, "fat": 26, "fibre": 9, "sugar": 15 },
+      "note": "Assumes semi-skimmed milk. Coconut and the nut mix make this a higher-fat bowl. Values are estimates.",
+      "order": 10,
+      "published": true
+    },
+    {
+      "recipeId": "ariana-b11",
+      "title": "Blueberry-Apple Porridge with Cinnamon, Flax & Turmeric",
+      "category": "breakfast",
+      "image": "photos/ariana-11-studio.jpg",
+      "serves": 1,
+      "timeMin": 11,
+      "type": "Hot porridge",
+      "ingredients": [
+        "50 g rolled oats",
+        "200 ml milk of choice",
+        "1/2 apple (~75 g), grated in",
+        "1/2 banana (~60 g), mashed in",
+        "1 tbsp ground flax seeds (~10 g)",
+        "1/2 tsp ground cinnamon",
+        "1/4 tsp ground turmeric",
+        "pinch of black pepper (optional)",
+        "50 g blueberries"
+      ],
+      "method": [
+        "Cook oats and milk 5–6 min; stir in grated apple and mashed banana.",
+        "Stir through the flax, cinnamon, turmeric, and a pinch of black pepper.",
+        "Spoon into a bowl and top with blueberries."
+      ],
+      "nutrition": { "kcal": 425, "protein": 14, "carbs": 62, "fat": 13, "fibre": 12, "sugar": 24 },
+      "note": "Assumes semi-skimmed milk. Values are estimates.",
+      "order": 11,
+      "published": true
+    }
+  ]
+}

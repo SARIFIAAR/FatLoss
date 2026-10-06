@@ -24,6 +24,19 @@ service cloud.firestore {
     }
     // Server-side scan log (written by the analyzer with a service account only).
     match /scans/{scan} { allow read, write: if false; }
+
+    // Content: meal programs + their recipes (the Ariana program etc.). Published and seeded
+    // ONLY by the Admin SDK (upload_program.mjs with the service-account key), which bypasses
+    // these rules entirely. Clients read (any signed-in user); clients NEVER write.
+    match /mealPrograms/{programId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+      match /recipes/{recipeId} {
+        allow read: if request.auth != null;
+        allow write: if false;
+      }
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

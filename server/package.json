@@ -13,6 +13,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
     "better-sqlite3": "^13.0.3",
+    "firebase-admin": "^14.5.0",
     "jose": "^6.0.0",
     "stream-json": "^3.6.0",
     "zod": "^4.5.0"
