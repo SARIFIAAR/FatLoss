@@ -41,6 +41,12 @@ struct FatLossCoachApp: App {
                     // Debug/QA (screenshots): `-seedProgressPhotos 1` seeds two SYNTHETIC placeholder photos
                     // (never real body photos) so the timeline + compare can be captured. No-op if photos exist.
                     if UserDefaults.standard.bool(forKey: "seedProgressPhotos") { seedDemoProgressPhotos() }
+                    // Debug/QA: `-arianaLog ariana-b01` logs that Ariana recipe into today's matching
+                    // slot on launch, to verify the "Log to today's …" write without tapping.
+                    if let rid = UserDefaults.standard.string(forKey: "arianaLog"),
+                       let r = MealProgram.ariana.recipes.first(where: { $0.id == rid }) {
+                        store.addMeal(r.mealEntry(on: store.today))
+                    }
                 }
         }
         .onChange(of: scenePhase) { _, phase in
