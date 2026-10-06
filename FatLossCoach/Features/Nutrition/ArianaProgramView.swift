@@ -1,71 +1,82 @@
 import SwiftUI
 
-// MARK: - Ariana meal program UI (Nutrition tab)
+// MARK: - Meal-program UI (Nutrition tab) — REMOTE-driven
 //
-// Entry card → ProgramView (Breakfast / Lunch / Dinner) → breakfast recipe list → recipe detail.
-// Data: `MealProgram.ariana` (Models/MealProgram.swift). Dark theme via `Theme`.
-// Logging reuses the diary path: `store.addMeal(recipe.mealEntry(on:))`.
+// Now renders ALL programs fetched by `ContentService` (Firestore-backed, cached, bundled-Ariana
+// fallback). When a second program is published in Firebase it appears here automatically — no build.
+//
+// Shape (unchanged per program): card → ProgramView (Breakfast / Lunch / Dinner) → category recipe
+// list → recipe detail. Images load remotely via `CachedProgramImage` (disk-cached) and fall back to
+// the bundled asset for the seed or on failure. Logging still reuses the diary path:
+// `store.addMeal(recipe.mealEntry(on:))`.
 
-// MARK: Entry-point card (shown in the Nutrition diary)
+// MARK: Section shown in the Nutrition diary — one card per fetched program
 
 struct ArianaProgramCard: View {
-    // `-ariana 1` (QA/screenshots) auto-opens the program sheet on launch; no production effect.
-    @State private var open = UserDefaults.standard.bool(forKey: "ariana")
-    private let program = MealProgram.ariana
+    @Environment(ContentService.self) private var content
+    // `-ariana 1` (QA/screenshots) auto-opens the first program sheet on launch; no production effect.
+    @State private var openProgram: MealProgram?
 
     var body: some View {
-        Button { open = true } label: {
-            VStack(spacing: 0) {
-                // Hero studio image from the first breakfast recipe.
-                if let hero = program.recipes(in: .breakfast).first {
-                    Color.clear
-                        .frame(height: 150)
-                        .overlay {
-                            Image(hero.imageName)
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                        }
-                        .clipped()
-                        .overlay(alignment: .bottomLeading) {
-                            LinearGradient(colors: [.clear, .black.opacity(0.7)],
-                                           startPoint: .top, endPoint: .bottom)
-                        }
-                        .overlay(alignment: .topLeading) {
-                            Text("MEAL PROGRAM")
-                                .font(.system(size: 10, weight: .bold)).kerning(1.2)
-                                .foregroundStyle(.white)
-                                .padding(.vertical, 5).padding(.horizontal, 10)
-                                .background(.black.opacity(0.35), in: Capsule())
-                                .padding(12)
-                        }
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(program.name)
-                        .font(.system(size: 18, weight: .heavy)).foregroundStyle(Theme.text)
-                    HStack(spacing: 6) {
-                        Text("Breakfast · Lunch · Dinner")
-                            .font(.system(size: 13)).foregroundStyle(Theme.muted)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.muted)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(14)
+        VStack(spacing: 12) {
+            ForEach(content.programs) { program in
+                Button { openProgram = program } label: { card(program) }
+                    .buttonStyle(.plain)
             }
-            .background(Theme.card)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(LinearGradient(colors: [.white.opacity(0.12), .white.opacity(0.02)],
-                                           startPoint: .top, endPoint: .bottom), lineWidth: 1)
-            )
         }
-        .buttonStyle(.plain)
-        .sheet(isPresented: $open) {
+        .sheet(item: $openProgram) { program in
             ArianaProgramNav(program: program)
                 .preferredColorScheme(.dark)
         }
+        .onAppear {
+            // Refresh on every appearance so a newly-published program shows without relaunch.
+            // `-contentSeedOnly 1` (QA) keeps the bundled/cached content and skips the network.
+            if !content.seedOnly { content.refresh() }
+            if UserDefaults.standard.bool(forKey: "ariana") { openProgram = content.programs.first }
+        }
+    }
+
+    private func card(_ program: MealProgram) -> some View {
+        VStack(spacing: 0) {
+            Color.clear
+                .frame(height: 150)
+                .overlay {
+                    CachedProgramImage(urlString: program.bannerImageURL, fallbackAsset: program.bannerImageName)
+                }
+                .clipped()
+                .overlay(alignment: .bottomLeading) {
+                    LinearGradient(colors: [.clear, .black.opacity(0.7)],
+                                   startPoint: .top, endPoint: .bottom)
+                }
+                .overlay(alignment: .topLeading) {
+                    Text("MEAL PROGRAM")
+                        .font(.system(size: 10, weight: .bold)).kerning(1.2)
+                        .foregroundStyle(.white)
+                        .padding(.vertical, 5).padding(.horizontal, 10)
+                        .background(.black.opacity(0.35), in: Capsule())
+                        .padding(12)
+                }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(program.name)
+                    .font(.system(size: 18, weight: .heavy)).foregroundStyle(Theme.text)
+                HStack(spacing: 6) {
+                    Text("Breakfast · Lunch · Dinner")
+                        .font(.system(size: 13)).foregroundStyle(Theme.muted)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.muted)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+        }
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(LinearGradient(colors: [.white.opacity(0.12), .white.opacity(0.02)],
+                                       startPoint: .top, endPoint: .bottom), lineWidth: 1)
+        )
     }
 }
 
@@ -107,14 +118,12 @@ struct ArianaProgramView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                if let hero = program.recipes(in: .breakfast).first {
-                    Color.clear
-                        .frame(height: 180)
-                        .overlay {
-                            Image(hero.imageName).resizable().aspectRatio(contentMode: .fill)
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
+                Color.clear
+                    .frame(height: 180)
+                    .overlay {
+                        CachedProgramImage(urlString: program.bannerImageURL, fallbackAsset: program.bannerImageName)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 Text(program.name)
                     .font(Theme.score(26)).foregroundStyle(Theme.text)
                 Text(program.blurb)
@@ -133,7 +142,7 @@ struct ArianaProgramView: View {
     }
 
     // Every category navigates the same way: row → generic recipe list → detail. An empty category
-    // (Lunch/Dinner today) opens the same list and shows its own empty state. No per-category branch.
+    // opens the same list and shows its own empty state. No per-category branch.
     private func categoryRow(_ category: MealCategory) -> some View {
         let count = program.recipes(in: category).count
         return NavigationLink {
@@ -173,7 +182,7 @@ struct ArianaProgramView: View {
     }
 }
 
-// MARK: Category recipe list (breakfast)
+// MARK: Category recipe list
 
 struct ArianaCategoryListView: View {
     let program: MealProgram
@@ -225,7 +234,7 @@ struct ArianaCategoryListView: View {
             HStack(spacing: 12) {
                 Color.clear
                     .frame(width: 64, height: 64)
-                    .overlay { Image(r.imageName).resizable().aspectRatio(contentMode: .fill) }
+                    .overlay { CachedProgramImage(urlString: r.imageURL, fallbackAsset: r.imageName) }
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 VStack(alignment: .leading, spacing: 3) {
                     Text(r.title)
@@ -256,7 +265,7 @@ struct ArianaRecipeDetailView: View {
                 // Large studio header
                 Color.clear
                     .frame(height: 240)
-                    .overlay { Image(recipe.imageName).resizable().aspectRatio(contentMode: .fill) }
+                    .overlay { CachedProgramImage(urlString: recipe.imageURL, fallbackAsset: recipe.imageName) }
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 6) {

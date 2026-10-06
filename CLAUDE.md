@@ -17,7 +17,7 @@ touching the project.
 | Apple team | `9F2G8CQ45J` (Infinion Apps FZ-LLC) — **not** the 685W4R3BWT METATEC team used by other repos |
 | ASC API key | key ID `F32V65ACX6`, issuer `60384b84-0407-4489-bb63-c2c1b708e376`, file `~/.appstoreconnect/private_keys/AuthKey_F32V65ACX6.p8` |
 | Firebase project | `fat-loss-6516d`; iOS app `1:836772213794:ios:91156d2fa72e12d2a6867b` |
-| Firebase plan | **Spark (free)** — the owner's Google Payments profile is blocked (OR_BAOOC_15), so nothing may depend on Blaze/Cloud Functions |
+| Firebase plan | **Blaze** (pay-as-you-go) — Storage (progress photos + `content/` program images) and the Firestore content store depend on it. (Was Spark; migrated to Blaze during the cloud-progress-photos work.) |
 | Meal analyzer | Fly.io app `fatloss-analyzer`, region `fra`, `https://fatloss-analyzer.fly.dev/analyze` |
 | Repo | `https://github.com/SARIFIAAR/FatLoss` (public) |
 | URL scheme | `fatlosscoach://sync?hrv=&rhr=&sleep=&deep=&rem=&resp=&mood=&steps=` |

@@ -10,6 +10,7 @@ struct FatLossCoachApp: App {
     @State private var reminders = ReminderManager()
     @State private var wearables = WearableLink()
     @State private var photoSync = PhotoSync()
+    @State private var content = ContentService()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -27,6 +28,7 @@ struct FatLossCoachApp: App {
                 .environment(scanner)
                 .environment(reminders)
                 .environment(wearables)
+                .environment(content)
                 .onOpenURL { store.handle(url: $0) }
                 .task {
                     // Photo sync: attach BEFORE cloud so the auth listener can start it once a uid resolves.
@@ -35,6 +37,10 @@ struct FatLossCoachApp: App {
                     cloud.attach(store: store, photoSync: photoSync)
                     reminders.attach(store: store)
                     reminders.schedulePlan()
+                    // Remote meal programs: fetch on launch so the Nutrition tab is fresh when opened.
+                    // `-contentSeedOnly 1` (QA / offline-fallback repro) skips the fetch and keeps the
+                    // cache/bundled-Ariana seed.
+                    if !content.seedOnly { content.refresh() }
                     // Debug: `-debugLogWeight 101.5` performs a write on launch (crash repro / automation).
                     let w = UserDefaults.standard.double(forKey: "debugLogWeight")
                     if w > 0 { store.logWeight(w) }

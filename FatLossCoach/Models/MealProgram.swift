@@ -25,24 +25,54 @@ enum MealCategory: String, CaseIterable, Identifiable, Codable {
     var slotKey: String { rawValue }
 }
 
-/// Per-serving nutrition for one recipe. All values are grams except `kcal`.
-struct MealProgram {
-    struct Nutrition: Hashable {
+/// A curated meal program and its recipes.
+///
+/// Now REMOTE-driven: the canonical copy lives in Firestore (`mealPrograms/{id}` + a `recipes`
+/// subcollection — see `ContentService`), so new programs/recipes can ship without an app build. The
+/// types below are `Codable` so `ContentService` can both map them from Firestore and cache them to
+/// disk, and `Identifiable` so the Program tab can `ForEach` over a fetched list. The hardcoded
+/// `MealProgram.ariana` (below) is kept as the first-run / offline fallback until the cache or a live
+/// fetch supersedes it.
+///
+/// Field-name note (shared schema, written down for the Android port): remote keys are
+/// `name/blurb/bannerImageUrl/order/published/updatedAt` on the program and
+/// `title/category/imageUrl/serves/timeMin/type/ingredients/method/nutrition{kcal,protein,carbs,fat,fibre,sugar}/note/order/published`
+/// on each recipe. Image fields are plain public URLs (no auth token). All nutrition values are
+/// per-serving ESTIMATES (brand honest-numbers rule); `Nutrition.isEstimate` carries that to the UI.
+struct MealProgram: Identifiable, Codable, Hashable {
+    struct Nutrition: Hashable, Codable {
         var kcal: Double
         var protein: Double
         var carbs: Double
         var fat: Double
         var fibre: Double
         var sugar: Double
-        /// All Ariana figures are estimates (see the doc's honest note); kept explicit so UI can say so.
+        /// All program figures are estimates (see the doc's honest note); kept explicit so UI can say so.
         var isEstimate: Bool = true
+
+        private enum CodingKeys: String, CodingKey { case kcal, protein, carbs, fat, fibre, sugar, isEstimate }
+        init(kcal: Double, protein: Double, carbs: Double, fat: Double, fibre: Double, sugar: Double, isEstimate: Bool = true) {
+            self.kcal = kcal; self.protein = protein; self.carbs = carbs; self.fat = fat
+            self.fibre = fibre; self.sugar = sugar; self.isEstimate = isEstimate
+        }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            kcal = (try? c.decode(Double.self, forKey: .kcal)) ?? 0
+            protein = (try? c.decode(Double.self, forKey: .protein)) ?? 0
+            carbs = (try? c.decode(Double.self, forKey: .carbs)) ?? 0
+            fat = (try? c.decode(Double.self, forKey: .fat)) ?? 0
+            fibre = (try? c.decode(Double.self, forKey: .fibre)) ?? 0
+            sugar = (try? c.decode(Double.self, forKey: .sugar)) ?? 0
+            isEstimate = (try? c.decode(Bool.self, forKey: .isEstimate)) ?? true
+        }
     }
 
-    struct Recipe: Identifiable, Hashable {
+    struct Recipe: Identifiable, Hashable, Codable {
         var id: String
         var title: String
         var category: MealCategory
-        var imageName: String          // Assets.xcassets imageset (studio photo)
+        var imageName: String          // Assets.xcassets imageset used as fallback (bundled studio photo)
+        var imageURL: String?          // remote studio photo (plain public URL); nil for the bundled seed
         var serves: Int
         var timeMin: Int               // prep + cook, minutes
         var type: String               // e.g. "Hot porridge" / "Overnight oats"
@@ -50,11 +80,29 @@ struct MealProgram {
         var method: [String]
         var nutrition: Nutrition
         var note: String               // one-line "why it's good"
+
+        init(id: String, title: String, category: MealCategory, imageName: String, imageURL: String? = nil,
+             serves: Int, timeMin: Int, type: String, ingredients: [String], method: [String],
+             nutrition: Nutrition, note: String) {
+            self.id = id; self.title = title; self.category = category
+            self.imageName = imageName; self.imageURL = imageURL
+            self.serves = serves; self.timeMin = timeMin; self.type = type
+            self.ingredients = ingredients; self.method = method; self.nutrition = nutrition; self.note = note
+        }
     }
 
+    var id: String
     var name: String
     var blurb: String
+    var bannerImageURL: String?        // remote program banner (plain public URL); nil for the bundled seed
+    var bannerImageName: String        // Assets.xcassets imageset used as fallback (bundled banner)
     var recipes: [Recipe]
+
+    init(id: String, name: String, blurb: String, bannerImageURL: String? = nil,
+         bannerImageName: String = "ariana-banner", recipes: [Recipe]) {
+        self.id = id; self.name = name; self.blurb = blurb
+        self.bannerImageURL = bannerImageURL; self.bannerImageName = bannerImageName; self.recipes = recipes
+    }
 
     /// Recipes in a given category, in authored order.
     func recipes(in category: MealCategory) -> [Recipe] {
@@ -68,10 +116,12 @@ extension MealProgram {
     /// Source of truth: `docs/nutrition/ariana/ariana-breakfast-recipes.md`. Lunch & Dinner are
     /// intentionally empty ("coming soon") until their content is authored and approved.
     static let ariana = MealProgram(
+        id: "ariana",
         name: "The Ariana Program",
         blurb: "Plant-forward porridge & overnight-oat bowls — slow-release oats, real fruit, and a "
              + "handful of seeds or nuts. Build-your-own, whole-food breakfasts to feel good about. "
              + "Nutrition figures are per-serving estimates, a guide for your day — never a prescription.",
+        bannerImageName: "ariana-banner",
         recipes: [
             Recipe(
                 id: "ariana-b01",
