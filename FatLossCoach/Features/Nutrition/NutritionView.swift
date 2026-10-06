@@ -192,7 +192,6 @@ struct NutritionView: View {
         ActivePlanBanner()
         FastingCard()
         DiarySummaryCard(day: selectedDay)
-        ArianaProgramCard()
         // Screenshot aid (`-nutritionShots 1`): surface the eaten-meals card (with per-meal ratings)
         // right under the day summary so item/meal/day ratings are all visible without scrolling.
         if UserDefaults.standard.string(forKey: "nutritionShots") != nil {

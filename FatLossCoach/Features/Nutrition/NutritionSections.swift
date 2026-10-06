@@ -256,6 +256,7 @@ struct ProgramSection: View {
 
     var body: some View {
         VStack(spacing: 12) {
+            ArianaProgramCard()
             if store.nutritionPlan != nil { planCard }
             Text("Pick a plan — it sets your macro targets and filters recipes.")
                 .font(.system(size: 13)).foregroundStyle(Theme.muted)
