@@ -4,7 +4,7 @@ Tracking OEM/ODM suppliers evaluated to pair a wearable with the HUMANS app. Goa
 exposes **raw HRV (RRI)** and the core vitals over an **iOS-accessible SDK or BLE protocol**, so the
 app's on-device recovery/strain/stress/sleep engine can run on it (no vendor cloud lock-in).
 
-Last updated: 2026-09-16
+Last updated: 2026-09-29
 
 ---
 
@@ -12,9 +12,10 @@ Last updated: 2026-09-16
 
 | Supplier | Device(s) | Stage | Next action |
 |---|---|---|---|
-| **Shenzhen Vivistar** | VB9, VC2 | ⏳ Sample PI issued (3× each) | Confirm PI + send Dubai delivery address |
+| **Shenzhen Vivistar** | VB9, VC2, **SH09 ← lead candidate** | ⏳ SH09 IS the device documented by the Tech Guide + BLE protocol (2026-07-24): screenless, metal faceplate (brandable/private mold), 5 ATM, ~10–15 d; exposes **raw RRI + raw PPG (25–500 Hz) + ECG 500 Hz + SpO2 + skin/body temp + respiration** over **iOS SDK + DEMO + documented BLE protocol (Service 0xFFF0), no cloud**. Clears every HUMANS requirement in the preferred screenless form. **⚠️ But the supplier's VSH09-HTO2 spec sheet (received 2026-09-29, dated 2023-04-11) describes a DIFFERENT config — see the SH09 table below — with a 0.87" PMOLED screen, plastic/IP68, BT 4.2, IXFIT app, HRV(RRI)+SpO2+temp+BP but NO ECG/raw-PPG/respiration listed. Reconcile which SH09 the sample will actually be.** | Confirm with Cassidy which SH09 config ships (screenless-metal-ECG per the Tech Guide, or the screened VSH09-HTO2 per this spec); confirm raw RRI is a readable stream + data-access path (SDK vs BLE); get price/MOQ; order a sample. Resolved by the spec sheet: **chipset = Nordic nRF52832**, battery 60 mAh / 7 days, IP68. |
 | ICTOPSUPPLY | H59 | ⬜ Not contacted | Backup — open SDK, MOQ 10 |
 | Shenzhen Tianpengyu | ECG+HRV band | ⬜ Not contacted | Backup — open SDK, MOQ 1 |
+| Erontech (erontech.en.alibaba.com) | HR-only screenless SKU seen | ⬜ Lower priority (2026-09-24) — the screenless HRV band first noted here is actually Vivistar's SH09 (re-attributed) | Only pursue if it beats Vivistar on price + PROVEN data access |
 
 Legend: ✅ done · ⏳ in progress · ⬜ not started
 
@@ -31,6 +32,9 @@ Legend: ✅ done · ⏳ in progress · ⬜ not started
 |---|---|---|---|
 | Cassidy Wong | Sales Manager (current) | cassidy@vivistar.com.cn | WhatsApp +86 133 1697 6287 · office +86-755-2513-1180 |
 | Mila | Sales (first contact) | MILA@VIVISTAR.COM.CN | +86 177 0402 7394 |
+
+### DECISION (2026-09-29) — sample VC2 + VB9; SH09 parked
+Ordering **VC2** (the pick — only device with *confirmed* raw RRI over open BLE, best sensor set; screen no longer a concern) **and VB9** (to test whether we can crack its data — HRV is bundled in "stress," so this validates whether raw RRI is reachable without custom firmware). **SH09 is parked** pending Cassidy's confirmation of (a) raw-RRI/open-BLE data access and (b) which config actually ships (screened VSH09-HTO2 vs the Tech-Guide screenless-ECG unit). This matches the pending PI (VB9 + VC2). Device track paused here while product work continues.
 
 ### Current order (sample)
 - **Proforma Invoice issued:** 3× VB9 + 3× VC2 (sample cost + shipping to Dubai, UAE).
@@ -65,6 +69,27 @@ Legend: ✅ done · ⏳ in progress · ⬜ not started
 | **Data access** | **Fully documented BLE protocol — NO SDK.** Provides **original RRI**. Integrate directly over the Bluetooth protocol. |
 | **SpO2 interval** | 15-min or 60-min depending on firmware — *supplier to verify the sample firmware's interval before shipment.* |
 | Night-only config | Standard firmware = 24-hour period; **command-based night-only needs custom firmware.** Test standard first. |
+
+#### SH09 / VSH09-HTO2 — spec sheet received 2026-09-29 (supplier spec dated 2023-04-11)
+"High-Precision HR + SpO2 + Blood Pressure + Body Temperature + HRV(RRI) + Stress Level Smart Bracelet."
+| Attribute | Value |
+|---|---|
+| Form | **0.87" PMOLED screen** (128×32, single-point touch) — ⚠️ **NOT screenless**; contradicts the earlier "screenless metal faceplate" SH09 note |
+| Size / weight | 40.2 × 18.1 × 13.0 mm · 8.4 g device + 7.0 g strap |
+| MCU / BLE | **Nordic nRF52832** · **Bluetooth 4.2** · 512 KB flash |
+| Sensors | HR (dynamic, ultra-low-power), SpO2 (PPG reflective, red + IR), body/skin temp **±0.2 °C** (range 32–42 °C), G-sensor; **HRV (RRI)** + Stress level (0–255); BP (**"not accurate, to be updated"**); steps + sleep; NFC 13.56 MHz M1; SOS + social-distancing (gateway-optional) |
+| HRV | **RRI: YES** — described "for evaluating emotional stress / psychological status." ⚠️ Confirm it's a **readable raw beat-to-beat stream**, not only the derived 0–255 stress index. |
+| Battery / water | 60 mAh polymer · **7 days** (steps + BT + HR always-on) · **IP68** · USB direct charge, 2 h |
+| Vendor app | **IXFIT** (the *same* app as VC2) |
+| **Data access** | **[TO CONFIRM]** — the spec sheet doesn't state SDK vs BLE. IXFIT is the VC2 app, and VC2 = documented BLE protocol / no SDK, so **assume VC2-style open BLE with raw RRI until Vivistar confirms**; request the SH09 BLE protocol (or SDK) doc. |
+| Material | Case: **plastic** · wristband: TPU (⚠️ contradicts the "metal faceplate / 5 ATM" note — this SKU is plastic / IP68) |
+| Packaging | Box 98×98×40 mm, 92 g (device + strap + charger) · carton 100 pcs |
+
+**⚠️ Discrepancies vs the earlier SH09 "lead candidate" prose (must reconcile with supplier):**
+- Earlier (from the Tech Guide + BLE doc, 2026-07-24): **screenless, metal faceplate, 5 ATM, raw PPG 25–500 Hz + ECG 500 Hz + respiration, iOS SDK + BLE 0xFFF0.**
+- This 2023 spec sheet instead: **screened 0.87" PMOLED, plastic, IP68, BT 4.2, IXFIT**, with **HRV(RRI) + SpO2 + temp + BP + stress** — but **no ECG, no raw-PPG sampling rates, no respiration** listed.
+- Most likely either (a) **VSH09-HTO2 is a base/older SKU** and the Tech-Guide SH09 is a different/upgraded config, or (b) the earlier richer spec conflated two devices. **Ask Cassidy which SH09 the sample will be**, and whether ECG / raw PPG / the screenless-metal shell are available options.
+- ✅ Resolves one open item: **chipset = Nordic nRF52832** (matches the docs, not the "JL7013A6S" spec line).
 
 ### Confirmations RESOLVED (supplier reply, 2026-09-16)
 - [x] **VC2 integration = documented BLE protocol, NO SDK** (spec sheet's "SDK/API" line was wrong). Provides **raw RRI**. Acceptable.
