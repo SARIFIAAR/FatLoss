@@ -9,6 +9,7 @@ struct FatLossCoachApp: App {
     @State private var scanner = MealScanner()
     @State private var reminders = ReminderManager()
     @State private var wearables = WearableLink()
+    @State private var vb9 = VB9Manager()
     @State private var photoSync = PhotoSync()
     @State private var content = ContentService()
     @Environment(\.scenePhase) private var scenePhase
@@ -28,6 +29,7 @@ struct FatLossCoachApp: App {
                 .environment(scanner)
                 .environment(reminders)
                 .environment(wearables)
+                .environment(vb9)
                 .environment(content)
                 .onOpenURL { store.handle(url: $0) }
                 .task {
@@ -37,6 +39,9 @@ struct FatLossCoachApp: App {
                     cloud.attach(store: store, photoSync: photoSync)
                     reminders.attach(store: store)
                     reminders.schedulePlan()
+                    // VB9 wristband: reconnect a bound band on device; `-vb9Sim 1` seeds a demo band on the sim.
+                    vb9.attach(store: store)
+                    vb9.start()
                     // Remote meal programs: fetch on launch so the Nutrition tab is fresh when opened.
                     // `-contentSeedOnly 1` (QA / offline-fallback repro) skips the fetch and keeps the
                     // cache/bundled-Ariana seed.

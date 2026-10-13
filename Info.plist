@@ -49,6 +49,14 @@
 	<string>Choose a meal photo to estimate its calories and macros.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Your spoken meal description is transcribed to text so it can be estimated into calories and macros.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Connect your HUMANS wristband over Bluetooth to sync heart rate, ECG, sleep and body-composition readings.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>Bluetooth is used to pair and sync with your HUMANS wristband.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>bluetooth-central</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

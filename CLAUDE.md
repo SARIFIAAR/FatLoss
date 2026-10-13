@@ -189,6 +189,31 @@ blocked for Claude by the permission classifier — the user runs it.
   water/walk reminders,
   Shortcuts URL template, import from web app, JSON export, version/build footer.
 
+## Where things stand (2026-10-13)
+
+**VB9 wristband integration scaffolding (branch `vb9-integration`, not shipped).** The HUMANS wearable
+supplier SDK arrived (`~/Downloads/VB9 SDK.zip` → decoded to `~/Downloads/VB9SDK`). It's the IWOWN/Zeroner
+**"Mid-Autumn" protobuf BLE** platform; iOS = `BLEMidAutumn.framework` v6.6.6 (Obj-C, Swift-importable).
+Capability decode + coverage gap-analysis + field mapping: `docs/vb9-integration.md` (+ the companion
+coverage write-up). Hardware NOT yet delivered — built the integration so it activates on arrival.
+- **Key constraint:** the framework is **arm64 device-only (no simulator slice)** AND a commercial binary
+  in a **public repo**. So it's git-ignored, dropped locally at `Vendor/BLEMidAutumn/` (see README), linked
+  **device-only**, and ALL framework code is behind `#if canImport(BLEMidAutumn)`. Sim builds exclude it →
+  app still compiles + the screenshot harness still works. `-vb9Sim 1` injects a demo band for UI work.
+- **New code:** `Core/Wearable/{VB9Manager,VB9Kit,VB9Store}.swift` — a BLE transport (real path gated, sim
+  stub functional) that feeds the SAME `AppData`/BodyMetrics engine as Apple Health + the Whoop/Oura
+  `applyWearable` path (no parallel metrics). `VB9Manager` is in the app environment, `.start()` on launch.
+- **Model additions (all optional, lenient-decode, merge-aware):** `RecoveryDay.stressMeasured/fatigue`,
+  `HealthDay.hrMinDay/hrMaxDay` (continuous-HR envelope — the thing Apple Watch never gave a 3rd-party app),
+  new `ECGResult` + `AppData.ecg[date]`, new `BandInfo` + `AppData.band`.
+- **Body screen (verified in sim):** HUMANS Band card (status/battery/live-HR + Health-check/ECG/Sync),
+  Heart Rhythm/ECG card (rhythm + AF badge, score, heart age, QTc/PR, HRV panel, autonomic balance,
+  wellness disclaimer), and new Health-Monitor rows (Blood pressure, HR range all-day, Stress (band)).
+- **Info.plist:** added `NSBluetooth*UsageDescription` + `UIBackgroundModes: bluetooth-central`.
+- **On hardware:** drop the framework + pods, finish the `bridge*` methods in `VB9Manager` on a real band,
+  confirm the auto-HR logging interval, Regulatory sign-off on ECG/AF/BP/heart-age surfacing (wellness line).
+- Build verified: `** BUILD SUCCEEDED **` on the sim; Body cards screenshotted with `-vb9Sim 1`.
+
 ## Where things stand (2026-10-07)
 
 **Shipped builds 63–71 to TestFlight (1.0.0). Two big features this stretch:**

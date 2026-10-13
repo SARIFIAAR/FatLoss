@@ -35,6 +35,7 @@ enum Pillar: String, Identifiable {
 struct BodyView: View {
     @Environment(Store.self) private var store
     @Environment(HealthKitManager.self) private var health
+    @Environment(VB9Manager.self) private var vb9
     @State private var dayOffset = 0        // 0 = today, positive = days back
     @State private var pillar: Pillar?
     @State private var impacts: [BehaviorImpact] = []
@@ -54,12 +55,16 @@ struct BodyView: View {
                     coachCard
                     if scores.recovery == nil { calibratingCard }
                     healthAlertsCard
+                    // HUMANS wristband (VB9) — only shown once paired or on a device that has the band SDK.
+                    if showBandCard { bandCard }
                     // At-a-glance summary.
                     gaugeRow
                     // Readiness cluster.
                     recoveryCard
                     bodyBatteryCard
                     stressCard.id("stress")
+                    // Heart rhythm / ECG — appears once the band has recorded at least one ECG.
+                    if store.latestECG != nil { heartRhythmCard }
                     // Sleep & load.
                     sleepCard
                     strainCard.id("strain")
@@ -751,6 +756,112 @@ struct BodyView: View {
         }
     }
 
+    // MARK: VB9 wristband
+
+    /// Show the band card once paired before, on a device with the SDK, or in the `-vb9Sim 1` demo.
+    private var showBandCard: Bool { store.data.band != nil || vb9.isAvailable }
+
+    private var bandCard: some View {
+        let band = store.data.band
+        let online = vb9.state == .connected
+        return DarkCard(accent: online ? W.vibrant : nil) {
+            CardTitle("HUMANS Band", band?.model ?? "VB9", chevron: false) {}
+            HStack(spacing: 10) {
+                Circle().fill(online ? W.green : W.muted).frame(width: 8, height: 8)
+                Text(band?.name ?? "HUMANS Band (VB9)").font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(W.text)
+                Spacer()
+                if let b = vb9.battery ?? band?.battery {
+                    Label("\(b)%", systemImage: "battery.100")
+                        .font(.system(size: 12)).foregroundStyle(W.muted).labelStyle(.titleAndIcon)
+                }
+            }
+            .padding(.vertical, 8)
+
+            if let hr = vb9.liveHR, vb9.isMeasuring {
+                HStack(spacing: 6) {
+                    Image(systemName: "heart.fill").foregroundStyle(W.red)
+                    Text("\(hr)").font(W.score(34)).foregroundStyle(W.text)
+                    Text("bpm live").font(.system(size: 12)).foregroundStyle(W.muted)
+                    Spacer()
+                }
+                .padding(.bottom, 6)
+            }
+
+            if online {
+                HStack(spacing: 8) {
+                    bandButton("Health check", "heart.text.square") { vb9.oneKeyMeasure() }
+                    bandButton("ECG", "waveform.path.ecg") { vb9.measureECG() }
+                    bandButton("Sync", "arrow.triangle.2.circlepath") { Task { await vb9.syncHistory() } }
+                }
+            } else {
+                Button { vb9.startScan() } label: {
+                    Text(vb9.state == .scanning ? "Scanning…" : "Connect band")
+                        .font(.system(size: 14, weight: .semibold)).foregroundStyle(W.bg)
+                        .frame(maxWidth: .infinity).padding(.vertical, 10)
+                        .background(W.vibrant).clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                if let first = vb9.discovered.first, vb9.state == .scanning {
+                    Button("Pair \(first.name)") { vb9.connect(first) }
+                        .font(.system(size: 13)).foregroundStyle(W.vibrant).padding(.top, 8)
+                }
+            }
+            if let err = vb9.lastError {
+                Text(err).font(.system(size: 11)).foregroundStyle(W.muted).padding(.top, 6)
+            }
+        }
+    }
+
+    private func bandButton(_ title: String, _ icon: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: icon).font(.system(size: 15))
+                Text(title).font(.system(size: 11, weight: .medium))
+            }
+            .foregroundStyle(W.text).frame(maxWidth: .infinity).padding(.vertical, 10)
+            .background(W.card2).clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    /// Heart rhythm + ECG-AI summary (wellness framing — informational, not a diagnosis).
+    private var heartRhythmCard: some View {
+        let e = store.latestECG
+        func row(_ name: String, _ value: String?) -> AnyView? {
+            guard let value else { return nil }
+            return AnyView(HStack {
+                Text(name).font(.system(size: 13)).foregroundStyle(W.text)
+                Spacer()
+                Text(value).font(W.score(17)).foregroundStyle(W.text)
+            }.padding(.vertical, 9))
+        }
+        return DarkCard {
+            CardTitle("Heart Rhythm", "ECG · single-lead", chevron: false) {}
+            HStack(spacing: 8) {
+                Text(e?.rhythm ?? "—").font(.system(size: 17, weight: .bold)).foregroundStyle(W.text)
+                if e?.afDetected == true {
+                    Text("AF").font(.system(size: 11, weight: .bold)).foregroundStyle(W.bg)
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .background(W.red).clipShape(Capsule())
+                }
+                Spacer()
+                if let s = e?.score { Text("\(s)/99").font(W.score(20)).foregroundStyle(scoreColor(s)) }
+            }
+            .padding(.vertical, 6)
+            DividedRows(rows: [
+                row("Heart age", e?.heartAge.map { "\($0)" }),
+                row("QTc", e?.qtcMs.map { "\($0) ms" }),
+                row("PR interval", e?.prMs.map { "\($0) ms" }),
+                row("HRV (SDNN)", e?.sdnn.map { String(format: "%.0f ms", $0) }),
+                row("HRV (rMSSD)", e?.rmssd.map { String(format: "%.0f ms", $0) }),
+                row("Autonomic balance", e?.autonomicBalance.map { String(format: "%.2f", $0) }),
+            ].compactMap { $0 })
+            Text("Informational wellness insight, not a medical diagnosis.")
+                .font(.system(size: 10)).foregroundStyle(W.muted).padding(.top, 8)
+        }
+    }
+
+    private func scoreColor(_ s: Int) -> Color { s >= 75 ? W.green : s >= 50 ? W.yellow : W.red }
+
     // HRV / resting HR / respiratory rate / sleep live on the Recovery card (their home);
     // the Health Monitor owns the remaining vitals so nothing is listed twice.
     private var monitorRows: [AnyView] {
@@ -770,7 +881,29 @@ struct BodyView: View {
         if let sys = scores.health?.bpSystolic, let dia = scores.health?.bpDiastolic {
             rows.append(AnyView(bpRow(sys: sys, dia: dia)))
         }
+        // VB9 band: all-day HR envelope (floor→ceiling) — never available from Apple Watch to a 3rd-party app.
+        if let lo = scores.health?.hrMinDay, let hi = scores.health?.hrMaxDay {
+            rows.append(AnyView(hrRangeRow(lo: lo, hi: hi)))
+        }
+        // VB9 band: device-measured stress index (shown beside our own HRV-derived Stress score).
+        if scores.day.stressMeasured != nil {
+            rows.append(AnyView(monitorRow("Stress (band)", scores.day.stressMeasured, "",
+                                           store.bodyHistory(\.stressMeasured))))
+        }
         return rows
+    }
+
+    /// All-day HR floor→ceiling from the band's auto-HR log (informational; no "typical range" dot).
+    private func hrRangeRow(lo: Double, hi: Double) -> some View {
+        HStack {
+            Circle().fill(W.blue).frame(width: 8, height: 8)
+            Text("HR range (all day)").font(.system(size: 13)).foregroundStyle(W.text)
+            Spacer()
+            Text("resting → peak").font(.system(size: 11)).foregroundStyle(W.muted)
+            Text("\(Int(lo.rounded()))–\(Int(hi.rounded()))")
+                .font(W.score(17)).foregroundStyle(W.text).frame(minWidth: 48, alignment: .trailing)
+        }
+        .padding(.vertical, 9)
     }
 
     /// Blood pressure shown as systolic/diastolic with a simple normal/elevated dot (≤120/80 normal).

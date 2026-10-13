@@ -90,11 +90,16 @@ struct RecoveryDay: Codable, Hashable {
     var wakeTime: Date?      // last asleep sample end
     var awakeCount: Int?     // awake segments during the night (disturbances)
     var napH: Double?        // daytime nap hours (separate from the main sleep)
+    // VB9 wristband (device-measured, not derived). Our own Stress/BodyMetrics stays the source of truth for
+    // the dashboard; these are the band's own one-key readings, shown alongside for corroboration.
+    var stressMeasured: Double?   // band stress index 0–100 (one-key health measurement)
+    var fatigue: Double?          // band fatigue index 0–100 (ECG-AI / one-key)
 
     var hasMetrics: Bool { (hrv ?? 0) > 0 || (sleepH ?? 0) > 0 || (rhr ?? 0) > 0 }
     var isEmpty: Bool {
         !hasMetrics && deepH == nil && remH == nil && resp == nil && mood == nil
             && spo2 == nil && tempC == nil && inBedH == nil
+            && stressMeasured == nil && fatigue == nil
     }
     var efficiency: Double? {
         guard let s = sleepH, let b = inBedH, b > 0.5, s > 0 else { return nil }
@@ -207,6 +212,10 @@ struct HealthDay: Codable, Hashable {
     var bpSystolic: Double?      // avg systolic mmHg
     var bpDiastolic: Double?     // avg diastolic mmHg
     var hrrBpm: Double?          // 1-min heart-rate recovery (bpm drop after a workout)
+    // VB9 continuous-HR envelope (band auto-HR logs HR all day, synced in bulk). Apple Watch never gave a
+    // 3rd-party app an all-day HR floor/ceiling; the band does. restingHR above is still the daily resting value.
+    var hrMinDay: Double?        // lowest all-day HR (band auto-HR)
+    var hrMaxDay: Double?        // highest all-day HR (band auto-HR)
 
     /// Total energy burned so far that day (nil until the Watch has reported anything).
     var burnedKcal: Double? {
@@ -217,11 +226,11 @@ struct HealthDay: Codable, Hashable {
     init(steps: Int = 0, restingHR: Double? = nil, activeKcal: Double? = nil, basalKcal: Double? = nil,
          bodyFatPct: Double? = nil, leanMassKg: Double? = nil, vo2Max: Double? = nil,
          glucoseMgDl: Double? = nil, bpSystolic: Double? = nil, bpDiastolic: Double? = nil,
-         hrrBpm: Double? = nil) {
+         hrrBpm: Double? = nil, hrMinDay: Double? = nil, hrMaxDay: Double? = nil) {
         self.steps = steps; self.restingHR = restingHR; self.activeKcal = activeKcal; self.basalKcal = basalKcal
         self.bodyFatPct = bodyFatPct; self.leanMassKg = leanMassKg; self.vo2Max = vo2Max
         self.glucoseMgDl = glucoseMgDl; self.bpSystolic = bpSystolic; self.bpDiastolic = bpDiastolic
-        self.hrrBpm = hrrBpm
+        self.hrrBpm = hrrBpm; self.hrMinDay = hrMinDay; self.hrMaxDay = hrMaxDay
     }
 
     init(from decoder: Decoder) throws {
@@ -237,7 +246,52 @@ struct HealthDay: Codable, Hashable {
         bpSystolic  = c.value(.bpSystolic,  default: nil)
         bpDiastolic = c.value(.bpDiastolic, default: nil)
         hrrBpm      = c.value(.hrrBpm,      default: nil)
+        hrMinDay    = c.value(.hrMinDay,    default: nil)
+        hrMaxDay    = c.value(.hrMaxDay,    default: nil)
     }
+}
+
+/// A single-lead ECG recording + the on-device AI analysis the VB9 band returns for it. All fields are
+/// optional so the record survives a partial read, and all synthesized-Codable (lenient by construction).
+/// WELLNESS framing only — `rhythm`/`afDetected`/`qtcMs`/`heartAge` are informational, never a diagnosis
+/// (same posture as Physical Age; Regulatory owns how these surface).
+struct ECGResult: Codable, Hashable, Identifiable {
+    var id: String = UUID().uuidString
+    var date: String                 // DateKey (yyyy-MM-dd)
+    var at: Date = Date()            // when the reading was taken
+    // AI_Result / QRS summary
+    var rhythm: String?              // "Sinus Rhythm", "Atrial Fibrillation", … (type_name)
+    var rhythmCode: Int?             // AE_AiType 0–6
+    var afDetected: Bool = false     // true when the AF-AI flags atrial fibrillation
+    var afLevel: Double?             // AF severity %, when present
+    var score: Int?                  // 0–99 ECG-AI health score
+    var scoreGrade: String?          // "Healthy" / "Mild" / "Moderate" / "Severe"
+    var heartAge: Int?               // ECG-AI "heart age"
+    // QRS morphology (ms)
+    var avgHr: Int?
+    var qtcMs: Int?
+    var prMs: Int?
+    var qrsMs: Int?
+    // HRV panel (ms unless noted)
+    var sdnn: Double?
+    var rmssd: Double?
+    var pnn50: Double?
+    // Autonomic nervous system
+    var sympathetic: Double?
+    var parasympathetic: Double?
+    var autonomicBalance: Double?
+    var stress: Double?              // ECG-AI pressure/stress index
+    var fatigue: Double?             // ECG-AI fatigue index
+}
+
+/// Last-known VB9 band, persisted so the Body "Band" card shows status between connects.
+struct BandInfo: Codable, Hashable {
+    var name: String?
+    var model: String?
+    var mac: String?
+    var firmware: String?
+    var battery: Int?                // 0–100
+    var lastSyncAt: Date?
 }
 
 struct Goals: Codable, Hashable {
@@ -457,6 +511,8 @@ struct AppData: Codable, Hashable {
     var meals: [String: [MealEntry]] = [:]                  // date -> meals eaten
     var workouts: [String: [WorkoutEntry]] = [:]            // date -> Apple Health workouts
     var bodyComp: [BodyCompEntry] = []                      // InBody / manual body-composition readings
+    var ecg: [String: [ECGResult]] = [:]                    // date -> VB9 ECG recordings + AI analysis
+    var band: BandInfo? = nil                               // last-known VB9 wristband (status card)
     var breathing: [String: Set<String>] = [:]              // date -> breathing slots done
     var habitDefs: [HabitDef] = []                          // customizable habit definitions
     var habitLog: [String: [String: Double]] = [:]          // date -> habitId -> logged value (manual)
@@ -509,6 +565,8 @@ struct AppData: Codable, Hashable {
         meals        = c.value(.meals,        default: [:])
         workouts     = c.value(.workouts,     default: [:])
         bodyComp     = c.value(.bodyComp,     default: [])
+        ecg          = c.value(.ecg,          default: [:])
+        band         = c.value(.band,         default: nil)
         breathing    = c.value(.breathing,    default: [:])
         habitDefs    = c.value(.habitDefs,    default: [])
         habitLog     = c.value(.habitLog,     default: [:])
@@ -626,6 +684,17 @@ struct AppData: Codable, Hashable {
         for e in older.bodyComp { byID[e.id] = e }
         for e in out.bodyComp { byID[e.id] = e }
         out.bodyComp = byID.values.sorted { $0.date < $1.date }
+        // ECG recordings: union by id per day (newer wins), oldest→newest within a day.
+        out.ecg.merge(older.ecg) { newer, old in
+            var byID: [String: ECGResult] = [:]
+            for e in old { byID[e.id] = e }
+            for e in newer { byID[e.id] = e }
+            return byID.values.sorted { $0.at < $1.at }
+        }
+        // Band: keep whichever copy synced more recently (nil lastSyncAt = oldest).
+        let outSync = out.band?.lastSyncAt ?? .distantPast
+        let oldSync = older.band?.lastSyncAt ?? .distantPast
+        if oldSync > outSync { out.band = older.band }
         // Progress-photo metadata: union by id (newer wins), oldest→newest. Note a merged-in entry from
         // ANOTHER device points to a file that only exists on that device — the UI renders such an entry as
         // a missing thumbnail, never as another user's photo (and account isolation wipes on account switch).

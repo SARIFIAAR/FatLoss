@@ -17,3 +17,7 @@ FatLossCoach/GoogleService-Info.plist
 
 # Secrets
 *.p8
+
+# VB9 wristband SDK — commercial binary, NOT committed to this public repo (drop locally, device builds only)
+Vendor/BLEMidAutumn/*.framework
+Vendor/BLEMidAutumn/*.xcframework
