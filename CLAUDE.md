@@ -300,11 +300,46 @@ with our OWN retry/reassembly/timeout — replacing the flaky SDK calls one at a
 VY28C is a Vivistar variant (verify commands); check repo licenses before copying code (protocol facts aren't
 copyrightable + we already decoded the opcodes from the APK). Full teardown: `docs/qring-sdk-teardown.md`.
 
+### 2026-10-24 session 2 — Colmi path VALIDATED + native client built + ★VERIFIED ON-DEVICE
+
+**The Colmi R02 open-source path is CONFIRMED, byte-for-byte** (teardown **§12** = the full cross-map):
+re-decompiled the APK and cross-checked tahnok/colmi_r02_client (MIT) + robinojw/openring (MIT) against
+`Constants.CMD_*` — every opcode matches (setTime 1, battery 3, **HR log 21**, HR settings 22, stress 55,
+HRV 57, steps 67, realtime 105/106), UART UUIDs identical, 16-byte framing + sum&0xFF checksum identical.
+The **Big Data channel** (service `de5bf728`, write `de5bf72a`, notify `de5bf729`, magic 0xBC, 6-byte header)
+is the APK's `LargeDataParser` AND the iOS SDK's `ODM_DFU_Operation` enum — dataIds sleep 0x27, SpO₂ 0x2A,
+temp 0x25/0x26 ("37/38"), manual HR 0x28. ⚠️ Opcode-21 timestamp = **local midnight + tzOffsetSeconds**
+("midnight labeled UTC"); response subtracts it back. Clones in session scratchpad (`colmi_r02_client/`,
+`openring/`, `Colmi/`, `qring-jadx/`) — re-clone if gone, licenses all permissive.
+
+**Built (uncommitted, NOT yet device-tested):**
+- `Core/Wearable/RingProtocol.swift` — pure protocol layer (sim-safe, no vendor imports): packet builder +
+  checksum, `RingHeartRateLogParser` (opcode-21 multi-packet state machine: sub 0xFF=noData, 0=header
+  {count,range}, 1={LE ts, 9 samples}, 2…=13 samples, end at count−1 or sub-23 today-marker, future slots
+  zeroed), ring-timestamp helpers, Big Data request framing + `RingBigDataReassembler` (unwired; sleep next).
+  **18/18 offline unit tests pass** incl. the checksum vs tahnok's real-device example (0x32).
+- `Core/Wearable/RingDirect.swift` — CoreBluetooth-only executor: temporarily swaps the peripheral delegate
+  away from QCSDKManager for ONE command (safe because it runs inside the bridge's serial queue), writes
+  6e400002, streams 6e400003 notifies to the parser, restores the delegate on finish/15s-timeout.
+- `QRingBridge`: `ringDirect` created on connect/cleared on disconnect; `syncHistory` now runs
+  **"today HR (op21 direct)"** with `enqueueRetrying` BEFORE the SDK 1-min fallback (kept as belt-and-braces);
+  success fills today's restingHR/hrMin/hrMax/hrSeries/hrInterval → HR-zone minutes.
+- Sim build ✓, device build ✓ (installed as build 76, CEO-approved).
+
+**★ ON-DEVICE VERIFICATION (2026-10-24 23:06, console-attached launch):**
+`op21 today ✓ slots=288 valid=56 interval=5m` — the native read returned today's full 5-min HR series
+**on the first attempt, on the same sync where the SDK's "HR series fail" + "currentSport fail" hit**.
+And the delegate hand-back is clean: the SDK's retried commands succeeded AFTER op21 ran (HR models=3,
+currentSport steps=1683), sync completed, auto one-key fired. Native client + SDK coexist. The core
+problem (today's all-day HR never retrievable) is SOLVED. Debug tip: `xcrun devicectl device process
+launch --console …` streams the app's NSLog to the Mac — much better than the on-screen log panel.
+
 **OPEN / NEXT (priority order):**
-- **★ Validate the Colmi R02 open-source path**: map anikbharadwaj/tahnok command set vs our APK-decoded opcodes,
-  confirm VY28C compatibility, then build the native Swift BLE client (own retry/reassembly). This attacks the
-  root cause instead of working around it.
-- **Commit the branch** — a session's worth of fixes sit uncommitted on `vb9-integration`. Get CEO OK, then commit.
+- Extend op21 to backfill days 1–6 where the SDK HR-series read failed, then replace the next-flakiest
+  call: **sleep via Big Data 0x27** (reassembler already written; openring's `parseSleepPayload` =
+  daysAgo + signed min-after-midnight + stage pairs 2=light 3=deep 4=REM 5=awake; needs a Big-Data
+  variant of RingDirect targeting the de5bf728 service), then HRV 57 / stress 55 / steps 67.
+- **Commit the branch** — this session's work sits uncommitted on top of b10ebb7. Get CEO OK, then commit.
 - Deferred until the client decision: raw-PPG pipeline (true rMSSD HRV + respiratory rate); Readiness/Rest index;
   background CoreBluetooth state-restoration; aggressive Firebase write-through; temp-series file-transfer (37/38).
 

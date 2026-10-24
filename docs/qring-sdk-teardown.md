@@ -147,3 +147,63 @@ Decompiled the official app (`QRing_1.0.0.35_APKPure.apk`, pkg `com.qcwireless.q
 5. **Wear detection**: `getSedentaryReminderFromDay` gives an all-day worn/active timeline — useful to invalidate garbage samples.
 6. **Live steps**: subscribe `currentStepInfo` instead of re-polling `getCurrentSport`.
 7. **Workout sessions**: `operateSportModeWithType:state:` + `currentSportInfo` push + `getSportRecordsFromLastTimeStamp:` gives us ring-initiated workout tracking (238 types) feeding Strain.
+
+## ★ 12. Colmi R02 open-source ↔ QRing APK opcode cross-map — VALIDATED (2026-10-24)
+
+Cross-checked three independent sources byte-for-byte: (a) the official APK's `com.oudmon.ble.base.communication.Constants` +
+request/response classes (re-decompiled with jadx), (b) tahnok/colmi_r02_client (MIT, Python — canonical protocol docs),
+(c) robinojw/openring (MIT, TS — `PROTOCOL.md` + on-device-verified Big Data channel). anikbharadwaj129/Colmi is Apache-2.0.
+**Verdict: the VY28C protocol IS the Colmi R02 protocol — every opcode, UUID, framing rule and checksum matches.** We can
+build our own client with full confidence.
+
+**Transport (all three sources agree, APK constants verbatim):**
+- Command channel: service `6e40fff0-…`, write `6e400002-…`, notify `6e400003-…` (`Constants.UUID_SERVICE/WRITE/READ`).
+- **Big Data channel** (variable-length reads): service `de5bf728-…`, **write `de5bf72a-…`**, notify `de5bf729-…`
+  (APK `SERIAL_PORT_*`; openring verified the same trio on a real R02 — note write ≠ service UUID).
+- Command packet: 16 bytes = `[cmd][payload ≤14][checksum = sum of first 15 bytes & 0xFF]` (APK `BaseReqCmd.addCRC` ==
+  tahnok `make_packet`). Responses echo cmd at byte[0]; multi-packet responses use byte[1] as sub_type (the APK dispatcher
+  strips byte[0] before `acceptData`).
+- Big Data request: `[0xBC][dataId][len lo][len hi][crc lo][crc hi][payload…]`; read-all-days = len 1, crc 0xFF00-sentinel,
+  payload `0xFF`. Response reassembly: accumulate until `6 + dataLen(bytes[2..3] LE)` bytes (APK `LargeDataParser`
+  magic==188==0xBC == openring `BigDataReassembler`).
+
+**Command-channel opcodes (APK `Constants.CMD_*` ↔ Colmi open source):**
+
+| Function | APK constant | # | Colmi OSS | Match |
+|---|---|---|---|---|
+| Set time | `CMD_SET_DEVICE_TIME` | 1 | setTime 1 | ✅ |
+| Battery | `CMD_GET_DEVICE_ELECTRICITY_VALUE` | 3 | battery 3 | ✅ |
+| Reboot | `CMD_RE_BOOT` | 8 | reboot 8 | ✅ |
+| Find/blink | `CMD_BIND_SUCCESS`-adjacent | 16 | blink 16 | ✅ |
+| **HR log (timestamped day read)** | `CMD_GET_HEART_RATE` | **21** | HR log 21 | ✅ **the read the iOS SDK hides** |
+| HR monitor settings | `CMD_HR_TIMING_MONITOR_SWITCH` | 22 | HR settings 22 | ✅ |
+| Real-time HR legacy | `CMD_REAL_TIME_HEART_RATE` | 30 | — | APK-only |
+| Stress history | `CMD_PRESSURE` | 55 (settings 54) | stress 55 (puxtril) | ✅ |
+| HRV history | `CMD_HRV` | 57 (enable 56) | HRV 57 (tahnok hrv.py) | ✅ |
+| Steps/activity detail | `CMD_GET_STEP_SOMEDAY_DETAIL` | 67 | steps 67 | ✅ |
+| Sleep (legacy cmd) | `CMD_GET_SLEEP` | 68 | (old cmd-68 guess) | superseded by Big Data 0x27 |
+| Real-time measure start/stop | `CMD_START/STOP_HEART_RATE` | 105/106 | realTime 105/106 | ✅ |
+
+**Big Data dataIds (= the SDK's `ODM_DFU_Operation` enum in `QCDFU_Utils.h` — same numbering!):**
+temp series **0x25**/manual **0x26** (the APK's "37/38" decimal = `dfu_temperature` ACTION_SERIES/ONCE), sleep **0x27**
+(openring verified incl. stage codes 2=light 3=deep 4=REM 5=awake), manual HR **0x28**, SpO₂ history **0x2A**
+(49-byte day records: daysAgo + 24 hourly max/min pairs), sport+ 0x41–0x46, ECG 0x70–0x73, temp-interval 0x74,
+1-min HR 0x75. → The iOS SDK's "DFU" opcode enum is actually the Big Data channel map; `LargeDataHandler` is its Android twin.
+
+**Opcode-21 HR-log wire format (tahnok parser == APK `ReadHeartRateRsp`, byte-identical):**
+- Request: `[21][unix timestamp uint32 LE][0…][crc]`. ⚠️ Timestamp = **local midnight + tzOffsetSeconds** ("midnight
+  labeled as UTC"): APK sends `date.getUnixTimestamp() + tz*3600` and subtracts it back on response.
+- Response packets (after cmd-byte strip): sub_type `0xFF` = no data; `0` = header {byte[1]=packet count, byte[2]=range
+  min (default 5)}; `1` = {uint32 LE timestamp, then 9 HR samples}; `2…` = 13 samples each; ends at sub_type == size−1,
+  **or sub_type 23 for a today-read** (partial day). Full day = 288 samples × 5 min; 0 = no reading in that slot.
+  APK zeroes slots beyond "now" for today.
+- HRV (57) identical shape, except sub_type 1 carries {byte[1]=daysAgo} instead of a timestamp and range defaults 30 min.
+
+**Licenses:** tahnok + openring MIT, anik Apache-2.0 — all fine to study/adapt with attribution; we re-implement from
+protocol facts (not copyrightable) + our own APK decode anyway.
+
+**What this means:** we implement a lean Swift client (CoreBluetooth we already own in `QRingBridge`) speaking this
+protocol directly — starting with opcode-21 (today + history HR, the #1 gap), then Big Data sleep 0x27 (replaces the
+flakiest SDK read), then HRV 57/stress 55/steps 67 — each with our own serial queue, retry, timeout and reassembly,
+keeping `QCBandSDK` as fallback per call. Local clones for reference: scratchpad `colmi_r02_client/`, `openring/`,
+`Colmi/`, `qring-jadx/`.

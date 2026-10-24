@@ -19,6 +19,9 @@ final class QRingBridge: NSObject {
     private var pendingName: String?
     private var autoConnecting = false
     private var histObservers: [NSObjectProtocol] = []
+    // Native protocol executor (Colmi R02 wire protocol, teardown §12) — borrows the peripheral delegate
+    // from the SDK for one command at a time, inside the same serial queue. SDK calls stay as fallback.
+    private var ringDirect: RingDirect?
 
     // Serial command queue — the QCBandSDK requires commands to run ONE AT A TIME (simultaneous calls drop).
     private var cmdQueue: [(@escaping () -> Void) -> Void] = []
@@ -415,9 +418,40 @@ final class QRingBridge: NSObject {
                 self?.scheduleFlush(); finish(!arr.isEmpty)
             }, fail: { self?.log("HR series fail"); finish(false) })
         }
-        // TODAY's HR range. The scheduled-HR history command above only returns COMPLETED days (today is
-        // always empty), so today's resting HR / HR envelope never showed. The official app reads today
-        // via a separate timestamp command; the iOS analog is the 1-minute HR series for day index 0.
+        // ★ TODAY's full HR series via the NATIVE opcode-21 read (the timestamped command the official app
+        // uses and the iOS SDK never exposed — teardown §12). Runs on our own transport with the SDK idle;
+        // on success it fills today's resting HR + envelope + the 5-min series for HR-zone minutes.
+        enqueueRetrying("today HR (op21 direct)") { [weak self] finish in
+            guard let self, let direct = self.ringDirect else { finish(true); return }   // no link → skip quietly
+            let parser = RingHeartRateLogParser(requestedToday: true)
+            var result: RingHeartRateLog?
+            direct.run(RingProtocol.heartRateLogRequest(day: Date()), timeout: 15, onFrame: { frame in
+                switch parser.feed(frame) {
+                case .waiting: return false
+                case .noData: return true
+                case .done(let log): result = log; return true
+                }
+            }, completion: { [weak self] err in
+                guard let self else { return }
+                if let err { self.log("op21 today ✗ \(err.localizedDescription)"); finish(false); return }
+                guard let r = result else { self.log("op21 today: no data"); finish(false); return }
+                let hrs = r.samples.filter { $0 >= 30 && $0 <= 220 }
+                self.log("op21 today ✓ slots=\(r.samples.count) valid=\(hrs.count) interval=\(r.intervalMinutes)m")
+                guard let lo = hrs.min(), let hi = hrs.max() else { finish(false); return }
+                let k = self.dayKey(daysAgo: 0)
+                self.agg(k) {
+                    $0.restingHR = min($0.restingHR ?? .greatestFiniteMagnitude, Double(lo))
+                    $0.hrMin = min($0.hrMin ?? .greatestFiniteMagnitude, Double(lo))
+                    $0.hrMax = max($0.hrMax ?? 0, Double(hi))
+                    $0.hrSeries = hrs
+                    $0.hrInterval = r.intervalMinutes * 60
+                }
+                self.scheduleFlush(); finish(true)
+            })
+        }
+        // TODAY's HR range — SDK fallback. The scheduled-HR history command above only returns COMPLETED
+        // days (today is always empty). The 1-minute HR series for day index 0 sometimes has today's data;
+        // kept as belt-and-braces behind the native op21 read.
         // Parse defensively (NSNumber bpm values OR models carrying a heartRates array).
         enqueue { [weak self] done in
             QCSDKCmdCreator.getOneMinuHeartRateDataWithInterval(byDayIndex: 0) { data, _ in
@@ -660,6 +694,7 @@ extension QRingBridge: CBCentralManagerDelegate {
                 let id = peripheral.identifier.uuidString
                 let name = peripheral.name ?? "HUMANS Ring"
                 UserDefaults.standard.set(id, forKey: "qringPeripheralId")   // remember for reinstall-proof reconnect
+                self.ringDirect = RingDirect(peripheral: peripheral) { [weak self] in self?.log($0) }
                 self.log("addPeripheral ready")
                 self.onMain { $0.ingestReady(id: id, name: name) }
                 self.cmdQueue.removeAll(); self.cmdRunning = false; self.syncing = false   // fresh serial queue + unstick the sync guard on connect
@@ -714,6 +749,7 @@ extension QRingBridge: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         QCSDKManager.shareInstance().remove(peripheral)
+        ringDirect = nil
         autoConnecting = false; connecting = nil
         onMain { $0.ingestDisconnected(error: error?.localizedDescription) }
     }
