@@ -343,12 +343,20 @@ white-label request). In-app we already display "HUMANS Ring" everywhere. The br
 matcher now also accepts names starting "HUMANS" (future-proof for custom firmware). Experiment code
 removed after the test; clean build reinstalled (build 76).
 
-**OPEN / NEXT (priority order):**
-- Extend op21 to backfill days 1–6 where the SDK HR-series read failed, then replace the next-flakiest
-  call: **sleep via Big Data 0x27** (reassembler already written; openring's `parseSleepPayload` =
-  daysAgo + signed min-after-midnight + stage pairs 2=light 3=deep 4=REM 5=awake; needs a Big-Data
-  variant of RingDirect targeting the de5bf728 service), then HRV 57 / stress 55 / steps 67.
-- Ask Vivistar about custom-firmware branding (broadcast name "HUMANS") when ordering production units.
+**TERMINOLOGY (CEO, 2026-10-24): the VY28C is a STRAP/bracelet, not a ring** — "QRing" is only the
+vendor's commercial name. Same screenless-strap form factor as WHOOP. Say "HUMANS strap" in user-facing
+copy; "ring" survives in internal symbol names (QRingBridge etc.) only.
+
+**OPEN / NEXT — now driven by `docs/whoop-gap-plan.md` (the WHOOP gap-closure plan, 6 phases):**
+1. Finish native retrieval: op21 backfill days 1–6 → sleep via Big Data 0x27 (reassembler ready) →
+   HRV 57 / stress 55 / steps 67. Exit: 20 clean syncs, SDK = fallback only.
+2. Background continuity: CoreBluetooth state restoration (bluetooth-central already in Info.plist) +
+   sync-on-connect + immediate CloudMirror write-through (WHOOP-style cloud stitching).
+3. Sampling density: test the scheduled-HR interval floor (5min default; try 1–2min) vs battery.
+4. True HRV: 25 Hz raw-PPG → rMSSD + respiratory rate (recipe teardown §6).
+5. Validation week vs Apple Watch + Readiness index + Strain recalibration.
+6. Vivistar OEM asks with the production order (broadcast name "HUMANS" — phone-side rename proven
+   impossible; HR-interval floor; branding).
 - **Commit the branch** — this session's work sits uncommitted on top of b10ebb7. Get CEO OK, then commit.
 - Deferred until the client decision: raw-PPG pipeline (true rMSSD HRV + respiratory rate); Readiness/Rest index;
   background CoreBluetooth state-restoration; aggressive Firebase write-through; temp-series file-transfer (37/38).
