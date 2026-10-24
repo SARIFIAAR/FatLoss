@@ -334,11 +334,21 @@ currentSport steps=1683), sync completed, auto one-key fired. Native client + SD
 problem (today's all-day HR never retrievable) is SOLVED. Debug tip: `xcrun devicectl device process
 launch --console …` streams the app's NSLog to the Mac — much better than the on-screen log panel.
 
+**Ring rename experiment (2026-10-24, CEO-requested): CLOSED — can't rename from the phone.**
+`setUUID("HUMANS")` and `getUUID` both fail on the VY28C (firmware doesn't implement the ≤10-char
+custom-tag command; each timed out ~4s). No set-broadcast-name command exists in the APK or SDK either
+(dataId 74 `setDeviceNickName` = watch-screen user profile, not the adv name). → The advertised
+"Y28C_7EB0" is firmware-fixed; renaming/branding = **OEM firmware ask to Vivistar** (standard
+white-label request). In-app we already display "HUMANS Ring" everywhere. The bridge's auto-connect
+matcher now also accepts names starting "HUMANS" (future-proof for custom firmware). Experiment code
+removed after the test; clean build reinstalled (build 76).
+
 **OPEN / NEXT (priority order):**
 - Extend op21 to backfill days 1–6 where the SDK HR-series read failed, then replace the next-flakiest
   call: **sleep via Big Data 0x27** (reassembler already written; openring's `parseSleepPayload` =
   daysAgo + signed min-after-midnight + stage pairs 2=light 3=deep 4=REM 5=awake; needs a Big-Data
   variant of RingDirect targeting the de5bf728 service), then HRV 57 / stress 55 / steps 67.
+- Ask Vivistar about custom-firmware branding (broadcast name "HUMANS") when ordering production units.
 - **Commit the branch** — this session's work sits uncommitted on top of b10ebb7. Get CEO OK, then commit.
 - Deferred until the client decision: raw-PPG pipeline (true rMSSD HRV + respiratory rate); Readiness/Rest index;
   background CoreBluetooth state-restoration; aggressive Firebase write-through; temp-series file-transfer (37/38).

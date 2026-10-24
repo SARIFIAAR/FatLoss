@@ -677,7 +677,9 @@ extension QRingBridge: CBCentralManagerDelegate {
         onMain { $0.ingestDiscovered(id: id, name: name, rssi: RSSI.intValue) }
         // Auto-connect to the HUMANS ring (VY28C advertises as "Y28C_…"). Single-shot, strongest-signal.
         let upper = name.uppercased()
-        let isRing = upper.hasPrefix("Y28") || upper.hasPrefix("VY2") || upper.contains("28C")
+        // "HUMANS" included: the setUUID rename experiment may change the advertised name — never
+        // lock ourselves out of auto-connect if it works.
+        let isRing = upper.hasPrefix("Y28") || upper.hasPrefix("VY2") || upper.contains("28C") || upper.hasPrefix("HUMANS")
         if !autoConnecting, isRing, RSSI.intValue >= -95 {
             autoConnecting = true
             log("auto-connecting to ring \(name)")
@@ -733,6 +735,9 @@ extension QRingBridge: CBCentralManagerDelegate {
                         done()
                     }, failed: { self?.log("battery read failed"); done() })
                 }
+                // NOTE (rename experiment, 2026-10-24): setUUID("HUMANS")/getUUID both FAIL on the VY28C —
+                // the firmware doesn't implement the custom-tag command, so the advertised BLE name
+                // ("Y28C_7EB0") cannot be changed from the phone. Renaming = OEM firmware ask to Vivistar.
                 self.enableMonitoring()   // the ring records nothing until these are on (official app does this at setup)
                 self.syncHistory()
             } else {
