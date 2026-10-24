@@ -793,6 +793,8 @@ struct BodyView: View {
                 HStack(spacing: 8) {
                     bandButton(qring.isMeasuring ? "Measuring…" : "Measure", "heart.text.square") { qring.oneKeyMeasure() }
                     bandButton("Sync now", "arrow.triangle.2.circlepath") { Task { await qring.syncHistory() } }
+                    // 100 s raw-PPG capture → rMSSD in the log panel (phase-4 scaffold; stay still)
+                    bandButton("True HRV", "waveform.path.ecg") { qring.measureRawPPG() }
                 }
                 Button {
                     store.resetToBandOnly()

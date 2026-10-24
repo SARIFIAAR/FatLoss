@@ -1,6 +1,7 @@
 #if canImport(QCBandSDK)
 import Foundation
 import CoreBluetooth
+import UIKit
 import QCBandSDK
 
 // On-device bridge for the QRing smart ring (QCBandSDK). Compiles only on the device build (framework linked
@@ -28,6 +29,9 @@ final class QRingBridge: NSObject {
     private var cmdRunning = false
     private var syncing = false   // guards against overlapping syncHistory passes (which return empty)
     private var syncToken: UUID?  // invalidates a stale watchdog when a new sync starts
+    // Days (DateKey) already covered by the NATIVE protocol this sync — the SDK fallback reads skip them.
+    private var nativeHRDays: Set<String> = []
+    private var nativeSleepDays: Set<String> = []
     private func enqueue(_ cmd: @escaping (@escaping () -> Void) -> Void) { cmdQueue.append(cmd); runNext() }
 
     /// Enqueue a read that fails intermittently (the SDK's multi-stage history commands do, on a weak
@@ -66,10 +70,28 @@ final class QRingBridge: NSObject {
     init(manager: QRingManager) {
         self.manager = manager
         super.init()
-        self.central = CBCentralManager(delegate: self, queue: nil)
+        // State restoration (WHOOP-style always-on, phase 2): iOS relaunches the app in the background
+        // on strap connection events and hands the session back via willRestoreState. Requires the
+        // bluetooth-central UIBackgroundMode (already in Info.plist).
+        self.central = CBCentralManager(delegate: self, queue: nil,
+                                        options: [CBCentralManagerOptionRestoreIdentifierKey: "humans-strap-central"])
         OdmBandNotifyCenter.registerNotify()
         observeRealtime()
         log("QRing bridge init")
+    }
+
+    // Background execution window: a sync kicked off while backgrounded (state restoration / bg connect
+    // event) gets ~30 s of runtime from iOS instead of being frozen mid-read.
+    private var bgTask: UIBackgroundTaskIdentifier = .invalid
+    private func beginBackgroundWindow() {
+        guard bgTask == .invalid else { return }
+        bgTask = UIApplication.shared.beginBackgroundTask(withName: "qring-sync") { [weak self] in
+            self?.endBackgroundWindow()
+        }
+    }
+    private func endBackgroundWindow() {
+        guard bgTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(bgTask); bgTask = .invalid
     }
 
     private func log(_ s: String) {
@@ -121,6 +143,7 @@ final class QRingBridge: NSObject {
     func connect(id: String) {
         guard let p = peripherals[id] else { onMain { $0.ingestError("Ring no longer in range — scan again.") }; return }
         connecting = p; pendingName = p.name
+        userRequestedDisconnect = false
         central.stopScan()
         central.connect(p, options: nil)
         log("connecting to \(p.name ?? "ring")…")
@@ -128,8 +151,10 @@ final class QRingBridge: NSObject {
 
     func disconnect() {
         autoConnecting = false
+        userRequestedDisconnect = true
         if let p = connecting { central.cancelPeripheralConnection(p) }
     }
+    private var userRequestedDisconnect = false
 
     func startLiveHR() {
         log("startLiveHR")
@@ -268,6 +293,7 @@ final class QRingBridge: NSObject {
     func syncHistory() {
         if syncing { log("syncHistory skipped — a sync is already running"); return }
         syncing = true
+        if UIApplication.shared.applicationState != .active { beginBackgroundWindow() }
         log("syncHistory (serial)")
         // Hard watchdog: if the final "sync complete" marker never fires (a dropped command), the guard
         // would wedge true forever and freeze all future syncs. Force-clear it after 30 s no matter what.
@@ -277,6 +303,35 @@ final class QRingBridge: NSObject {
             self.log("sync watchdog fired — clearing stuck guard"); self.syncing = false
         }
         histAgg.removeAll(); histWorkouts.removeAll()
+        nativeHRDays.removeAll(); nativeSleepDays.removeAll()
+        // ★ NATIVE sleep read — Big Data channel, dataId 0x27, ONE request returns ALL retained nights
+        // (the SDK's per-day sleep read is the flakiest command on this strap). SDK path below is fallback.
+        enqueueRetrying("sleep (bigData 0x27)", tries: 2) { [weak self] finish in
+            guard let self, let direct = self.ringDirect else { finish(true); return }
+            direct.runBigData(RingProtocol.bigDataRequest(.sleep), timeout: 15) { [weak self] result in
+                guard let self else { return }
+                switch result {
+                case .failure(let e):
+                    self.log("sleep 0x27 ✗ \(e.localizedDescription)"); finish(false)
+                case .success(let msg):
+                    guard msg.id == RingProtocol.BigDataID.sleep.rawValue else {
+                        self.log("sleep 0x27: unexpected dataId \(msg.id)"); finish(false); return
+                    }
+                    let nights = RingProtocol.parseSleepPayload(msg.payload)
+                    self.log("sleep 0x27 ✓ bytes=\(msg.payload.count) nights=\(nights.count)")
+                    for n in nights {
+                        let k = self.dayKey(daysAgo: n.daysAgo)
+                        self.nativeSleepDays.insert(k)
+                        self.agg(k) {
+                            $0.sleepH = Double(n.asleepMin) / 60.0
+                            if n.deepMin > 0 { $0.deepH = Double(n.deepMin) / 60.0 }
+                            if n.remMin > 0 { $0.remH = Double(n.remMin) / 60.0 }
+                        }
+                    }
+                    self.scheduleFlush(); finish(true)
+                }
+            }
+        }
         enqueue { [weak self] done in
             QCSDKCmdCreator.getSchedualHRVData(withDates: self?.weekDates ?? []) { models, _ in
                 let arr = (models as? [QCHRVModel]) ?? []
@@ -353,6 +408,10 @@ final class QRingBridge: NSObject {
                 }
             }
             enqueue { [weak self] done in
+                // SDK sleep fallback — skipped when the native Big Data read already covered this day.
+                if let self, self.nativeSleepDays.contains(self.dayKey(daysAgo: day)) {
+                    self.log("sleep day\(day) skipped (native 0x27 covered)"); done(); return
+                }
                 // Parse a sleep-model array into total/deep/REM hours (type 2=light, 3=deep, 4=REM).
                 let store: ([QCSleepModel], String) -> Bool = { arr, k in
                     var total = 0.0, deep = 0.0, rem = 0.0
@@ -398,15 +457,56 @@ final class QRingBridge: NSObject {
                 self?.scheduleFlush(); finish(true)
             }, failed: { self?.log("currentSport fail"); finish(false) })
         }
-        // Scheduled heart-rate history → resting HR + HR envelope (feeds the HR-zone card). Retried — this
-        // multi-stage read fails intermittently, which was leaving today's HR + the zone series empty.
-        enqueueRetrying("HR series") { [weak self] finish in
-            QCSDKCmdCreator.getSchedualHeartRateData(withDayIndexs: self?.weekDates ?? [], success: { models in
+        // ★ Full HR series for days 0–6 via the NATIVE opcode-21 read (the timestamped command the
+        // official app uses and the iOS SDK never exposed — teardown §12). Our transport, SDK idle;
+        // fills resting HR + envelope + the 5-min series (HR-zone minutes) per day. Days that succeed
+        // are marked in nativeHRDays so the SDK fallbacks below skip them.
+        for day in 0...6 {
+            enqueueRetrying("HR op21 day\(day)", tries: day == 0 ? 3 : 2) { [weak self] finish in
+                guard let self, let direct = self.ringDirect else { finish(true); return }   // no link → skip quietly
+                let target = DateKey.daysAgo(day)
+                let parser = RingHeartRateLogParser(requestedToday: day == 0)
+                var result: RingHeartRateLog?
+                direct.run(RingProtocol.heartRateLogRequest(day: target), timeout: 15, onFrame: { frame in
+                    switch parser.feed(frame) {
+                    case .waiting: return false
+                    case .noData: return true
+                    case .done(let log): result = log; return true
+                    }
+                }, completion: { [weak self] err in
+                    guard let self else { return }
+                    if let err { self.log("op21 day\(day) ✗ \(err.localizedDescription)"); finish(false); return }
+                    guard let r = result else {
+                        // An empty HISTORY day is a real answer (strap not worn) — don't burn retries on it.
+                        self.log("op21 day\(day): no data"); finish(day != 0); return
+                    }
+                    let hrs = r.samples.filter { $0 >= 30 && $0 <= 220 }
+                    self.log("op21 day\(day) ✓ valid=\(hrs.count) interval=\(r.intervalMinutes)m")
+                    guard let lo = hrs.min(), let hi = hrs.max() else { finish(day != 0); return }
+                    let k = self.dayKey(daysAgo: day)
+                    self.nativeHRDays.insert(k)
+                    self.agg(k) {
+                        $0.restingHR = min($0.restingHR ?? .greatestFiniteMagnitude, Double(lo))
+                        $0.hrMin = min($0.hrMin ?? .greatestFiniteMagnitude, Double(lo))
+                        $0.hrMax = max($0.hrMax ?? 0, Double(hi))
+                        $0.hrSeries = hrs            // assignment (not append) — native wins over any SDK data
+                        $0.hrInterval = r.intervalMinutes * 60
+                    }
+                    self.scheduleFlush(); finish(true)
+                })
+            }
+        }
+        // SDK scheduled-HR history — FALLBACK: only aggregates days the native op21 reads missed.
+        enqueueRetrying("HR series (SDK fallback)") { [weak self] finish in
+            guard let self else { finish(true); return }
+            if self.nativeHRDays.count >= 7 { self.log("HR series skipped (op21 covered all 7 days)"); finish(true); return }
+            QCSDKCmdCreator.getSchedualHeartRateData(withDayIndexs: self.weekDates, success: { [weak self] models in
                 let arr = (models as? [QCSchedualHeartRateModel]) ?? []
                 self?.log("HR models=\(arr.count)")
                 for m in arr {
                     let hrs = (m.heartRates ?? []).map(\.intValue).filter { $0 >= 30 && $0 <= 220 }
                     guard !hrs.isEmpty, let k = self?.keyFromDateString(m.date), let lo = hrs.min(), let hi = hrs.max() else { continue }
+                    if self?.nativeHRDays.contains(k) == true { continue }   // native already owns this day
                     self?.agg(k) {
                         $0.restingHR = min($0.restingHR ?? .greatestFiniteMagnitude, Double(lo))
                         $0.hrMin = min($0.hrMin ?? .greatestFiniteMagnitude, Double(lo))
@@ -416,44 +516,12 @@ final class QRingBridge: NSObject {
                     }
                 }
                 self?.scheduleFlush(); finish(!arr.isEmpty)
-            }, fail: { self?.log("HR series fail"); finish(false) })
+            }, fail: { [weak self] in self?.log("HR series fail"); finish(false) })
         }
-        // ★ TODAY's full HR series via the NATIVE opcode-21 read (the timestamped command the official app
-        // uses and the iOS SDK never exposed — teardown §12). Runs on our own transport with the SDK idle;
-        // on success it fills today's resting HR + envelope + the 5-min series for HR-zone minutes.
-        enqueueRetrying("today HR (op21 direct)") { [weak self] finish in
-            guard let self, let direct = self.ringDirect else { finish(true); return }   // no link → skip quietly
-            let parser = RingHeartRateLogParser(requestedToday: true)
-            var result: RingHeartRateLog?
-            direct.run(RingProtocol.heartRateLogRequest(day: Date()), timeout: 15, onFrame: { frame in
-                switch parser.feed(frame) {
-                case .waiting: return false
-                case .noData: return true
-                case .done(let log): result = log; return true
-                }
-            }, completion: { [weak self] err in
-                guard let self else { return }
-                if let err { self.log("op21 today ✗ \(err.localizedDescription)"); finish(false); return }
-                guard let r = result else { self.log("op21 today: no data"); finish(false); return }
-                let hrs = r.samples.filter { $0 >= 30 && $0 <= 220 }
-                self.log("op21 today ✓ slots=\(r.samples.count) valid=\(hrs.count) interval=\(r.intervalMinutes)m")
-                guard let lo = hrs.min(), let hi = hrs.max() else { finish(false); return }
-                let k = self.dayKey(daysAgo: 0)
-                self.agg(k) {
-                    $0.restingHR = min($0.restingHR ?? .greatestFiniteMagnitude, Double(lo))
-                    $0.hrMin = min($0.hrMin ?? .greatestFiniteMagnitude, Double(lo))
-                    $0.hrMax = max($0.hrMax ?? 0, Double(hi))
-                    $0.hrSeries = hrs
-                    $0.hrInterval = r.intervalMinutes * 60
-                }
-                self.scheduleFlush(); finish(true)
-            })
-        }
-        // TODAY's HR range — SDK fallback. The scheduled-HR history command above only returns COMPLETED
-        // days (today is always empty). The 1-minute HR series for day index 0 sometimes has today's data;
-        // kept as belt-and-braces behind the native op21 read.
-        // Parse defensively (NSNumber bpm values OR models carrying a heartRates array).
+        // TODAY's HR range — second SDK fallback, only when op21 missed today. Parse defensively
+        // (NSNumber bpm values OR models carrying a heartRates array).
         enqueue { [weak self] done in
+            if let self, self.nativeHRDays.contains(self.dayKey(daysAgo: 0)) { done(); return }
             QCSDKCmdCreator.getOneMinuHeartRateDataWithInterval(byDayIndex: 0) { data, _ in
                 let raw = (data as? [Any]) ?? []
                 var hrs: [Int] = []
@@ -509,6 +577,9 @@ final class QRingBridge: NSObject {
         enqueue { [weak self] done in
             self?.log("sync complete"); self?.syncing = false; self?.scheduleFlush(); done()
             self?.autoOneKeyIfDue()
+            // Give the flush + CloudSync push (debounced ~4 s total) time to land before the background
+            // window closes; harmless when running in the foreground.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { self?.endBackgroundWindow() }
         }
     }
 
@@ -651,10 +722,55 @@ final class QRingBridge: NSObject {
         })
     }
 
-    /// Trigger a raw-PPG capture (red/IR + accel stream) — basis for computing true RRI/HRV ourselves (future).
+    /// ★ Raw-PPG capture → true HRV (WHOOP plan phase 4, scaffold). Captures a 100 s window of 25 Hz
+    /// green-light PPG, runs RingPPG beat detection → RR intervals → rMSSD, logs the result and saves
+    /// the raw window to Documents/PPG/ for offline tuning. Not yet feeding Recovery (phase 4/5 gate:
+    /// nightly scheduling + validation against a reference first). Wear the strap snug and stay still.
     func measureRawPPG() {
-        QCSDKManager.shareInstance().startToMeasuring(withOperateType: .heartRateRaw,
-            measuringHandle: { _ in }, completedHandle: { [weak self] ok, _, _ in self?.log("raw PPG capture done ok=\(ok)") })
+        log("raw PPG capture — 100 s, hold still…")
+        var green: [Double] = []
+        let collect: (Any?) -> Void = { item in
+            if let m = item as? QCBloodGlucoseHeartRateRawModel {
+                green.append(Double((m.greenLightPpgH << 8) | m.greenLightPpgL))
+            } else if let arr = item as? [QCBloodGlucoseHeartRateRawModel] {
+                for m in arr { green.append(Double((m.greenLightPpgH << 8) | m.greenLightPpgL)) }
+            }
+        }
+        QCSDKManager.shareInstance().startToMeasuring(withOperateType: .heartRateRaw, timeout: 100,
+            measuringHandle: { live in collect(live) },
+            completedHandle: { [weak self] ok, result, err in
+                guard let self else { return }
+                collect(result)
+                self.log("raw PPG done ok=\(ok) samples=\(green.count) (~\(Int(Double(green.count) / 25))s)")
+                self.onMain { $0.isMeasuring = false }
+                guard green.count >= 500 else {
+                    if !ok { self.log("raw PPG err=\((err as NSError?)?.code ?? 0)") }
+                    self.onMain { $0.ingestError("PPG capture too short — keep the strap snug and still, then retry.") }
+                    return
+                }
+                if let a = RingPPG.analyze(ppg: green, hz: 25) {
+                    self.log(String(format: "★ PPG rMSSD=%.0f ms · HR %.0f bpm · beats=%d · rr=%d",
+                                    a.rmssd, a.meanHR, a.beats, a.rrIntervals.count))
+                } else {
+                    self.log("PPG analysis: too noisy (motion?) — no clean RR series")
+                }
+                self.savePPGWindow(green)
+            })
+    }
+
+    /// Persist a capture window as JSON under Documents/PPG/ (same layout idea as the vendor demo) so
+    /// the beat-detection can be tuned offline against real data.
+    private func savePPGWindow(_ samples: [Double]) {
+        let fm = FileManager.default
+        guard let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        let dir = docs.appendingPathComponent("PPG", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let url = dir.appendingPathComponent("ppg_\(stamp).json")
+        if let data = try? JSONSerialization.data(withJSONObject: ["hz": 25, "samples": samples]) {
+            try? data.write(to: url)
+            log("PPG window saved (\(samples.count) samples)")
+        }
     }
 }
 
@@ -738,6 +854,23 @@ extension QRingBridge: CBCentralManagerDelegate {
                 // NOTE (rename experiment, 2026-10-24): setUUID("HUMANS")/getUUID both FAIL on the VY28C —
                 // the firmware doesn't implement the custom-tag command, so the advertised BLE name
                 // ("Y28C_7EB0") cannot be changed from the phone. Renaming = OEM firmware ask to Vivistar.
+                // ★ Sampling-density experiment (WHOOP plan phase 3): read the scheduled-HR config, then
+                // push the interval to the firmware's floor (denser passive HR → better zones/resting HR).
+                // Battery impact is observed over the following days via the battery log lines.
+                self.enqueue { [weak self] done in
+                    QCSDKCmdCreator.getSchedualHeartRateInfo(success: { enable, interval, minInterval, minTip, maxTip in
+                        self?.log("schedHR: on=\(enable) interval=\(interval)m floor=\(minInterval)m")
+                        done()
+                        let target = max(1, minInterval)
+                        if !enable || interval != target {
+                            self?.enqueue { d2 in
+                                QCSDKCmdCreator.setSchedualHeartRateStatus(true, interval: target, success: { en, iv in
+                                    self?.log("schedHR set → \(iv)m (on=\(en))"); d2()
+                                }, fail: { self?.log("schedHR set ✗ (kept \(interval)m)"); d2() })
+                            }
+                        }
+                    }, fail: { self?.log("schedHR info ✗"); done() })
+                }
                 self.enableMonitoring()   // the ring records nothing until these are on (official app does this at setup)
                 self.syncHistory()
             } else {
@@ -757,6 +890,32 @@ extension QRingBridge: CBCentralManagerDelegate {
         ringDirect = nil
         autoConnecting = false; connecting = nil
         onMain { $0.ingestDisconnected(error: error?.localizedDescription) }
+        // Always-on (phase 2): unless the user asked to disconnect, immediately re-issue a pending
+        // connect — it has no timeout and fires the moment the strap is back in range, including in
+        // the background (state restoration relaunches us for the event).
+        if !userRequestedDisconnect {
+            log("auto-reconnect armed (\(peripheral.name ?? "strap"))")
+            peripherals[peripheral.identifier.uuidString] = peripheral
+            connecting = peripheral
+            central.connect(peripheral, options: nil)
+        }
+    }
+
+    func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
+        // Relaunched in the background for a strap event: re-adopt the restored peripherals so the
+        // normal didConnect → syncHistory path (and its Firebase push) runs with the app closed.
+        let restored = (dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral]) ?? []
+        log("willRestoreState — \(restored.count) peripheral(s)")
+        beginBackgroundWindow()
+        for p in restored {
+            peripherals[p.identifier.uuidString] = p
+            connecting = p
+            if p.state == .connected {
+                centralManager(central, didConnect: p)   // didConnect fired pre-relaunch; run the flow now
+            } else {
+                central.connect(p, options: nil)
+            }
+        }
     }
 }
 #endif

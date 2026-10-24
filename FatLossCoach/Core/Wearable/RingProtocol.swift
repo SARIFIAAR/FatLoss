@@ -108,6 +108,7 @@ final class RingHeartRateLogParser {
     private var intervalMinutes = 5
     private var raw: [UInt8] = []
     private var dayStart: Date?
+    private var headerSeen = false
 
     init(requestedToday: Bool) { self.requestedToday = requestedToday }
 
@@ -119,21 +120,27 @@ final class RingHeartRateLogParser {
         case 0xFF:
             return .noData
         case 0:
+            headerSeen = true
             expectedPackets = Int(b[2])
             intervalMinutes = max(1, Int(b[3]))
             raw.removeAll(keepingCapacity: true)
             return expectedPackets == 0 ? .noData : .waiting
-        case 1:
+        case 1 where headerSeen:
             let ts = UInt32(b[2]) | UInt32(b[3]) << 8 | UInt32(b[4]) << 16 | UInt32(b[5]) << 24
             dayStart = RingProtocol.dateFromRingTimestamp(ts)
             raw.append(contentsOf: b[6..<15])
             return .waiting
-        case 23 where requestedToday:
+        case 23 where requestedToday && headerSeen:
             // Today-reads end with a 23 marker once the ring has sent all slots up to "now".
             return finish()
-        default:
+        case _ where headerSeen:
             raw.append(contentsOf: b[2..<15])
             return Int(sub) >= expectedPackets - 1 ? finish() : .waiting
+        default:
+            // No header yet: this is a leftover frame from a PREVIOUS day's still-streaming response
+            // (seen on-device: they cascaded days 1–6 into instant false "no data"). Ignore until OUR
+            // response starts with its sub-0 header.
+            return .waiting
         }
     }
 
@@ -153,8 +160,53 @@ final class RingHeartRateLogParser {
     }
 }
 
+/// One decoded sleep night from the Big Data sleep read (dataId 0x27).
+struct RingSleepNight {
+    let daysAgo: Int           // 0 = last night (belongs to today's date key)
+    let sleepStartMin: Int     // signed minutes after midnight (negative = fell asleep before midnight)
+    let sleepEndMin: Int
+    var lightMin = 0, deepMin = 0, remMin = 0, awakeMin = 0
+    var asleepMin: Int { lightMin + deepMin + remMin }
+}
+
+extension RingProtocol {
+    /// Parse the Big Data sleep payload (validated in openring against a real device capture):
+    /// [nightCount] then per night [daysAgo][recordLen][startMin i16 LE][endMin i16 LE][stage pairs…],
+    /// stage pair = [code][minutes], codes 2=light 3=deep 4=REM 5=awake. Empty/padding records
+    /// (no stage pairs) are phantom nights — dropped. recordLen counts the bytes AFTER its own pair.
+    static func parseSleepPayload(_ payload: [UInt8]) -> [RingSleepNight] {
+        guard let count = payload.first, count > 0 else { return [] }
+        func i16(_ o: Int) -> Int {
+            let v = Int(payload[o]) | Int(payload[o + 1]) << 8
+            return v >= 0x8000 ? v - 0x10000 : v
+        }
+        var nights: [RingSleepNight] = []
+        var p = 1
+        for _ in 0..<Int(count) {
+            guard p + 6 <= payload.count else { break }
+            let recordEnd = p + 2 + Int(payload[p + 1])
+            var night = RingSleepNight(daysAgo: Int(payload[p]), sleepStartMin: i16(p + 2), sleepEndMin: i16(p + 4))
+            var q = p + 6
+            while q + 1 < recordEnd, q + 1 < payload.count {
+                let minutes = Int(payload[q + 1])
+                switch payload[q] {
+                case 2: night.lightMin += minutes
+                case 3: night.deepMin += minutes
+                case 4: night.remMin += minutes
+                case 5: night.awakeMin += minutes
+                default: break
+                }
+                q += 2
+            }
+            if night.asleepMin + night.awakeMin > 0 { nights.append(night) }
+            p = recordEnd > p ? recordEnd : p + 6
+        }
+        return nights
+    }
+}
+
 /// Reassembles fragmented Big Data notifications: accumulate until 6-byte header + dataLen(bytes[2..3] LE)
-/// bytes have arrived (same algorithm as the APK's LargeDataParser). Not yet wired — sleep is next.
+/// bytes have arrived (same algorithm as the APK's LargeDataParser).
 final class RingBigDataReassembler {
     private var buf: [UInt8] = []
 

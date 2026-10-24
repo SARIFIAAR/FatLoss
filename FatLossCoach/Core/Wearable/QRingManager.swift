@@ -151,6 +151,16 @@ final class QRingManager {
         #endif
     }
 
+    /// 100 s raw-PPG capture → rMSSD (true HRV) — phase-4 scaffold; result lands in the log panel.
+    func measureRawPPG() {
+        #if canImport(QCBandSDK)
+        isMeasuring = true
+        deviceBridge.measureRawPPG()
+        #else
+        lastError = "Requires the HUMANS strap."
+        #endif
+    }
+
     /// One-key reading → today's recovery/health (available on both sim and device paths).
     /// HRV prefers the RRI-derived value when available.
     func applyOneKey(hr: Int?, hrvMs: Int?, rriMs: Int?, stress: Int?, tempC: Double?, sbp: Int?, dbp: Int?, silent: Bool = false) {

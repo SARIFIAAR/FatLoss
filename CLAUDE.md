@@ -347,16 +347,39 @@ removed after the test; clean build reinstalled (build 76).
 vendor's commercial name. Same screenless-strap form factor as WHOOP. Say "HUMANS strap" in user-facing
 copy; "ring" survives in internal symbol names (QRingBridge etc.) only.
 
-**OPEN / NEXT — now driven by `docs/whoop-gap-plan.md` (the WHOOP gap-closure plan, 6 phases):**
-1. Finish native retrieval: op21 backfill days 1–6 → sleep via Big Data 0x27 (reassembler ready) →
-   HRV 57 / stress 55 / steps 67. Exit: 20 clean syncs, SDK = fallback only.
-2. Background continuity: CoreBluetooth state restoration (bluetooth-central already in Info.plist) +
-   sync-on-connect + immediate CloudMirror write-through (WHOOP-style cloud stitching).
-3. Sampling density: test the scheduled-HR interval floor (5min default; try 1–2min) vs battery.
-4. True HRV: 25 Hz raw-PPG → rMSSD + respiratory rate (recipe teardown §6).
-5. Validation week vs Apple Watch + Readiness index + Strain recalibration.
-6. Vivistar OEM asks with the production order (broadcast name "HUMANS" — phone-side rename proven
-   impossible; HR-interval floor; branding).
+### 2026-10-25 session — WHOOP-plan phases 1–4 BUILT + device-verified
+
+All four phases implemented and verified on the strap in one sprint (console-attached launches):
+- **P1 native retrieval:** op21 extended to days 0–6 (`nativeHRDays` marks covered days; SDK
+  `getSchedualHeartRateData` demoted to a fallback that skips them; 1-min read only when op21 missed
+  today). Sleep now reads natively FIRST via **Big Data 0x27** (`RingDirect.runBigData` on the
+  `de5bf728` service + `RingProtocol.parseSleepPayload`) — **verified: `sleep 0x27 ✓ bytes=93
+  nights=2` in ONE request**, per-day SDK sleep blocks log "skipped (native covered)". op21 history
+  verified: `day1 ✓ valid=58`. ⚠️ Lesson: the ring KEEPS STREAMING a response after our parser
+  finishes early — leftover frames poisoned the next read's parser ("instant no data" cascade). Fix =
+  header guard in `RingHeartRateLogParser` (ignore frames until OUR sub-0 header; offline test added,
+  17/17). A first-attempt op21 timeout right after the command barrage is normal — the back-of-queue
+  retry recovers it.
+- **P2 always-on:** CBCentralManager restore identifier `humans-strap-central` + `willRestoreState`
+  (**verified firing**: relaunch re-adopted the connected strap, no scan) + auto-reconnect armed on
+  every non-user disconnect (pending no-timeout connect) + `beginBackgroundTask` window around
+  backgrounded syncs. Cloud write-through was ALREADY live (`store.onChange → CloudSync.schedulePush`,
+  ~2 s debounce).
+- **P3 sampling density:** `getSchedualHeartRateInfo` → **firmware floor = 1 min** (default 5). Set
+  to 1 min acknowledged (`schedHR set → 1m`); ⚠️ the NEXT connect's info read still said 5m once —
+  persistence across reboots/reconnects UNCONFIRMED; the bridge re-asserts it on every connect anyway.
+  Watch battery over the coming days (battery log lines).
+- **P4 true-HRV scaffold:** `RingPPG.swift` (detrend → adaptive peak detection → RR chain w/ 25%
+  artifact gate + coverage gate → rMSSD; exact on synthetic data, noise→nil) + `measureRawPPG()`
+  (100 s capture, result in log panel, raw window JSON saved to Documents/PPG/) + **"True HRV"
+  button** on the Body-tab strap card. NOT yet feeding Recovery (needs nightly scheduling +
+  validation). First real capture pending (tap the button, sit still).
+
+**OPEN / NEXT (`docs/whoop-gap-plan.md`):**
+- Verify 1-min interval persistence on a later connect + battery trend; first real True-HRV capture.
+- Migrate HRV 57 / stress 55 / steps 67 to native (same parser family as op21).
+- Background-sync field test: close the app, walk away + return, confirm willRestoreState sync + Firestore rows.
+- Phase 5 validation week vs Apple Watch; Phase 6 Vivistar OEM asks with the production order.
 - **Commit the branch** — this session's work sits uncommitted on top of b10ebb7. Get CEO OK, then commit.
 - Deferred until the client decision: raw-PPG pipeline (true rMSSD HRV + respiratory rate); Readiness/Rest index;
   background CoreBluetooth state-restoration; aggressive Firebase write-through; temp-series file-transfer (37/38).

@@ -21,9 +21,21 @@ final class RingDirect: NSObject {
         }
     }
 
+    /// The GATT triple a command runs on: the 16-byte UART command channel or the Big Data channel.
+    private struct Channel {
+        let service: CBUUID, write: CBUUID, notify: CBUUID
+        static let uart = Channel(service: CBUUID(string: RingProtocol.serviceUUID),
+                                  write: CBUUID(string: RingProtocol.writeUUID),
+                                  notify: CBUUID(string: RingProtocol.notifyUUID))
+        static let bigData = Channel(service: CBUUID(string: RingProtocol.bigDataServiceUUID),
+                                     write: CBUUID(string: RingProtocol.bigDataWriteUUID),
+                                     notify: CBUUID(string: RingProtocol.bigDataNotifyUUID))
+    }
+
     private let peripheral: CBPeripheral
     private let log: (String) -> Void
     private weak var savedDelegate: CBPeripheralDelegate?
+    private var channel: Channel = .uart
     private var pendingPacket: Data?
     private var onFrame: ((Data) -> Bool)?       // return true = command finished
     private var completion: ((Error?) -> Void)?
@@ -39,8 +51,30 @@ final class RingDirect: NSObject {
     func run(_ packet: Data, timeout: TimeInterval,
              onFrame: @escaping (Data) -> Bool,
              completion: @escaping (Error?) -> Void) {
+        start(packet, channel: .uart, timeout: timeout, onFrame: onFrame, completion: completion)
+    }
+
+    /// Big Data read (sleep 0x27, SpO₂ 0x2A …): sends the 0xBC request on the Big Data service and
+    /// reassembles the fragmented response into (dataId, payload).
+    func runBigData(_ request: Data, timeout: TimeInterval,
+                    completion: @escaping (Result<(id: UInt8, payload: [UInt8]), Error>) -> Void) {
+        let reassembler = RingBigDataReassembler()
+        var message: (id: UInt8, payload: [UInt8])?
+        start(request, channel: .bigData, timeout: timeout, onFrame: { chunk in
+            if let m = reassembler.feed(chunk) { message = m; return true }
+            return false
+        }, completion: { err in
+            if let m = message { completion(.success(m)) }
+            else { completion(.failure(err ?? DirectError.timeout)) }
+        })
+    }
+
+    private func start(_ packet: Data, channel: Channel, timeout: TimeInterval,
+                       onFrame: @escaping (Data) -> Bool,
+                       completion: @escaping (Error?) -> Void) {
         guard self.completion == nil else { completion(DirectError.busy); return }
         guard peripheral.state == .connected else { completion(DirectError.characteristicsMissing); return }
+        self.channel = channel
         self.onFrame = onFrame
         self.completion = completion
         savedDelegate = peripheral.delegate
@@ -50,21 +84,21 @@ final class RingDirect: NSObject {
         timeoutWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: work)
 
-        if let (w, n) = uartChars() {
+        if let (w, n) = chars() {
             send(packet, write: w, notify: n)
         } else {
-            // The SDK has usually discovered everything already; if not, discover just the UART service.
+            // The SDK has usually discovered everything already; if not, discover just this service.
             pendingPacket = packet
-            peripheral.discoverServices([CBUUID(string: RingProtocol.serviceUUID)])
+            peripheral.discoverServices([channel.service])
         }
     }
 
     // MARK: internals
 
-    private func uartChars() -> (write: CBCharacteristic, notify: CBCharacteristic)? {
-        guard let svc = (peripheral.services ?? []).first(where: { $0.uuid == CBUUID(string: RingProtocol.serviceUUID) }),
-              let w = (svc.characteristics ?? []).first(where: { $0.uuid == CBUUID(string: RingProtocol.writeUUID) }),
-              let n = (svc.characteristics ?? []).first(where: { $0.uuid == CBUUID(string: RingProtocol.notifyUUID) })
+    private func chars() -> (write: CBCharacteristic, notify: CBCharacteristic)? {
+        guard let svc = (peripheral.services ?? []).first(where: { $0.uuid == channel.service }),
+              let w = (svc.characteristics ?? []).first(where: { $0.uuid == channel.write }),
+              let n = (svc.characteristics ?? []).first(where: { $0.uuid == channel.notify })
         else { return nil }
         return (w, n)
     }
@@ -89,15 +123,14 @@ extension RingDirect: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         guard completion != nil else { return }
         guard error == nil,
-              let svc = (peripheral.services ?? []).first(where: { $0.uuid == CBUUID(string: RingProtocol.serviceUUID) })
+              let svc = (peripheral.services ?? []).first(where: { $0.uuid == channel.service })
         else { finish(DirectError.characteristicsMissing); return }
-        peripheral.discoverCharacteristics([CBUUID(string: RingProtocol.writeUUID),
-                                            CBUUID(string: RingProtocol.notifyUUID)], for: svc)
+        peripheral.discoverCharacteristics([channel.write, channel.notify], for: svc)
     }
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         guard completion != nil else { return }
-        guard error == nil, let packet = pendingPacket, let (w, n) = uartChars()
+        guard error == nil, let packet = pendingPacket, let (w, n) = chars()
         else { finish(DirectError.characteristicsMissing); return }
         pendingPacket = nil
         send(packet, write: w, notify: n)
@@ -109,7 +142,7 @@ extension RingDirect: CBPeripheralDelegate {
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard completion != nil, error == nil,
-              characteristic.uuid == CBUUID(string: RingProtocol.notifyUUID),
+              characteristic.uuid == channel.notify,
               let data = characteristic.value else { return }
         if onFrame?(data) == true { finish(nil) }
     }
