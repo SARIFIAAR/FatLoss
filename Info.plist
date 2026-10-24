@@ -37,6 +37,10 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>HUMANS uses your location during tracked workouts to measure distance and pace.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>HUMANS uses Face ID to lock the app so your health data stays private.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Take a photo of your meal to estimate its calories and macros.</string>
 	<key>NSHealthShareUsageDescription</key>

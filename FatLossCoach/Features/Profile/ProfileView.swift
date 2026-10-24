@@ -16,6 +16,7 @@ struct ProfileView: View {
             CloudCard()
             DevicesHealthCard().id("devices")
             RemindersCard().id("reminders")
+            PrivacySecurityCard().id("security")
             medsCard
             Text("HUMANS® \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""))")
                 .font(.system(size: 11)).foregroundStyle(Theme.muted)
@@ -92,6 +93,49 @@ struct ProfileView: View {
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.orange, lineWidth: 1.5))
         }
+    }
+}
+
+// MARK: - Privacy & Security (E1-04 biometric app lock)
+
+struct PrivacySecurityCard: View {
+    @Environment(AppLock.self) private var lock
+    @Environment(Store.self) private var store
+    @State private var showVault = false
+
+    var body: some View {
+        Card {
+            SectionTitle("Privacy & Security")
+            Toggle(isOn: Binding(get: { lock.enabled }, set: { lock.setEnabled($0) })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Lock with \(lock.biometryName)").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
+                    Text("Require \(lock.biometryName) to open HUMANS, so your health data stays private on a shared or lost phone.")
+                        .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                }
+            }
+            .tint(Theme.primary)
+            if !lock.biometryAvailable {
+                Text("Set up Face ID / Touch ID or a passcode in iOS Settings to use app lock.")
+                    .font(.system(size: 11)).foregroundStyle(Theme.red).padding(.top, 6)
+            }
+
+            Divider().overlay(Theme.border).padding(.vertical, 10)
+            Button { showVault = true } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "lock.doc.fill").font(.system(size: 16)).foregroundStyle(Theme.primary).frame(width: 24)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Health Documents").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text)
+                        Text("Store your lab tests, InBody reports and scans — Face ID protected, \(store.documents.count) saved.")
+                            .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.muted)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .fullScreenCover(isPresented: $showVault) { DocumentVaultView() }
     }
 }
 

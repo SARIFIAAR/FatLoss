@@ -216,6 +216,7 @@ struct HealthDay: Codable, Hashable {
     // 3rd-party app an all-day HR floor/ceiling; the band does. restingHR above is still the daily resting value.
     var hrMinDay: Double?        // lowest all-day HR (band auto-HR)
     var hrMaxDay: Double?        // highest all-day HR (band auto-HR)
+    var hrZoneMin: [Double]? = nil   // minutes in HR zones 1–5 computed from the all-day HR series (ring)
 
     /// Total energy burned so far that day (nil until the Watch has reported anything).
     var burnedKcal: Double? {
@@ -237,7 +238,11 @@ struct HealthDay: Codable, Hashable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         steps       = c.value(.steps,       default: 0)
         restingHR   = c.value(.restingHR,   default: nil)
-        activeKcal  = c.value(.activeKcal,  default: nil)
+        // Repair the ring's small-calorie values on decode (the 39400-kcal bug). This runs on EVERY
+        // load path — disk and the CloudSync restore blob — so old corrupt data self-heals. No human
+        // burns >10,000 kcal/day, so any such value is raw small-calories → ÷1000.
+        let rawActiveKcal: Double? = c.value(.activeKcal, default: nil)
+        activeKcal  = rawActiveKcal.map { $0 > 10000 ? $0 / 1000 : $0 }
         basalKcal   = c.value(.basalKcal,   default: nil)
         bodyFatPct  = c.value(.bodyFatPct,  default: nil)
         leanMassKg  = c.value(.leanMassKg,  default: nil)
@@ -248,6 +253,7 @@ struct HealthDay: Codable, Hashable {
         hrrBpm      = c.value(.hrrBpm,      default: nil)
         hrMinDay    = c.value(.hrMinDay,    default: nil)
         hrMaxDay    = c.value(.hrMaxDay,    default: nil)
+        hrZoneMin   = c.value(.hrZoneMin,   default: nil)
     }
 }
 
@@ -387,6 +393,62 @@ struct ProgressPhoto: Codable, Hashable, Identifiable {
         weightKg = c.value(.weightKg, default: nil)
         note     = c.value(.note,     default: nil)
     }
+}
+
+/// A personal health document in the user's private vault (E1-02): a lab report, InBody printout, scan.
+/// METADATA ONLY — the file bytes live on-device in `DocStore` and in Firebase Storage at
+/// `users/{uid}/documents/{id}.{ext}` (owner-only), never encoded in the sync blob. This is a private
+/// container: HUMANS never reads, parses, or interprets the contents (RA condition for staying non-medical).
+struct HealthDoc: Codable, Hashable, Identifiable {
+    enum Category: String, Codable, CaseIterable, Hashable {
+        case bloods, inbody, scan, prescription, other
+        var label: String {
+            switch self {
+            case .bloods:       return "Blood test"
+            case .inbody:       return "Body composition"
+            case .scan:         return "Scan / imaging"
+            case .prescription: return "Prescription"
+            case .other:        return "Other"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .bloods:       return "drop.fill"
+            case .inbody:       return "figure.stand"
+            case .scan:         return "waveform.path.ecg"
+            case .prescription: return "pills.fill"
+            case .other:        return "doc.text.fill"
+            }
+        }
+    }
+
+    var id: String = UUID().uuidString
+    var title: String                  // user-facing name
+    var filename: String               // cache filename in the health-docs dir (id + "." + ext)
+    var contentType: String            // "application/pdf" | "image/jpeg" | "image/png"
+    var category: Category = .other
+    var at: Date = Date()              // added timestamp (ordering)
+    var sizeBytes: Int = 0
+
+    init(id: String = UUID().uuidString, title: String, filename: String, contentType: String,
+         category: Category = .other, at: Date = Date(), sizeBytes: Int = 0) {
+        self.id = id; self.title = title; self.filename = filename; self.contentType = contentType
+        self.category = category; self.at = at; self.sizeBytes = sizeBytes
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id          = c.value(.id,          default: UUID().uuidString)
+        title       = c.value(.title,       default: "")
+        filename    = c.value(.filename,    default: "")
+        contentType = c.value(.contentType, default: "application/pdf")
+        category    = c.value(.category,    default: .other)
+        at          = c.value(.at,          default: Date())
+        sizeBytes   = c.value(.sizeBytes,   default: 0)
+    }
+
+    var isPDF: Bool { contentType == "application/pdf" }
+    var sizeLabel: String { ByteCountFormatter.string(fromByteCount: Int64(sizeBytes), countStyle: .file) }
 }
 
 struct ProgramState: Codable, Hashable {
@@ -531,6 +593,9 @@ struct AppData: Codable, Hashable {
     // in the progress-photos dir (PhotoStore) and are NEVER encoded here — so this can sync safely while the
     // sensitive body photos never leave the phone. Union-merged by id like the other id-keyed collections.
     var progressPhotos: [ProgressPhoto] = []
+    // Personal health-document vault (E1-02). METADATA ONLY — the file bytes live on-device in `DocStore`
+    // and in Firebase Storage (owner-only), never encoded here. Union-merged by id.
+    var documents: [HealthDoc] = []
     var goals = Goals()
     var program = ProgramState()
     var reminders = ReminderSettings()
@@ -585,6 +650,7 @@ struct AppData: Codable, Hashable {
         plannedMeals = c.value(.plannedMeals, default: [:])
         caffeine     = c.value(.caffeine,     default: [:])
         progressPhotos = c.value(.progressPhotos, default: [])
+        documents    = c.value(.documents,    default: [])
         goals        = c.value(.goals,        default: Goals())
         program      = c.value(.program,      default: ProgramState())
         reminders    = c.value(.reminders,    default: ReminderSettings())
@@ -702,6 +768,12 @@ struct AppData: Codable, Hashable {
         for p in older.progressPhotos { photosByID[p.id] = p }
         for p in out.progressPhotos { photosByID[p.id] = p }
         out.progressPhotos = photosByID.values.sorted { $0.at < $1.at }
+        // Health-document metadata: union by id (newer wins), newest→oldest. A merged-in entry from another
+        // device points to bytes only on that device; the vault shows it as a pending/needs-download row.
+        var docsByID: [String: HealthDoc] = [:]
+        for d in older.documents { docsByID[d.id] = d }
+        for d in out.documents { docsByID[d.id] = d }
+        out.documents = docsByID.values.sorted { $0.at > $1.at }
         // Physical-Age plan: union by id (lever), order-preserving — newer snapshot's items first, then
         // any the older copy has that the newer one dropped. `done`/newest acceptedAt wins per lever so a
         // completed action from one device isn't un-completed by a stale copy. Same anti-fight rule as habitDefs.

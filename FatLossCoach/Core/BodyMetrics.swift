@@ -7,7 +7,7 @@ enum BodyMetrics {
 
     static let baselineDays = 28
     /// Minimum nights of HRV history before scores are trusted (matches the calibration idea).
-    static let minCalibrationDays = 7
+    static let minCalibrationDays = 2   // was 7 — scores start calculating as soon as there's a baseline
 
     // MARK: Baselines
 
@@ -895,6 +895,10 @@ extension Store {
         var z = [0.0, 0, 0, 0, 0]
         for w in data.workouts[key] ?? [] {
             for (i, m) in w.zoneMin.enumerated() where i < 5 { z[i] += m }
+        }
+        // If no workout zone data, fall back to the all-day HR-zone minutes from the ring series.
+        if z.allSatisfy({ $0 == 0 }), let allDay = data.health[key]?.hrZoneMin {
+            for (i, m) in allDay.enumerated() where i < 5 { z[i] = m }
         }
         return z
     }

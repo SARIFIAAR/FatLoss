@@ -35,7 +35,7 @@ enum Pillar: String, Identifiable {
 struct BodyView: View {
     @Environment(Store.self) private var store
     @Environment(HealthKitManager.self) private var health
-    @Environment(VB9Manager.self) private var vb9
+    @Environment(QRingManager.self) private var qring
     @State private var dayOffset = 0        // 0 = today, positive = days back
     @State private var pillar: Pillar?
     @State private var impacts: [BehaviorImpact] = []
@@ -216,7 +216,7 @@ struct BodyView: View {
                 }
                 .padding(.vertical, 5)
             }
-            Text("Zones are % of your max HR. Bars show today's minutes in each zone from workouts.")
+            Text("Zones are % of your max HR. Bars show today's minutes in each zone from your all-day heart rate and workouts.")
                 .font(.system(size: 10)).foregroundStyle(W.muted.opacity(0.7)).padding(.top, 4)
         }
         .sheet(isPresented: $editingMaxHR) { MaxHRSheet() }
@@ -668,7 +668,7 @@ struct BodyView: View {
             HStack(spacing: 0) {
                 statCell("Active kcal", scores.health?.activeKcal.map { "\(Int($0))" } ?? "–")
                 statCell("Steps", (scores.health?.steps).map { $0.formatted() } ?? "–")
-                statCell("Total burn", scores.health?.burnedKcal.map { "\(Int($0))" } ?? "–")
+                statCell("Total burn", store.totalBurnKcal(on: store.today).map { "\(Int($0))" } ?? "–")
             }
             .padding(.top, 12)
             workloadRow
@@ -756,29 +756,29 @@ struct BodyView: View {
         }
     }
 
-    // MARK: VB9 wristband
+    // MARK: HUMANS Ring (QRing / VY28C)
 
-    /// Show the band card once paired before, on a device with the SDK, or in the `-vb9Sim 1` demo.
-    private var showBandCard: Bool { store.data.band != nil || vb9.isAvailable }
+    /// Show the ring card on a device with the SDK (or once paired / `-qringSim 1`).
+    private var showBandCard: Bool { store.data.band != nil || qring.isAvailable }
 
     private var bandCard: some View {
         let band = store.data.band
-        let online = vb9.state == .connected
+        let online = qring.state == .connected
         return DarkCard(accent: online ? W.vibrant : nil) {
-            CardTitle("HUMANS Band", band?.model ?? "VB9", chevron: false) {}
+            CardTitle("HUMANS Ring", band?.model ?? "QRing", chevron: false) {}
             HStack(spacing: 10) {
                 Circle().fill(online ? W.green : W.muted).frame(width: 8, height: 8)
-                Text(band?.name ?? "HUMANS Band (VB9)").font(.system(size: 14, weight: .semibold))
+                Text(band?.name ?? "HUMANS Ring").font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(W.text)
                 Spacer()
-                if let b = vb9.battery ?? band?.battery {
+                if let b = qring.battery ?? band?.battery {
                     Label("\(b)%", systemImage: "battery.100")
                         .font(.system(size: 12)).foregroundStyle(W.muted).labelStyle(.titleAndIcon)
                 }
             }
             .padding(.vertical, 8)
 
-            if let hr = vb9.liveHR, vb9.isMeasuring {
+            if let hr = qring.liveHR, qring.isMeasuring {
                 HStack(spacing: 6) {
                     Image(systemName: "heart.fill").foregroundStyle(W.red)
                     Text("\(hr)").font(W.score(34)).foregroundStyle(W.text)
@@ -789,25 +789,79 @@ struct BodyView: View {
             }
 
             if online {
+                // One-key measure returns HR + HRV + RRI + stress + temp + BP in a single reading. Sync re-pulls.
                 HStack(spacing: 8) {
-                    bandButton("Health check", "heart.text.square") { vb9.oneKeyMeasure() }
-                    bandButton("ECG", "waveform.path.ecg") { vb9.measureECG() }
-                    bandButton("Sync", "arrow.triangle.2.circlepath") { Task { await vb9.syncHistory() } }
+                    bandButton(qring.isMeasuring ? "Measuring…" : "Measure", "heart.text.square") { qring.oneKeyMeasure() }
+                    bandButton("Sync now", "arrow.triangle.2.circlepath") { Task { await qring.syncHistory() } }
+                }
+                Button {
+                    store.resetToBandOnly()
+                    Task { await qring.syncHistory() }
+                } label: {
+                    Text(store.vb9Exclusive ? "Ring-only mode ON · clear & re-sync"
+                                            : "Reset to ring-only (clear Apple Watch data)")
+                        .font(.system(size: 12, weight: .medium)).foregroundStyle(W.red)
+                        .frame(maxWidth: .infinity).padding(.top, 8)
+                }
+                // Notifications are controlled by iOS (ANCS), not the SDK — jump to the setting.
+                Button {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                } label: {
+                    Text("Ring buzzing on messages? Turn off in iOS Settings → Bluetooth ›")
+                        .font(.system(size: 11)).foregroundStyle(W.muted)
+                        .frame(maxWidth: .infinity).multilineTextAlignment(.center).padding(.top, 6)
                 }
             } else {
-                Button { vb9.startScan() } label: {
-                    Text(vb9.state == .scanning ? "Scanning…" : "Connect band")
+                Button { qring.startScan() } label: {
+                    Text(qring.state == .scanning ? "Scanning…" : "Connect ring")
                         .font(.system(size: 14, weight: .semibold)).foregroundStyle(W.bg)
                         .frame(maxWidth: .infinity).padding(.vertical, 10)
                         .background(W.vibrant).clipShape(RoundedRectangle(cornerRadius: 10))
                 }
-                if let first = vb9.discovered.first, vb9.state == .scanning {
-                    Button("Pair \(first.name)") { vb9.connect(first) }
-                        .font(.system(size: 13)).foregroundStyle(W.vibrant).padding(.top, 8)
+                ForEach(qring.discovered) { dev in
+                    Button { qring.connect(dev) } label: {
+                        HStack {
+                            Image(systemName: "dot.radiowaves.left.and.right")
+                            Text(dev.name).lineLimit(1)
+                            Spacer()
+                            if let r = dev.rssi { Text("\(r) dBm").foregroundStyle(W.muted) }
+                        }
+                        .font(.system(size: 13)).foregroundStyle(W.vibrant)
+                        .padding(.vertical, 6)
+                    }
+                }
+                Text("BT: \(qring.btPower ?? "—")  ·  seen: \(qring.discovered.count)  ·  state: \(String(describing: qring.state))")
+                    .font(.system(size: 10)).foregroundStyle(W.muted).padding(.top, 6)
+            }
+            if let err = qring.lastError {
+                Text(err).font(.system(size: 11)).foregroundStyle(W.muted).padding(.top, 6)
+            }
+            // On-screen [QRing] log tail — debug untethered without the Xcode console.
+            if !qring.logLines.isEmpty {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(Array(qring.logLines.suffix(40).enumerated()), id: \.offset) { idx, line in
+                                Text(line).font(.system(size: 9, design: .monospaced))
+                                    .foregroundStyle(W.muted).frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            Color.clear.frame(height: 1).id("logBottom")
+                        }
+                    }
+                    .frame(height: 170)
+                    .padding(8)
+                    .background(W.bg.opacity(0.4)).clipShape(RoundedRectangle(cornerRadius: 8))
+                    .padding(.top, 8)
+                    .onChange(of: qring.logLines.count) { _, _ in
+                        withAnimation { proxy.scrollTo("logBottom", anchor: .bottom) }
+                    }
                 }
             }
-            if let err = vb9.lastError {
-                Text(err).font(.system(size: 11)).foregroundStyle(W.muted).padding(.top, 6)
+        }
+        .onAppear {
+            // Hands-free: scan when the card appears; the bridge auto-connects to the ring.
+            if qring.isAvailable, qring.state != .connected, qring.state != .scanning {
+                qring.startScan()
             }
         }
     }

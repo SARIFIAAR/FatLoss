@@ -21,3 +21,5 @@ FatLossCoach/GoogleService-Info.plist
 # VB9 wristband SDK — commercial binary, NOT committed to this public repo (drop locally, device builds only)
 Vendor/BLEMidAutumn/*.framework
 Vendor/BLEMidAutumn/*.xcframework
+Vendor/BLEMidAutumn/*.a
+Vendor/QCBandSDK/*.framework

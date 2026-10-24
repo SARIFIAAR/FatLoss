@@ -21,6 +21,13 @@ service cloud.firestore {
         allow create, update: if isOwner(uid) && request.resource.data.ownerUid == uid;
         allow delete: if isOwner(uid);
       }
+      // Health-document vault METADATA docs (E1-02). Bytes live in Storage (see storage.rules). Owner-only,
+      // ownerUid pinned on write; delete split out (request.resource is null on delete) like photos.
+      match /documents/{doc} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid) && request.resource.data.ownerUid == uid;
+        allow delete: if isOwner(uid);
+      }
     }
     // Server-side scan log (written by the analyzer with a service account only).
     match /scans/{scan} { allow read, write: if false; }

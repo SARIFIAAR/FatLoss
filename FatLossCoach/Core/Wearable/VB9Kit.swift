@@ -30,6 +30,9 @@ struct VB9Day {
     var bpDiastolic: Double?
     var stress: Double?              // one-key stress index 0–100
     var fatigue: Double?             // one-key fatigue index 0–100
+    var glucose: Double?            // blood glucose (mg/dL) — QRing non-invasive estimate
+    var hrSeries: [Int]?             // all-day HR samples (for computing HR-zone minutes)
+    var hrIntervalSec: Int?          // seconds between HR samples in hrSeries
 }
 
 /// A workout/sport session pulled from the band.

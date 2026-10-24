@@ -126,7 +126,29 @@ final class Store {
         // never survive an account switch. The metadata was already cleared with `data` above; this removes
         // the image files themselves so a different Apple ID never sees the previous owner's photos.
         PhotoStore.wipeAll()
+        // Same for the health-document vault — sensitive local files must not survive an account switch.
+        DocStore.wipeAll()
         WidgetSync.publish(from: self)
+    }
+
+    /// Band-only reset: turn on VB9-exclusive mode (Apple Health ignored from now on) and wipe the
+    /// day-keyed health data that Apple Watch had filled in, so only fresh band data remains. Keeps the
+    /// user's nutrition, weight, goals, profile and the paired band. Re-sync the band after calling this.
+    func resetToBandOnly() {
+        UserDefaults.standard.set(true, forKey: "vb9Exclusive")
+        data.recovery.removeAll()
+        data.health.removeAll()
+        data.ecg.removeAll()
+        data.workouts.removeAll()
+        lastModified = Date()
+        WidgetSync.publish(from: self)
+        showToast("Cleared — band-only mode on. Syncing…")
+    }
+
+    /// Whether the app is in VB9 band-only mode (Apple Health ignored).
+    var vb9Exclusive: Bool {
+        get { UserDefaults.standard.bool(forKey: "vb9Exclusive") }
+        set { UserDefaults.standard.set(newValue, forKey: "vb9Exclusive") }
     }
 
     func exportJSON() -> String {
@@ -641,6 +663,15 @@ final class Store {
         showToast("\(vendor.capitalized) synced ✓")
     }
 
+    /// Save a workout recorded by the in-app tracker (phone GPS + ring HR). Same WorkoutEntry shape
+    /// as the HealthKit import, so zones feed Strain and the Physical Age levers unchanged.
+    func logWorkout(_ e: WorkoutEntry) {
+        var list = data.workouts[e.date] ?? []
+        list.removeAll { $0.id == e.id }
+        list.append(e)
+        data.workouts[e.date] = list
+    }
+
     func setMood(_ m: Int) {
         updateRecovery { $0.mood = m }
         let msgs = ["", "😔 Noted", "😞 Noted", "😐 Noted", "😊 Great!", "😄 Amazing!"]
@@ -886,7 +917,11 @@ final class Store {
         var h = data.health[k] ?? HealthDay()
         if let steps { h.steps = steps }
         if let restingHR { h.restingHR = restingHR }
-        if let activeKcal { h.activeKcal = activeKcal }
+        if let activeKcal {
+            // Final backstop for the ring's small-calorie unit (the 39400-kcal bug): no human burns
+            // >10,000 kcal/day, so any such value is raw small-calories → ÷1000. Catches every path.
+            h.activeKcal = activeKcal > 10000 ? activeKcal / 1000 : activeKcal
+        }
         if let basalKcal { h.basalKcal = basalKcal }
         if let bodyFatPct { h.bodyFatPct = bodyFatPct }
         if let leanMassKg { h.leanMassKg = leanMassKg }
@@ -967,10 +1002,10 @@ final class Store {
     /// that Apple Watch users already have (backfilled on first sync) — an existing wearer unlocks
     /// immediately, a fresh phone-only user accumulates ~7 days first. Distinct from the recovery baseline
     /// (`BodyMetrics.minCalibrationDays`).
-    static let physicalAgeCalibrationDays = 7
+    static let physicalAgeCalibrationDays = 2   // was 7 — unlock as soon as a couple days of data exist
     /// Minimum distinct CORE metrics (VO2 / RHR / sleep / steps / body-fat) needed — so the sparse-data
     /// "single-metric age" the stress test flagged can never show.
-    static let physicalAgeMinMetrics = 3
+    static let physicalAgeMinMetrics = 2
     /// Trailing window we scan for days-with-data. 28 days so a full month of backfilled Apple Watch history
     /// counts, and a user who wore it a week ago (but not since) still unlocks.
     static let physicalAgeWindowDays = 28
@@ -1244,6 +1279,46 @@ final class Store {
         return Int((10 * w + 6.25 * p.heightCm - 5 * Double(p.age) + s).rounded())
     }
 
+    /// Fold an observed heart-rate reading into today's HR envelope (resting = running minimum, range =
+    /// min→max). Used by the ring's live-HR stream so the current day's resting HR / HR range populate
+    /// without waiting for the next-day history sync.
+    func observeHeartRate(_ bpm: Int, on day: String? = nil) {
+        guard bpm >= 30, bpm <= 220 else { return }
+        let k = day ?? today
+        var h = data.health[k] ?? HealthDay()
+        h.hrMinDay = min(h.hrMinDay ?? 9_999, Double(bpm))
+        h.hrMaxDay = max(h.hrMaxDay ?? 0, Double(bpm))
+        data.health[k] = h
+        updateRecovery(on: k) { r in
+            r.rhr = min(r.rhr ?? 9_999, Double(bpm))
+        }
+    }
+
+    /// Estimated basal (resting) calories burned for a day: real Apple Health `basalKcal` when present,
+    /// otherwise the user's BMR prorated to the elapsed share of the day (full BMR for past days). The
+    /// ring only reports ACTIVE calories, so without this "Total burn" collapses to the active number.
+    func estimatedBasalKcal(on day: String) -> Double? {
+        if let real = data.health[day]?.basalKcal, real > 0 { return real }
+        guard let bmr else { return nil }
+        let frac: Double
+        if day == today {
+            let elapsed = Date().timeIntervalSince(Calendar.current.startOfDay(for: Date()))
+            frac = min(1, max(0.02, elapsed / 86_400))
+        } else {
+            frac = 1
+        }
+        return Double(bmr) * frac
+    }
+
+    /// Total energy burned for a day = active (ring/Watch) + basal (real or BMR-estimated). This is the
+    /// number "Total burn" / "kcal burned" should show; raw `HealthDay.burnedKcal` omits the estimate.
+    func totalBurnKcal(on day: String) -> Double? {
+        let active = data.health[day]?.activeKcal ?? 0
+        let basal = estimatedBasalKcal(on: day) ?? 0
+        let t = active + basal
+        return t > 0 ? t : nil
+    }
+
     // MARK: Energy balance (Apple Watch burn vs. logged intake)
 
     struct EnergyDay: Identifiable, Hashable {
@@ -1260,8 +1335,10 @@ final class Store {
     func energy(on day: String? = nil) -> EnergyDay {
         let k = day ?? today
         let h = data.health[k]
+        // Basal: real Apple Health value, else the ring-user BMR estimate — so the deficit math isn't
+        // broken by the ring reporting active calories only.
         return EnergyDay(date: DateKey.date(k) ?? Date(), eaten: totals(on: k).kcal,
-                         active: h?.activeKcal, basal: h?.basalKcal)
+                         active: h?.activeKcal, basal: estimatedBasalKcal(on: k))
     }
 
     func energySeries(days: Int = 7) -> [EnergyDay] {
@@ -1358,6 +1435,56 @@ final class Store {
         photoSync?.delete(id: id)
         bumpPhotoCache()
         showToast("Photo deleted")
+    }
+
+    // MARK: - Health-document vault (E1-02)
+
+    /// Set by CloudSync so document add/delete can push to / delete from the cloud. nil for guests.
+    var docSync: DocSync?
+    /// Bumped whenever the local document cache changes (a download landed) so views re-read `DocStore`.
+    var docCacheVersion = 0
+    func bumpDocCache() { docCacheVersion &+= 1 }
+
+    /// All vault documents, newest → oldest. An entry whose bytes aren't on this device yet (added on
+    /// another device) is kept; the vault shows it as a pending/needs-download row.
+    var documents: [HealthDoc] { data.documents.sorted { $0.at > $1.at } }
+
+    /// Documents whose bytes are cached on THIS device right now (reads `docCacheVersion` so SwiftUI
+    /// re-reads after a download lands).
+    var documentsOnDevice: [HealthDoc] {
+        _ = docCacheVersion
+        return documents.filter { DocStore.exists($0.filename) }
+    }
+
+    /// Save imported document bytes: cache on-device, record metadata, and (when signed in) upload to the
+    /// user's Firestore documents subcollection + Storage. Guests keep it local until they sign in.
+    @discardableResult
+    func addDocument(data bytes: Data, contentType: String, title: String,
+                     category: HealthDoc.Category) -> HealthDoc? {
+        let id = UUID().uuidString
+        let filename = DocStore.filename(for: id, contentType: contentType)
+        guard DocStore.store(data: bytes, filename: filename) else {
+            showToast("Couldn't save document")
+            return nil
+        }
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let doc = HealthDoc(id: id, title: cleanTitle.isEmpty ? "Document" : cleanTitle, filename: filename,
+                            contentType: contentType, category: category, at: Date(), sizeBytes: bytes.count)
+        data.documents.append(doc)
+        bumpDocCache()
+        docSync?.uploadPending()            // no-op for guests; uploads once signed in
+        showToast("Document saved 🔒")
+        return doc
+    }
+
+    /// Delete a document everywhere: the cached file, the local metadata, and the cloud bytes + doc.
+    func deleteDocument(_ id: String) {
+        guard let entry = data.documents.first(where: { $0.id == id }) else { return }
+        DocStore.delete(entry.filename)
+        data.documents.removeAll { $0.id == id }
+        docSync?.delete(id: id, contentType: entry.contentType)
+        bumpDocCache()
+        showToast("Document deleted")
     }
 
     // MARK: Weekly recap (read-only aggregation of the last 7 days vs the prior 7)

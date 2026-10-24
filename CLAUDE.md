@@ -189,6 +189,136 @@ blocked for Claude by the permission classifier — the user runs it.
   water/walk reminders,
   Shortcuts URL template, import from web app, JSON export, version/build footer.
 
+## Where things stand (2026-10-23) — QRing / VY28C ring integration (active work)
+
+**Pivot:** VB9 is PARKED (kept, not deleted). The active HUMANS wearable is now the **QRing VY28C**
+bracelet (one side button; sensor skin-side; BLE name `Y28C_7EB0`). Physical device in hand; builds go
+**direct to the user's iPhone** (device id `00008150-000C1D96010B401C`) and are debugged via the
+on-screen **log panel** on the Body tab (bottom of the HUMANS Ring card).
+
+**SDK:** `QCBandSDK.framework` (Vivistar/QRing, self-contained Obj-C, **device-only**, git-ignored at
+`Vendor/QCBandSDK/`). Linked `[sdk=iphoneos*]` only; all bridge code behind `#if canImport(QCBandSDK)`
+so the simulator still builds. Demo app for reference: `~/Downloads/QRingSDK/QCBandSDKDemo`. Knowledge
+base: `docs/qring-integration.md`.
+
+**Architecture (differs from VB9 — the APP owns CoreBluetooth):**
+- `Core/Wearable/QRingManager.swift` — `@Observable @MainActor` state (battery/liveHR/logLines/…),
+  `attach(store:)` clears the parked VB9 band info, feeds the SAME `Store.applyVB9History` pipeline.
+- `Core/Wearable/QRingBridge.swift` — the real SDK bridge. Owns `CBCentralManager`, scans, name-matches
+  `Y28C/VY2/28C`, auto-connects, hands peripheral to `QCSDKManager.add(peripheral:)`, then runs a
+  **serial command queue** (`enqueue`/`runNext`, 8s safety timeout — the SDK DROPS concurrent commands).
+  On connect: `setTime` → user profile → `readBattery` → `enableMonitoring()` → `syncHistory()`.
+- `FatLossCoachApp.swift` starts `qring` (not `vb9`). `BodyView.swift` band card = HUMANS Ring
+  (Measure/Sync/reset-to-ring-only/notifications-toggle + log panel).
+
+**WORKING (verified on-device, data pulled from the container):** connect, battery, steps, HRV ~64ms,
+**HR range 54–109** (`getSchedualHeartRateData`), SpO₂ 97–98 (`getBloodOxygenData(byDayIndex:)` — NOT
+the interval variant), Stress ~26 (`getSchedualStressData`). Steps/kcal via `getCurrentSportSucess`
+(the per-day `getSportDetailData`/`getOneDaySport` FAIL on this ring). Reinstall-proof reconnect via
+`retrieveConnectedPeripherals` + persisted `qringPeripheralId`.
+
+### 2026-10-23 session — APK teardown + the real bug fixes (SUMMARY OF LEARNINGS)
+
+**Official QRing Android APK (`QRing_1.0.0.35`) decompiled** (jadx) → `docs/qring-sdk-teardown.md` §10b.
+Platform = `com.oudmon.ble.*` (same ODM as iOS). **Protocol ground-truth settled:**
+- **Calories = milli-kcal; official app divides by EXACTLY 1000 everywhere.** Our ÷1000 is correct — the
+  ring's honest active-calorie number really is small (e.g. 69 kcal) because a ring only sees wrist
+  movement. `TodaySportDataRsp`: steps=bytes[0..2] raw, calorie=bytes[6..8] milli-kcal, distance=bytes[9..11] m.
+- **HRV** = raw ms, no scaling (matches us). **Temperature** = wire byte `(°C−32)×10` → true °C = `byte/10+32`;
+  the official app reads the temp **series via a dfu_temperature file-transfer protocol (opcodes 37/38)**,
+  NOT the simple history commands — which is why our history reads come back empty.
+- **Pairing/reconnect = NO OS bonding, NO button.** The ring advertises continuously; they `connectGatt`
+  (pure GATT, no PIN) and even `removeBond` to avoid OS pairing. Auto-reconnect = app-managed scan for the
+  saved MAC + reconnect loop. Our iOS equivalent (persist UUID → `retrievePeripherals` → `connect` with no
+  timeout) matches/exceeds it. Re-pair is only needed after a full app DELETE (wipes UserDefaults).
+- **The official app computes NO recovery/readiness/body-battery** — it only displays raw device values.
+  All higher-level scoring (Recovery/Strain/Body Battery/Stress/Physical Age) is OURS in `BodyMetrics`.
+
+**The real bugs (found by pulling the on-device data container, not guessing) — ALL FIXED:**
+1. **Sync-overlap guard wedged `true`** → every sync skipped, freezing kcal/HR/HRV/SpO₂ at connect-time.
+   Fix: reset `syncing=false` on connect + a 30s watchdog + re-sync on every app foreground (was connect-only).
+2. **kcal 39400** persisted because **CloudSync restored the old AppData blob** on fresh installs, bypassing
+   every conversion. Fix: ÷1000 backstop in `HealthDay.init(from:)` (the decoder) + `setHealth` — disk AND
+   cloud data self-heal. (Confirmed correct vs APK; 39416→39.4, real value now ~69.)
+3. **Total burn = Active kcal** — the ring reports active calories only (no basal). Fix: `Store.totalBurnKcal`/
+   `estimatedBasalKcal` add a BMR-based basal (prorated through the day, real Apple-Health basal wins) at
+   DISPLAY time; wired into Body "Total burn", Today "kcal burned", and `energy()` deficit math.
+4. **Resting HR polluted (64 vs true 54)** — the one-key Measure SPOT reading was stored as restingHR.
+   Fix: one-key no longer writes restingHR; it stays sourced from the HR-series floor.
+5. **Temperature silently dropped** — missing `+32` offset made readings (~4.2) fail the 30–45 clamp.
+   Fix: `QRingBridge.normalizedBodyTemp()` tries every scaling (°C / +32 / byte/10+32 / tenths / hundredths)
+   and keeps the one in body range; applied to both on-demand Measure and history parse.
+
+**NEW FEATURE — in-app workout tracker** (`Core/WorkoutSession.swift`, `Features/Workout/WorkoutTrackerView.swift`):
+Apple-Watch-style live screen (lime timer, red ring HR, cyan GPS distance/pace, orange energy) + Apple-Fitness-
+style summary. Phone GPS for pace + ring live HR. Saves a normal `WorkoutEntry` (feeds Strain + Physical Age)
+and derives a **ring-only VO₂-max estimate** (ACSM pace eq. over HR-reserve, outdoor walk/run ≥8min/≥400m) —
+fills the last Physical Age input for ring-only users. Added `NSLocationWhenInUseUsageDescription`.
+
+### 2026-10-24 session — reliability reckoning + the open-source path (READ THIS FIRST next session)
+
+**Everything shipped this stretch (all on branch `vb9-integration`, UNCOMMITTED, installed to the phone):**
+kcal self-heal in the decoder; sync-guard unstick + 30s watchdog + foreground re-sync; **Total burn = active +
+BMR-estimated basal** (`Store.totalBurnKcal`/`estimatedBasalKcal`, prorated); resting HR no longer polluted by
+the one-key spot; **auto one-key measure after each sync** (throttled 15 min — gives HR+HRV+stress+temp+BP in ONE
+reading, no colliding measurements); temp normalizer (`byte/10+32`); **sleep V2 fallback + REM + 20s queue timeout**;
+**retry wrapper** on currentSport + HR-series reads; **all-day HR-zone minutes** from the HR series
+(`HealthDay.hrZoneMin`); **calibration limit removed** (`minCalibrationDays` 7→2, `physicalAgeCalibrationDays`
+7→2, minMetrics 3→2) so scores compute now; **in-app workout tracker** (`WorkoutSession` + `WorkoutTrackerView`,
+GPS+ring-HR, Apple-style, ring-only VO₂ estimate).
+
+**What VERIFIED working on-device (data pulled from the container):** HRV, SpO₂, stress, steps, active kcal,
+total burn, wrist temp (36.5–36.7 via auto one-key), resting HR, sleep (8.7h/3.3h-deep on a good sync), battery.
+
+**THE CORE PROBLEM (don't re-discover this):** this ring's data is reliable to *measure* but unreliable to
+*retrieve* via the iOS `QCBandSDK`. The SDK's multi-stage history reads (HR series, sleep, currentSport) **fail
+intermittently** and **today's all-day HR series is NEVER returned** (the SDK lacks the timestamp-based opcode-21
+read the official app uses). Retry/timeout fixes help but can't fully solve it. Consequences, now understood:
+- **HR zones** are workout-based — EXACTLY like Apple Watch (which also only zones from HKWorkouts, never passive
+  HR). The reliable path is a logged workout via the Train tab; passive all-day zones need the (flaky) HR series.
+- **Sleep** lands on good syncs, misses on bad ones — the hardware records it; the BLE read is the weak link.
+- **Resting HR / HR range** for *today* can't come from the SDK — only spot one-key reads (skew high, self-correct
+  next day) or the live-accumulate path (`Store.observeHeartRate`).
+
+**Why QRing over VB9 (CORRECTED — earlier notes were wrong):** VB9 could NOT expose raw RRI/HRV without custom
+firmware (HRV bundled in "stress"), HR only every 10 min, no raw PPG. QRing was the right call for HUMANS' HRV
+core. VB9 was never tested on real hardware per our records. Reliability of VB9's transport = unknown.
+
+**How WHOOP beats this (architecture lesson):** persistent background connection + chunked/ACK'd/resumable
+transfer + device buffering + **cloud stitching** of partial syncs. We can approximate with (a) background
+CoreBluetooth connection and (b) aggressive Firebase write-through (CloudMirror/CloudSync already exist —
+Firebase helps DURABILITY/stitching, but can't fix the ring→phone BLE hop, which is the real bottleneck).
+
+**★ THE PATH FORWARD (highest leverage — start here next session): the ring is a Colmi R02 platform.** Firmware
+bins in the SDK demo = `R02A_*.bin`; service UUID `6E40FFF0-B5A3-F393-E0A9-E50E24DCCA9E` + RX/TX `6E400002/3`
+**exactly match** our QRing binary. The Colmi R02 is heavily reverse-engineered open-source; the 16-byte packet
+protocol (opcode byte + 14 payload + checksum=sum%255, multi-packet reassembly) matches our APK decode. Reference
+repos: **anikbharadwaj129/Colmi (SwiftUI iOS — sleep/HRV/temp/readiness)**, tahnok/colmi_r02_client (canonical
+Python protocol docs), robinojw/openring (TS), wrcrooks/Colmi-Smart-Ring-Tools. Plan: build a **lean native Swift
+BLE client** implementing the documented protocol ourselves (incl. the opcode-21 today-HR read the SDK hides),
+with our OWN retry/reassembly/timeout — replacing the flaky SDK calls one at a time, SDK as fallback. Caveats:
+VY28C is a Vivistar variant (verify commands); check repo licenses before copying code (protocol facts aren't
+copyrightable + we already decoded the opcodes from the APK). Full teardown: `docs/qring-sdk-teardown.md`.
+
+**OPEN / NEXT (priority order):**
+- **★ Validate the Colmi R02 open-source path**: map anikbharadwaj/tahnok command set vs our APK-decoded opcodes,
+  confirm VY28C compatibility, then build the native Swift BLE client (own retry/reassembly). This attacks the
+  root cause instead of working around it.
+- **Commit the branch** — a session's worth of fixes sit uncommitted on `vb9-integration`. Get CEO OK, then commit.
+- Deferred until the client decision: raw-PPG pipeline (true rMSSD HRV + respiratory rate); Readiness/Rest index;
+  background CoreBluetooth state-restoration; aggressive Firebase write-through; temp-series file-transfer (37/38).
+
+**Build/install/launch (dev, personal cert — CLI distribution signing is broken on this Mac):**
+```
+xcodebuild -project FatLossCoach.xcodeproj -scheme FatLossCoach -configuration Debug \
+  -destination 'id=00008150-000C1D96010B401C' -derivedDataPath build/DD-dev \
+  -allowProvisioningUpdates build
+xcrun devicectl device install app --device 00008150-000C1D96010B401C \
+  build/DD-dev/Build/Products/Debug-iphoneos/FatLossCoach.app
+```
+Build-approval gate still applies: ASK before each build. Don't commit/push without asking. The
+QRing framework binary is git-ignored.
+
 ## Where things stand (2026-10-13)
 
 **VB9 wristband integration scaffolding (branch `vb9-integration`, not shipped).** The HUMANS wearable

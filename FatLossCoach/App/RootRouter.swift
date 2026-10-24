@@ -88,6 +88,12 @@ struct RootRouter: View {
             withAnimation(.easeInOut(duration: 0.25)) { route = .app }
             return
         }
+        // `-vaultPreview 1` drops straight into the app so ContentView can present the document vault (QA).
+        if d.bool(forKey: "vaultPreview") {
+            if !store.data.consent.accepted { store.acceptConsent() }
+            withAnimation(.easeInOut(duration: 0.25)) { route = .app }
+            return
+        }
         // `-onboarding` / `-obStep <name>` force the guided flow (implies onboarding) for screenshots.
         if d.bool(forKey: "onboarding") || d.string(forKey: "obStep") != nil {
             withAnimation(.easeInOut(duration: 0.25)) { route = .onboarding }

@@ -67,6 +67,8 @@ final class HealthKitManager {
     }
 
     func sync(store: Store, days: Int = 30) async {
+        // VB9 band-only mode: ignore Apple Health entirely so the dashboard reflects only the HUMANS band.
+        if UserDefaults.standard.bool(forKey: "vb9Exclusive") { return }
         guard isAvailable, !isSyncing else { return }
         isSyncing = true
         lastError = nil

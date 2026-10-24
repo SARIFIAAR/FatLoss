@@ -12,6 +12,15 @@ service firebase.storage {
                    && request.resource.size < 15 * 1024 * 1024
                    && request.resource.contentType.matches('image/.*');
     }
+    // users/{uid}/documents/{docId}.{ext} — health-document vault bytes (E1-02), owned solely by that uid.
+    // A different account can never read another user's documents. PDF or image only, 25 MB cap.
+    match /users/{uid}/documents/{doc} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.uid == uid
+                   && request.resource.size < 25 * 1024 * 1024
+                   && (request.resource.contentType == 'application/pdf'
+                       || request.resource.contentType.matches('image/.*'));
+    }
     // Content images for meal programs & recipes (banners, recipe photos). Uploaded ONLY by the
     // Admin SDK (upload_program.mjs), which bypasses these rules. Public read so the app loads them
     // via a plain ?alt=media download URL with no auth token; clients can never write here.

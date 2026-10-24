@@ -4,7 +4,7 @@ Tracking OEM/ODM suppliers evaluated to pair a wearable with the HUMANS app. Goa
 exposes **raw HRV (RRI)** and the core vitals over an **iOS-accessible SDK or BLE protocol**, so the
 app's on-device recovery/strain/stress/sleep engine can run on it (no vendor cloud lock-in).
 
-Last updated: 2026-09-29
+Last updated: 2026-10-13 (added Vivistar's 12-SKU screenless "New Products" catalog — see §1)
 
 ---
 
@@ -12,7 +12,7 @@ Last updated: 2026-09-29
 
 | Supplier | Device(s) | Stage | Next action |
 |---|---|---|---|
-| **Shenzhen Vivistar** | VB9, VC2, **SH09 ← lead candidate** | ⏳ SH09 IS the device documented by the Tech Guide + BLE protocol (2026-07-24): screenless, metal faceplate (brandable/private mold), 5 ATM, ~10–15 d; exposes **raw RRI + raw PPG (25–500 Hz) + ECG 500 Hz + SpO2 + skin/body temp + respiration** over **iOS SDK + DEMO + documented BLE protocol (Service 0xFFF0), no cloud**. Clears every HUMANS requirement in the preferred screenless form. **⚠️ But the supplier's VSH09-HTO2 spec sheet (received 2026-09-29, dated 2023-04-11) describes a DIFFERENT config — see the SH09 table below — with a 0.87" PMOLED screen, plastic/IP68, BT 4.2, IXFIT app, HRV(RRI)+SpO2+temp+BP but NO ECG/raw-PPG/respiration listed. Reconcile which SH09 the sample will actually be.** | Confirm with Cassidy which SH09 config ships (screenless-metal-ECG per the Tech Guide, or the screened VSH09-HTO2 per this spec); confirm raw RRI is a readable stream + data-access path (SDK vs BLE); get price/MOQ; order a sample. Resolved by the spec sheet: **chipset = Nordic nRF52832**, battery 60 mAh / 7 days, IP68. |
+| **Shenzhen Vivistar** | VB9, VC2, **SH09** · **+ VY26 + VY28C ordered (2026-10-13)** · 12 screenless "New Products" SKUs catalogued | ⏳ **CEO ordered 1× VY26 + 1× VY28C (2026-10-13)** → ask Cassidy for a revised PI + the **QRing SDK/BLE doc** (raw-RRI + no-cloud test). Catalog highlight also = **G-band ECG pair VG70/VG72** + **VS19** (25-d battery). Gating Q unchanged (raw RRI + no-cloud iOS access). See §1 "Screenless New Products catalog". ⏳ SH09 IS the device documented by the Tech Guide + BLE protocol (2026-07-24): screenless, metal faceplate (brandable/private mold), 5 ATM, ~10–15 d; exposes **raw RRI + raw PPG (25–500 Hz) + ECG 500 Hz + SpO2 + skin/body temp + respiration** over **iOS SDK + DEMO + documented BLE protocol (Service 0xFFF0), no cloud**. Clears every HUMANS requirement in the preferred screenless form. **⚠️ But the supplier's VSH09-HTO2 spec sheet (received 2026-09-29, dated 2023-04-11) describes a DIFFERENT config — see the SH09 table below — with a 0.87" PMOLED screen, plastic/IP68, BT 4.2, IXFIT app, HRV(RRI)+SpO2+temp+BP but NO ECG/raw-PPG/respiration listed. Reconcile which SH09 the sample will actually be.** | Confirm with Cassidy which SH09 config ships (screenless-metal-ECG per the Tech Guide, or the screened VSH09-HTO2 per this spec); confirm raw RRI is a readable stream + data-access path (SDK vs BLE); get price/MOQ; order a sample. Resolved by the spec sheet: **chipset = Nordic nRF52832**, battery 60 mAh / 7 days, IP68. |
 | ICTOPSUPPLY | H59 | ⬜ Not contacted | Backup — open SDK, MOQ 10 |
 | Shenzhen Tianpengyu | ECG+HRV band | ⬜ Not contacted | Backup — open SDK, MOQ 1 |
 | Erontech (erontech.en.alibaba.com) | HR-only screenless SKU seen | ⬜ Lower priority (2026-09-24) — the screenless HRV band first noted here is actually Vivistar's SH09 (re-attributed) | Only pursue if it beats Vivistar on price + PROVEN data access |
@@ -36,12 +36,21 @@ Legend: ✅ done · ⏳ in progress · ⬜ not started
 ### DECISION (2026-09-29) — sample VC2 + VB9; SH09 parked
 Ordering **VC2** (the pick — only device with *confirmed* raw RRI over open BLE, best sensor set; screen no longer a concern) **and VB9** (to test whether we can crack its data — HRV is bundled in "stress," so this validates whether raw RRI is reachable without custom firmware). **SH09 is parked** pending Cassidy's confirmation of (a) raw-RRI/open-BLE data access and (b) which config actually ships (screened VSH09-HTO2 vs the Tech-Guide screenless-ECG unit). This matches the pending PI (VB9 + VC2). Device track paused here while product work continues.
 
+### DECISION (2026-10-13, CEO) — add VY26 + VY28C to the sample order
+From the screenless "New Products" catalog, the CEO approved sampling **1× VY26** and **1× VY28C** (design-led:
+VY26 = premium milanese shell + newest Nordic nRF54L15 MCU; VY28C = nylon sport-loop, best 24/7/sleep comfort,
+adds body temp). Both are **QRing** platform → this sample also serves as the **QRing data-access test**
+(does it expose raw RRI over a local iOS SDK/BLE, no cloud?). Request the QRing SDK/BLE doc with the units.
+
 ### Current order (sample)
 - **Proforma Invoice issued:** 3× VB9 + 3× VC2 (sample cost + shipping to Dubai, UAE).
   ⚠️ **We requested 1× each** — PI came back as 3× each. Correct on the PI unless 3 of each is wanted.
+- **ADD (2026-10-13):** **1× VY26** + **1× VY28C** (both QRing, 5ATM, screenless) → ask Cassidy for a revised PI
+  that includes them, plus the **QRing SDK/BLE protocol doc** (raw-RRI + no-cloud confirmation).
 - **Receiver:** Mike Muller, Dubai UAE — *delivery address to be provided.*
 - **Blocking on us:** confirm the PI + send full delivery address.
-- **Then supplier sends:** VB9 SDK documentation + VC2 BLE protocol document → integration can start.
+- **Then supplier sends:** VB9 SDK documentation + VC2 BLE protocol document (+ QRing doc for the VY units) →
+  integration can start.
 
 ### Devices under evaluation
 
@@ -127,6 +136,53 @@ If they'll do it, **VB9 becomes the best option**: preferred screenless size + E
 - **VC2** = best data (Nordic chip, 25 Hz continuous HR, **raw RRI over open BLE**, temp ±0.1 °C, respiratory rate). Trade-off: has a screen; SpO2 not night-only without custom firmware.
 - **VB9** = preferred *look* (screenless) and adds wrist BIA body-fat, but HRV is bundled into "stress" and RRI is 30-min by default (10-min only at night in sleep mode), 3–5 day battery.
 - **Plan:** sample both; wear VB9 daily, keep VC2 as the raw-RRI reference; whichever streams clean beat-to-beat data into the app's `BodyMetrics` recovery/stress engine wins.
+
+### Screenless "New Products" catalog (reviewed 2026-10-13) — 12 additional Vivistar SKUs
+Source: `~/Downloads/Vivistar New Product Non-display Smart Bracelet.pdf` (image-only catalog, 13 pp).
+**All 12 are screenless** (HUMANS's preferred form) and from our PRIMARY supplier. None overlap VB9/VC2/SH09.
+The catalog advertises *marketing* features, **not data access** — so the same two gating questions as every
+Vivistar device apply to all 12: **(a) is raw RRI a readable beat-to-beat stream** (not just a derived
+stress/HRV index), and **(b) iOS SDK or documented BLE, fully local (no vendor cloud)?** The "App" column is
+the tell — it names the chipset/white-label platform, which clusters the SDK work.
+
+| SKU | MCU / HR chip | App (SDK platform) | Battery | Water | Standout sensors (claimed) | HUMANS fit |
+|---|---|---|---|---|---|---|
+| **VG70** | GH3228T **500 Hz ECG chip** | **G band** | 150 mAh / 10 d | IP68 | **ECG** heart analysis, HR, SpO2, 24 h sleep+**HRV**, blood+**body composition**, 120+ sports | ⭐ **Top pick** — only off-the-shelf **dedicated-ECG** screenless unit; ECG→R-R = gold-standard HRV (the exact thing the VB9 custom-firmware ask was chasing). Feeds the built **ECG/AF card** + **Body-Comp tracker** directly. |
+| **VG72** | JL7073A / DA267 | **G band** | 200 mAh / 15 d | IP68 | **ECG** heart analysis, HR, HRV, SpO2, sleep, **body-composition detection**, stress, women's health | ⭐ ECG sibling on the **same SDK** as VG70 → evaluate as one platform. Longer battery, body-comp. |
+| **VK82** | VC9213A | **QWatch Pro** | 145 mAh / 7–15 d | IP68 | AI health report, HRV, **BP**, **body temp**, SpO2, physiological cycle, 100+ sports | Broadest everyday suite on one device → fills the built **Health-Monitor rows** (BP / temp / stress). No ECG. |
+| **VS19** | Bluetrum AB2026 | **GloryFit Pro** | 140 mAh / **25 d** | IP68 | HR, SpO2, sleep, exercise | **Battery king (25 d)** on a mature, documented white-label SDK. Basic sensors (no ECG/BP/temp) → simple WHOOP-style recovery band. |
+| **VLC116** | HX3918 PPG | **Da halo** | 120 mAh / 10 d | ⚠️ 1ATM | Whole-day HR, HRV, SpO2, stress, sleep, **menstrual cycle**, auto-activity, **Apple Health + Strava integration** | Only one claiming **native Apple Health** → possible **zero-BLE fallback** (band writes HealthKit, our `HealthKitManager` reads it). But HealthKit carries **no raw RRI**, and 1ATM is weak for 24/7 wear. |
+| **VHT51** | HX3695H (6-axis) | **Flywear** | 200 mAh / 10–20 d | 3ATM | HR, **BP**, SpO2, sleep, HRV, 24 h tracking, 110+ sports | Good battery + BP; lone SDK platform (Flywear). |
+| **VY28C** | HX3697 | **QRing** | 120 mAh / 7–10 d | **5ATM** | HRV, **body temp**, AI analysis, stress, HR alerts, DND, sports | Richest of the QRing four; 5ATM (swim-safe). |
+| **VY25S** | VC30F-S | **QRing** | 120 mAh / 7–10 d | **5ATM** | HRV, stress, sports modes, HR alerts, notifications | QRing family; 5ATM. |
+| **VY26** | Nordic **nRF54L15** / HX3697 | **QRing** | 110 mAh / 7–10 d | **5ATM** | HR, HRV, SpO2, sleep, exercise | Newest Nordic MCU; QRing family; 5ATM. |
+| **VY26S** | Tianyi Hexin 3697 | **QRing** | 110 mAh / 7–10 d | **5ATM** | AI real-time recording, HR, HRV, SpO2, sleep | QRing family; 5ATM. |
+| **VG69** | Realtek 8762E / VC9213A | **QWatch Pro** | 145 mAh / 10 d | IP67 | HR, SpO2, **BP**, **body temp**, step/HRV, sleep | QWatch-Pro sibling of VK82 (shares SDK). |
+| **VZ212** | Goodix GR5515 | **Joeme fit** | 260 mAh / 10–15 d | ⚠️ 1ATM | HR, SpO2, sleep, exercise | Big battery; basic sensors; weak water; lone SDK. |
+
+**SDK-platform clusters (one integration covers each cluster):** QRing = VY26/VY25S/VY26S/VY28C (4) ·
+QWatch Pro = VK82/VG69 (2) · **G band = VG70/VG72 (2, the ECG pair)** · GloryFit Pro = VS19 · Flywear = VHT51 ·
+Da halo = VLC116 · Joeme fit = VZ212.
+
+**Read for HUMANS (2026-10-13):**
+1. **The gating unknown is unchanged** — advertised "HRV" ≠ confirmed raw RRI, and no SDK/cloud posture is
+   stated. So the move is **one question to Cassidy per SDK platform**, not per device.
+2. **The genuinely new thing here is the G-band ECG pair (VG70/VG72).** A screenless, off-the-shelf unit with
+   a **dedicated 500 Hz ECG chip** could deliver ECG-derived R-R (cleaner than any PPG-RRI) into the already-built
+   ECG/AF card — i.e. the premium longevity differentiator **without** the VB9 custom-firmware/MOQ commitment.
+   Highest-value thing to confirm: does **G band** expose raw ECG → R-R over an iOS SDK/BLE, no cloud?
+3. **VS19** (25-day battery, GloryFit Pro — a known documented SDK) is the strong "simple recovery band" option.
+4. **VLC116** is worth one question too: if it genuinely writes HR/SpO2/sleep to **Apple Health**, that's a
+   data path with **zero BLE-SDK work** (our existing HealthKit reader picks it up) — fallback only, no raw RRI.
+5. **Do not widen the open PI yet** (VB9+VC2 still pending). Fold these into the *existing* Cassidy thread as a
+   data-access qualification before adding any SKU to the sample order.
+
+**Ask Cassidy (append to the open thread):**
+- For **G band (VG70/VG72)**: does the iOS SDK/BLE protocol expose **raw ECG waveform and/or R-R intervals**,
+  fully local (no cloud)? ECG sampling cadence (on-demand vs continuous)? SDK doc availability?
+- For **GloryFit Pro (VS19)**, **QWatch Pro (VK82)**, **QRing (VY-series)**: raw RRI stream yes/no + iOS
+  SDK-or-BLE-doc + no-cloud, per platform.
+- For **VLC116 (Da halo)**: does it write HR/SpO2/sleep to **Apple HealthKit** directly (names the integration)?
 
 ---
 

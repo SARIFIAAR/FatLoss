@@ -177,7 +177,7 @@ struct WatchCard: View {
                         .font(.system(size: 11)).foregroundStyle(Theme.muted)
                 }
                 StatBox {
-                    Text(h?.burnedKcal.map { "\(Int($0.rounded()))" } ?? "–")
+                    Text(store.totalBurnKcal(on: store.today).map { "\(Int($0.rounded()))" } ?? "–")
                         .font(Theme.titleL).foregroundStyle(Theme.orange)
                     Text("kcal burned").font(.system(size: 11)).foregroundStyle(Theme.muted)
                     Text(h?.activeKcal.map { "\(Int($0.rounded())) active" }

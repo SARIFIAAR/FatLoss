@@ -14,6 +14,7 @@ struct PhysicalAgePlanView: View {
 
     var body: some View {
         Screen(subtitle: "Generated from your Physical Age", title: "Your plan") {
+            WorkoutTrackerCard()
             if let wk = store.weeklyProgramme() {
                 planHeader(wk)
                 if wk.gate.restToday { recoveryBanner(wk.gate) }

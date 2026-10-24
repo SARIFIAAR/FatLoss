@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HUMANS · Backlog</title>
+<style>
+  :root{
+    --honey:#E8913A; --honey-soft:#f6ead9;
+    --bg:#f7f6f3; --panel:#efede7; --card:#ffffff;
+    --ink:#23221e; --muted:#8c887f; --faint:#b6b2a8; --line:#eceae3;
+    --p0:#d9544d; --p1:#c98a33; --p2:#6f9a5e; --add:#8a6bd6; --blue:#3f6bd0;
+    --shadow:0 1px 3px rgba(40,36,28,.06),0 1px 1px rgba(40,36,28,.04);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{font:13.5px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
+  header{position:sticky;top:0;z-index:5;background:rgba(247,246,243,.85);backdrop-filter:saturate(180%) blur(12px);border-bottom:1px solid var(--line);padding:16px 24px 12px}
+  .top{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  h1{margin:0;font-size:16px;font-weight:700;letter-spacing:-.01em}
+  h1 .dot{color:var(--honey)}
+  .stat{color:var(--muted);font-size:12px;font-weight:500}
+  .stat b{color:var(--ink);font-weight:700}
+  .progress{height:6px;background:var(--panel);border-radius:999px;margin:12px 0 2px;overflow:hidden}
+  .progress > i{display:block;height:100%;background:linear-gradient(90deg,#f0a85a,var(--honey));border-radius:999px}
+  .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}
+  #q{padding:7px 12px;border:1px solid var(--line);border-radius:9px;font-size:13px;min-width:220px;background:#fff;outline:none}
+  #q:focus{border-color:var(--honey)}
+  .chip{padding:5px 11px;border:1px solid var(--line);border-radius:999px;background:#fff;cursor:pointer;font-size:12px;font-weight:600;color:var(--muted);transition:.12s}
+  .chip:hover{border-color:var(--faint)}
+  .chip.active{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .board{display:flex;gap:16px;padding:20px 24px 40px;overflow-x:auto;align-items:flex-start}
+  .col{flex:0 0 288px;min-width:288px}
+  .col > .head{display:flex;align-items:center;justify-content:space-between;padding:2px 6px 10px}
+  .col .lbl{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .col .n{font-size:11px;font-weight:700;color:var(--faint)}
+  .stack{background:var(--panel);border-radius:14px;padding:8px;min-height:40px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:11px 12px;margin-bottom:8px;box-shadow:var(--shadow);border-left:3px solid var(--faint);transition:.12s}
+  .card:last-child{margin-bottom:0}
+  .card:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(40,36,28,.08)}
+  .card.P0{border-left-color:var(--p0)} .card.P1{border-left-color:var(--p1)} .card.P2{border-left-color:var(--p2)}
+  .card .id{font-size:10.5px;font-weight:800;color:var(--faint);letter-spacing:.03em}
+  .card .title{margin:3px 0 8px;font-size:13px;font-weight:600;letter-spacing:-.005em}
+  .badges{display:flex;gap:5px;flex-wrap:wrap}
+  .b{font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:#f4f2ec;color:var(--muted);line-height:1.5}
+  .b.ep{background:#eef3fc;color:var(--blue)}
+  .b.P0{background:#fdeceb;color:var(--p0)} .b.P1{background:var(--honey-soft);color:var(--p1)} .b.P2{background:#eef4ea;color:var(--p2)}
+  .b.add{background:#f0eafc;color:var(--add)}
+  .col.done .card{opacity:.62;box-shadow:none;border-left-color:#cfcdc5}
+  footer{color:var(--faint);font-size:11px;padding:0 24px 28px}
+  footer code{background:var(--panel);padding:1px 5px;border-radius:5px}
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <h1>HUMANS <span class="dot">·</span> Backlog</h1>
+    <div class="stat" id="stat"></div>
+  </div>
+  <div class="progress"><i id="bar"></i></div>
+  <div class="controls">
+    <input id="q" placeholder="Search…" oninput="render()">
+    <span id="epics"></span>
+  </div>
+</header>
+<div class="board" id="board"></div>
+<footer>Generated view of <code>BACKLOG.md</code> + <code>docs/teardown/burjeel-health-teardown.md</code> · HUMANS / FatLoss Coach · <span style="color:var(--add);font-weight:700">✚</span> = research add-on (teardown-sourced)</footer>
+<script>
+const ITEMS=[
+ // ——— Shipped (TestFlight builds 1–71, 1.0.0) ———
+ {id:"D-01",t:"Today dashboard: breathing, phase strip, macros, readiness, habits, water, weight/waist",ep:"Done",st:"Done"},
+ {id:"D-02",t:"Body dashboard (WHOOP-style): recovery/strain/sleep gauges, Body Battery, stress, workload",ep:"Done",st:"Done"},
+ {id:"D-03",t:"Physical Age longevity score + aging-algo-generated programme (recovery-gated)",ep:"Done",st:"Done"},
+ {id:"D-04",t:"Nutrition: log by photo / USDA search / barcode / AI text + week calendar",ep:"Done",st:"Done"},
+ {id:"D-05",t:"Workout: 3-phase programme + progressive-overload logging + exercise photos",ep:"Done",st:"Done"},
+ {id:"D-06",t:"Progress: weight/waist/calorie/HRV/sleep charts + 28-day habit heat-map",ep:"Done",st:"Done"},
+ {id:"D-07",t:"HealthKit engine: steps/HR/HRV/sleep stages/SpO2/wrist-temp/VO2max/workouts",ep:"Done",st:"Done"},
+ {id:"D-08",t:"Cloud sync: Sign in with Apple → Firestore + per-day / per-meal mirror rows",ep:"Done",st:"Done"},
+ {id:"D-09",t:"Meal analyzer (Fly.io + Claude vision) + InBody report scan",ep:"Done",st:"Done"},
+ {id:"D-10",t:"Home-screen widget (HumansWidget): Recovery / Strain / Sleep / Body Battery",ep:"Done",st:"Done"},
+ {id:"D-11",t:"Onboarding questionnaire (~45-Q intake) + PlanBuilder (BMR/TDEE/macros)",ep:"Done",st:"Done"},
+ {id:"D-12",t:"Nutrition programs Firebase-driven (no app build) + Ariana program seeded",ep:"Done",st:"Done"},
+ {id:"D-13",t:"Guided breathing sessions (shape+dot, ocean bg, ambient music, voice, haptics)",ep:"Done",st:"Done"},
+ {id:"D-14",t:"HUMANS rebrand: name, circuit-H icon, splash; body-composition (InBody) tracker",ep:"Done",st:"Done"},
+
+ // ——— Privacy & Security (standalone features, built this session) ———
+ {id:"SEC-01",t:"Biometric app-lock (Face ID) — built + sim-verified, pending ship",ep:"Privacy & Security",pri:"P1",eff:"S",st:"In-Review"},
+ {id:"SEC-02",t:"Health document vault, Face ID-gated (store own bloods/InBody PDFs) — built + sim-verified",ep:"Privacy & Security",pri:"P1",eff:"M",st:"In-Review"},
+
+ // ——— Devices ———
+ {id:"DEV-01",t:"VB9 wristband BLE integration (continuous HR, ECG/AF, stress) — scaffolding, not shipped",ep:"Devices",pri:"P1",eff:"L",st:"In-Progress"},
+
+ // ——— Polish ———
+ {id:"POL-01",t:"Seasonal alternate app icons (needs icon-designer art + Info.plist plumbing)",ep:"Polish",pri:"P2",eff:"S",st:"Backlog"},
+
+ // ——— Research (parked) ———
+ {id:"RND-01",t:"Burjeel medical-adjacent borrows PARKED (market research): multi-wearable ingestion · session scheduling · AI concierge — teardown dossier is the artifact",ep:"Research (parked)",pri:"P2",eff:"L",st:"Backlog",add:1},
+
+ // ——— Core / Platform ———
+ {id:"B-01",t:"Wire onboarding questionnaire answers into the workout phases + meal plan",ep:"Core / Platform",pri:"P1",eff:"M",st:"Backlog"},
+ {id:"B-02",t:"Backend: set Fly secrets, verify coach /admin dashboard, invite testers",ep:"Core / Platform",pri:"P1",eff:"S",st:"Backlog"},
+ {id:"B-03",t:"Remove stray Firebase iOS app com.metatec.myfitnesscoach (housekeeping)",ep:"Core / Platform",pri:"P2",eff:"S",st:"Backlog"},
+ {id:"B-04",t:"US restaurant / fast-food menu nutrition data (curate vs Nutritionix) — PARKED",ep:"Core / Platform",pri:"P2",eff:"M",st:"Backlog",add:1},
+];
+const COLS=["Backlog","Ready","In-Progress","In-Review","Done"];
+let epFilter="All";
+const epics=["All",...[...new Set(ITEMS.map(i=>i.ep))]];
+document.getElementById("epics").innerHTML=epics.map(e=>`<span class="chip${e==='All'?' active':''}" data-ep="${e}" onclick="setEp('${e}')">${e}</span>`).join("");
+function setEp(e){epFilter=e;document.querySelectorAll('.chip').forEach(c=>c.classList.toggle('active',c.dataset.ep===e));render();}
+function render(){
+  const q=document.getElementById("q").value.toLowerCase();
+  const items=ITEMS.filter(i=>(epFilter==="All"||i.ep===epFilter)&&(i.id+" "+i.t).toLowerCase().includes(q));
+  const done=ITEMS.filter(i=>i.st==="Done").length, total=ITEMS.length, open=total-done;
+  const pct=Math.round(done/total*100);
+  document.getElementById("stat").innerHTML=`<b>${done}</b> done · <b>${open}</b> to build · <b>${total}</b> total`;
+  document.getElementById("bar").style.width=pct+"%";
+  document.getElementById("board").innerHTML=COLS.map(col=>{
+    const cs=items.filter(i=>i.st===col);
+    return `<div class="col ${col==='Done'?'done':''}"><div class="head"><span class="lbl">${col}</span><span class="n">${cs.length}</span></div><div class="stack">${cs.map(card).join("")||'<div style="padding:10px;color:var(--faint);font-size:12px">—</div>'}</div></div>`;
+  }).join("");
+}
+function card(i){
+  const pr=i.pri?`<span class="b ${i.pri}">${i.pri}</span>`:"";
+  const ef=i.eff?`<span class="b">${i.eff}</span>`:"";
+  const w=i.w?`<span class="b">W${i.w}</span>`:"";
+  const ad=i.add?`<span class="b add">✚</span>`:"";
+  return `<div class="card ${i.pri||''}"><div class="id">${i.id}</div><div class="title">${i.t}</div><div class="badges"><span class="b ep">${i.ep}</span>${pr}${ef}${w}${ad}</div></div>`;
+}
+render();
+</script>
+</body>
+</html>

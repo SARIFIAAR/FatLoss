@@ -19,6 +19,7 @@ final class CloudSync {
 
     private weak var store: Store?
     private weak var photoSync: PhotoSync?
+    private weak var docSync: DocSync?
     private var listener: ListenerRegistration?
     private var authHandle: AuthStateDidChangeListenerHandle?
     private var pushTask: Task<Void, Never>?
@@ -85,9 +86,10 @@ final class CloudSync {
         Keychain.delete(markerKey)
     }
 
-    func attach(store: Store, photoSync: PhotoSync? = nil) {
+    func attach(store: Store, photoSync: PhotoSync? = nil, docSync: DocSync? = nil) {
         self.store = store
         self.photoSync = photoSync
+        self.docSync = docSync
         guard isConfigured else { status = "Cloud sync not configured"; return }
         store.onChange = { [weak self] in self?.schedulePush() }
         authHandle = Auth.auth().addStateDidChangeListener { [weak self] _, user in
@@ -111,6 +113,7 @@ final class CloudSync {
             pendingCollision = nil
             isResolvingSignIn = false
             photoSync?.stop()
+            docSync?.stop()
             return
         }
         // Account isolation MUST run before the snapshot listener attaches / any merge happens, so a
@@ -122,6 +125,7 @@ final class CloudSync {
         // Start photo sync for this account AFTER isolation has run (cache is either kept for the same owner
         // or wiped for a different one), so the listener can only ever surface this uid's own photos.
         photoSync?.start(uid: user.uid)
+        docSync?.start(uid: user.uid)
         status = "Connecting…"
         restoreState = .restoring
         isResolvingSignIn = true

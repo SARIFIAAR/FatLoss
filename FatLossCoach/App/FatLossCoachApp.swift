@@ -9,9 +9,12 @@ struct FatLossCoachApp: App {
     @State private var scanner = MealScanner()
     @State private var reminders = ReminderManager()
     @State private var wearables = WearableLink()
-    @State private var vb9 = VB9Manager()
+    @State private var vb9 = VB9Manager()        // parked — replaced by the QRing/VY28C ring
+    @State private var qring = QRingManager()
     @State private var photoSync = PhotoSync()
+    @State private var docSync = DocSync()
     @State private var content = ContentService()
+    @State private var appLock = AppLock()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -30,18 +33,23 @@ struct FatLossCoachApp: App {
                 .environment(reminders)
                 .environment(wearables)
                 .environment(vb9)
+                .environment(qring)
                 .environment(content)
+                .environment(appLock)
+                .environment(docSync)
                 .onOpenURL { store.handle(url: $0) }
                 .task {
                     // Photo sync: attach BEFORE cloud so the auth listener can start it once a uid resolves.
                     photoSync.attach(store: store)
                     store.photoSync = photoSync
-                    cloud.attach(store: store, photoSync: photoSync)
+                    docSync.attach(store: store)
+                    store.docSync = docSync
+                    cloud.attach(store: store, photoSync: photoSync, docSync: docSync)
                     reminders.attach(store: store)
                     reminders.schedulePlan()
-                    // VB9 wristband: reconnect a bound band on device; `-vb9Sim 1` seeds a demo band on the sim.
-                    vb9.attach(store: store)
-                    vb9.start()
+                    // HUMANS Ring (QRing / VY28C) is the active band. VB9 is parked (code kept, not started).
+                    qring.attach(store: store)
+                    qring.start()
                     // Remote meal programs: fetch on launch so the Nutrition tab is fresh when opened.
                     // `-contentSeedOnly 1` (QA / offline-fallback repro) skips the fetch and keeps the
                     // cache/bundled-Ariana seed.
@@ -58,15 +66,30 @@ struct FatLossCoachApp: App {
                        let r = MealProgram.ariana.recipes.first(where: { $0.id == rid }) {
                         store.addMeal(r.mealEntry(on: store.today))
                     }
+                    // Debug/QA: `-vaultPreview 1` seeds a sample document so the vault screenshot isn't empty.
+                    if UserDefaults.standard.bool(forKey: "vaultPreview") { seedDemoDocument() }
                 }
+                // Biometric app lock (E1-04): covers the whole app (splash/onboarding included) while locked.
+                .overlay {
+                    if appLock.enabled && appLock.isLocked {
+                        LockView().environment(appLock).transition(.opacity)
+                    }
+                }
+                .animation(.easeInOut(duration: 0.2), value: appLock.isLocked)
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .background:
                 store.save()
+                appLock.lockOnBackground()
             case .active:
+                if !appLock.previewMode { appLock.unlock() }
                 reminders.refreshPermission()
                 WidgetSync.publish(from: store)
+                // Ring data only refreshed on connect before — a ring that stays connected went stale
+                // (HR range / HRV / SpO₂ frozen at connect-time values). Re-sync on every foreground;
+                // the bridge's overlap guard makes this safe to call repeatedly.
+                if qring.connected != nil { Task { await qring.syncHistory() } }
                 if health.hasConnected {
                     Task { await health.sync(store: store, days: 7); reminders.schedulePlan(); reminders.notifyHealthAlertsIfNeeded() }
                 } else {
@@ -105,6 +128,19 @@ struct FatLossCoachApp: App {
         store.addProgressPhoto(placeholder(UIColor(hex: 0x1E4D3A), UIColor(hex: 0x101518), "Week 6"),
                                on: latestDate, weightKg: 99.2, note: "Six weeks in — sample photo.")
     }
+
+    /// Seed one synthetic PDF into the vault for the `-vaultPreview 1` screenshot. No-op if docs exist.
+    private func seedDemoDocument() {
+        guard store.documents.isEmpty else { return }
+        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 595, height: 842))
+        let pdf = renderer.pdfData { ctx in
+            ctx.beginPage()
+            NSString(string: "Sample Lab Report (demo)").draw(at: CGPoint(x: 40, y: 60),
+                withAttributes: [.font: UIFont.boldSystemFont(ofSize: 24)])
+        }
+        store.addDocument(data: pdf, contentType: "application/pdf", title: "Blood test – Oct 2026", category: .bloods)
+        store.addDocument(data: pdf, contentType: "application/pdf", title: "InBody report – Sep 2026", category: .inbody)
+    }
 }
 
 struct ContentView: View {
@@ -116,6 +152,8 @@ struct ContentView: View {
         let t = UserDefaults.standard.integer(forKey: "startTab")
         return t == 4 ? 0 : t
     }()
+    /// Debug/QA: `-vaultPreview 1` opens the document vault (gate bypassed) for a screenshot.
+    @State private var qaVault = UserDefaults.standard.bool(forKey: "vaultPreview")
 
     var body: some View {
         TabView(selection: $tab) {
@@ -156,6 +194,7 @@ struct ContentView: View {
                 .zIndex(10)
             }
         }
+        .fullScreenCover(isPresented: $qaVault) { DocumentVaultView() }
         .animation(.spring(duration: 0.3), value: store.toast)
         .animation(.spring(duration: 0.4), value: store.celebration)
         .animation(.easeInOut(duration: 0.2), value: cloud.pendingCollision)

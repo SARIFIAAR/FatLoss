@@ -13,6 +13,30 @@
 		FC00000000000000000000EB /* HumansWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = FC00000000000000000000E1 /* HumansWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		FC00000000000000000000ED /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FC0000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FC00000000000000000000E3;
+			remoteInfo = HumansWidgetExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		FC00000000000000000000EA /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				FC00000000000000000000EB /* HumansWidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		FC0000000000000000000004 /* FatLossCoach.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FatLossCoach.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FC00000000000000000000E1 /* HumansWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = HumansWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -180,20 +204,6 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
-/* Begin PBXCopyFilesBuildPhase section */
-		FC00000000000000000000EA /* Embed Foundation Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
-			files = (
-				FC00000000000000000000EB /* HumansWidgetExtension.appex in Embed Foundation Extensions */,
-			);
-			name = "Embed Foundation Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
-
 /* Begin PBXSourcesBuildPhase section */
 		FC0000000000000000000007 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -218,16 +228,6 @@
 			targetProxy = FC00000000000000000000ED /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
-
-/* Begin PBXContainerItemProxy section */
-		FC00000000000000000000ED /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = FC0000000000000000000001 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = FC00000000000000000000E3;
-			remoteInfo = HumansWidgetExtension;
-		};
-/* End PBXContainerItemProxy section */
 
 /* Begin XCBuildConfiguration section */
 		FC000000000000000000000C /* Debug */ = {
@@ -356,9 +356,13 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = FatLossCoach/FatLossCoach.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 71;
+				CURRENT_PROJECT_VERSION = 76;
 				DEVELOPMENT_TEAM = 9F2G8CQ45J;
 				ENABLE_PREVIEWS = YES;
+				"FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(PROJECT_DIR)/Vendor/BLEMidAutumn",
+					"$(PROJECT_DIR)/Vendor/QCBandSDK",
+				);
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -366,7 +370,16 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(PROJECT_DIR)/Vendor/BLEMidAutumn";
 				MARKETING_VERSION = 1.0.0;
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"-ObjC",
+					"-framework",
+					BLEMidAutumn,
+					"-lProtobuf",
+					"-framework",
+					QCBandSDK,
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.MyFatLossCoach.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -385,9 +398,13 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = FatLossCoach/FatLossCoach.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 71;
+				CURRENT_PROJECT_VERSION = 76;
 				DEVELOPMENT_TEAM = 9F2G8CQ45J;
 				ENABLE_PREVIEWS = YES;
+				"FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(PROJECT_DIR)/Vendor/BLEMidAutumn",
+					"$(PROJECT_DIR)/Vendor/QCBandSDK",
+				);
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -395,7 +412,16 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(PROJECT_DIR)/Vendor/BLEMidAutumn";
 				MARKETING_VERSION = 1.0.0;
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"-ObjC",
+					"-framework",
+					BLEMidAutumn,
+					"-lProtobuf",
+					"-framework",
+					QCBandSDK,
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.MyFatLossCoach.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -412,7 +438,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = HumansWidgetConfig/HumansWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 71;
+				CURRENT_PROJECT_VERSION = 76;
 				DEVELOPMENT_TEAM = 9F2G8CQ45J;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = HumansWidgetConfig/Info.plist;
@@ -440,7 +466,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = HumansWidgetConfig/HumansWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 71;
+				CURRENT_PROJECT_VERSION = 76;
 				DEVELOPMENT_TEAM = 9F2G8CQ45J;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = HumansWidgetConfig/Info.plist;
