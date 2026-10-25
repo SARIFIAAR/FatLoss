@@ -32,7 +32,36 @@ final class QRingBridge: NSObject {
     // Days (DateKey) already covered by the NATIVE protocol this sync — the SDK fallback reads skip them.
     private var nativeHRDays: Set<String> = []
     private var nativeSleepDays: Set<String> = []
+    private var nativeHRVDays: Set<String> = []
+    private var nativeStressDays: Set<String> = []
     private func enqueue(_ cmd: @escaping (@escaping () -> Void) -> Void) { cmdQueue.append(cmd); runNext() }
+
+    /// One native daily-series read (HRV 57 / stress 55) on the direct transport, with retry.
+    /// `store` receives (dateKey, valid samples) only when data came back.
+    private func enqueueNativeDailySeries(_ cmd: RingProtocol.Cmd, day: Int, label: String,
+                                          valid: @escaping (Double) -> Bool,
+                                          store: @escaping (String, [Double]) -> Void) {
+        enqueueRetrying("\(label) day\(day)", tries: day == 0 ? 2 : 1) { [weak self] finish in
+            guard let self, let direct = self.ringDirect else { finish(true); return }
+            let parser = RingDailySeriesParser(cmd: cmd)
+            var result: RingDailySeries?
+            direct.run(RingProtocol.dailySeriesRequest(cmd, dayIndex: day), timeout: 12, onFrame: { frame in
+                switch parser.feed(frame) {
+                case .waiting: return false
+                case .noData: return true
+                case .done(let s): result = s; return true
+                }
+            }, completion: { [weak self] err in
+                guard let self else { return }
+                if let err { self.log("\(label) day\(day) ✗ \(err.localizedDescription)"); finish(false); return }
+                guard let r = result else { self.log("\(label) day\(day): no data"); finish(true); return }
+                let vals = r.samples.map(Double.init).filter(valid)
+                self.log("\(label) day\(day) ✓ valid=\(vals.count) interval=\(r.intervalMinutes)m")
+                if !vals.isEmpty { store(self.dayKey(daysAgo: day), vals); self.scheduleFlush() }
+                finish(true)
+            })
+        }
+    }
 
     /// Enqueue a read that fails intermittently (the SDK's multi-stage history commands do, on a weak
     /// link). `attempt` runs the read and calls back `true` if it got data / succeeded. On failure it is
@@ -313,6 +342,19 @@ final class QRingBridge: NSObject {
         }
         histAgg.removeAll(); histWorkouts.removeAll()
         nativeHRDays.removeAll(); nativeSleepDays.removeAll()
+        nativeHRVDays.removeAll(); nativeStressDays.removeAll()
+        // ★ NATIVE HRV (57) + stress (55) — same request shape as the APK's HRVReq/PressureReq
+        // (opcode + day-index byte). Days 0–2 native; the SDK week-reads below skip covered days.
+        for day in 0...2 {
+            enqueueNativeDailySeries(.hrv, day: day, label: "HRV57", valid: { $0 >= 5 && $0 <= 200 }) { [weak self] k, vals in
+                self?.nativeHRVDays.insert(k)
+                self?.agg(k) { $0.hrvSum = vals.reduce(0, +); $0.hrvN = vals.count }   // assign — native wins
+            }
+            enqueueNativeDailySeries(.stress, day: day, label: "stress55", valid: { $0 > 0 && $0 <= 100 }) { [weak self] k, vals in
+                self?.nativeStressDays.insert(k)
+                self?.agg(k) { $0.stressSum = vals.reduce(0, +); $0.stressN = vals.count }
+            }
+        }
         // ★ NATIVE sleep read — Big Data channel, dataId 0x27, ONE request returns ALL retained nights
         // (the SDK's per-day sleep read is the flakiest command on this strap). SDK path below is fallback.
         enqueueRetrying("sleep (bigData 0x27)", tries: 2) { [weak self] finish in
@@ -347,7 +389,9 @@ final class QRingBridge: NSObject {
                 self?.log("HRV models=\(arr.count)")
                 for m in arr {
                     let vals = (m.hrv ?? []).map(\.doubleValue).filter { $0 >= 5 && $0 <= 200 }
-                    if let k = self?.keyFromDateString(m.date), !vals.isEmpty { self?.agg(k) { $0.hrvSum += vals.reduce(0,+); $0.hrvN += vals.count } }
+                    guard let k = self?.keyFromDateString(m.date), !vals.isEmpty,
+                          self?.nativeHRVDays.contains(k) != true else { continue }   // native owns this day
+                    self?.agg(k) { $0.hrvSum += vals.reduce(0,+); $0.hrvN += vals.count }
                 }
                 self?.scheduleFlush(); done()
             }
@@ -358,7 +402,9 @@ final class QRingBridge: NSObject {
                 self?.log("stress models=\(arr.count)")
                 for m in arr {
                     let vals = (m.stresses ?? []).map(\.doubleValue).filter { $0 > 0 }
-                    if let k = self?.keyFromDateString(m.date), !vals.isEmpty { self?.agg(k) { $0.stressSum += vals.reduce(0,+); $0.stressN += vals.count } }
+                    guard let k = self?.keyFromDateString(m.date), !vals.isEmpty,
+                          self?.nativeStressDays.contains(k) != true else { continue }   // native owns this day
+                    self?.agg(k) { $0.stressSum += vals.reduce(0,+); $0.stressN += vals.count }
                 }
                 self?.scheduleFlush(); done()
             }
@@ -501,7 +547,15 @@ final class QRingBridge: NSObject {
                         $0.hrSeries = hrs            // assignment (not append) — native wins over any SDK data
                         $0.hrInterval = r.intervalMinutes * 60
                     }
-                    self.scheduleFlush(); finish(true)
+                    self.scheduleFlush()
+                    // After a TODAY read the ring keeps streaming tail frames past our 23-marker finish;
+                    // a write sent during that drain gets swallowed (observed: day1's first attempt
+                    // reliably timed out). Give the link a beat before the next command.
+                    if day == 0 {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { finish(true) }
+                    } else {
+                        finish(true)
+                    }
                 })
             }
         }

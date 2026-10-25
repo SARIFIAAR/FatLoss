@@ -403,13 +403,25 @@ now decides whether firmware HRV is good enough; raw-PPG-capable firmware goes o
 ask list. The RRI-collection code stays (harmless; activates automatically if a future firmware
 streams models). `RingPPG` keeps its value as the analysis engine for any future raw source.
 
+### 2026-10-25 (second pass) — ★ PHASE 1 COMPLETE: all four core signals native
+
+Native **HRV 57 + stress 55** shipped (`RingDailySeriesParser` — same multi-packet family as op21 but
+sub-1 carries a daysAgo byte, interval default 30 m; request = opcode + day-index byte, from the APK's
+HRVReq/PressureReq). Verified on-device, all first-try, ~90 ms each: HRV days 0–2 ✓ (10/23/10 valid),
+stress days 0–2 ✓ (19/46/20). **Day-1 settle fix verified**: 1.2 s pause after the today op21 read
+(the ring keeps streaming past our 23-marker finish and swallowed the next write) — `op21 day1 ✓
+valid=58` now lands FIRST TRY, the 15 s timeout+retry is gone. True HRV button removed. Full sync now:
+HRV×3 + stress×3 + sleep(3 nights) + op21 today(104 samples)+day1 — **all native, zero failures,
+~27 s total**. SDK = fallback only (it skips every native-covered day) for HR/sleep/HRV/stress;
+steps stay on `getCurrentSport` (cmd-67 family is dead on this strap). Offline protocol tests now 25.
+
 **OPEN / NEXT (`docs/whoop-gap-plan.md`):**
-- Remove/repoint the "True HRV" button (raw path dead on this firmware).
-- Migrate HRV 57 / stress 55 / steps 67 to native (same parser family as op21); fix the day1
-  first-try timeout (settle delay between direct reads).
+- Phase-1 exit formality: watch for ~20 clean syncs over normal use (log panel).
 - Background-sync field test: close the app, walk away + return, confirm restore sync + Firestore rows.
-- Phase 5 validation week vs Apple Watch; Phase 6 Vivistar OEM asks (broadcast name, HR-interval
-  floor persistence, raw-PPG-capable firmware).
+- Phase 5 validation week vs Apple Watch (HR envelope, sleep, firmware-HRV); Readiness index after.
+- Phase 6 Vivistar OEM asks (broadcast name "HUMANS", 1-min HR-interval persistence, raw-PPG-capable
+  firmware, branding) with the production order.
+- Housekeeping: branch is 8+ commits ahead, local-only — push + TestFlight decision are CEO calls.
 - **Commit the branch** — this session's work sits uncommitted on top of b10ebb7. Get CEO OK, then commit.
 - Deferred until the client decision: raw-PPG pipeline (true rMSSD HRV + respiratory rate); Readiness/Rest index;
   background CoreBluetooth state-restoration; aggressive Firebase write-through; temp-series file-transfer (37/38).

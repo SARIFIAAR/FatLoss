@@ -69,6 +69,12 @@ enum RingProtocol {
                                                UInt8((ts >> 16) & 0xFF), UInt8((ts >> 24) & 0xFF)])
     }
 
+    /// HRV (57) / stress (55) request: opcode + one day-index byte (0 = today). Response parsed by
+    /// RingDailySeriesParser (same multi-packet family as op21, but sub-1 carries a daysAgo byte).
+    static func dailySeriesRequest(_ cmd: Cmd, dayIndex: Int) -> Data {
+        packet(cmd, payload: [UInt8(clamping: dayIndex)])
+    }
+
     // MARK: Big Data channel framing (not yet wired into sync — sleep 0x27 is the next consumer)
 
     static let bigDataMagic: UInt8 = 0xBC
@@ -157,6 +163,61 @@ final class RingHeartRateLogParser {
         }
         guard samples.contains(where: { $0 > 0 }) else { return .noData }
         return .done(RingHeartRateLog(dayStart: start, intervalMinutes: intervalMinutes, samples: samples))
+    }
+}
+
+/// One decoded day of an HRV (57) or stress (55) series.
+struct RingDailySeries {
+    let daysAgo: Int
+    let intervalMinutes: Int    // sample spacing (default 30)
+    let samples: [Int]          // 0 = no reading in that slot
+}
+
+/// Multi-packet parser for the HRV/stress daily-series family (validated against the APK's
+/// HRVRsp/PressureRsp, byte-identical shape): sub 0xFF = no data; 0 = header {byte[2] = packet count,
+/// byte[3] = interval minutes (default 30)}; 1 = {byte[2] = daysAgo, bytes[3..14] = 12 samples};
+/// 2… = 13 samples each; ends at sub == count−1. Same leftover-frame header guard as the HR parser.
+final class RingDailySeriesParser {
+    enum Outcome { case waiting, done(RingDailySeries), noData }
+
+    private let cmd: RingProtocol.Cmd
+    private var expectedPackets = 0
+    private var intervalMinutes = 30
+    private var raw: [UInt8] = []
+    private var daysAgo = 0
+    private var headerSeen = false
+
+    init(cmd: RingProtocol.Cmd) { self.cmd = cmd }
+
+    func feed(_ frame: Data) -> Outcome {
+        guard frame.count == 16, frame[frame.startIndex] == cmd.rawValue else { return .waiting }
+        let b = [UInt8](frame)
+        let sub = b[1]
+        switch sub {
+        case 0xFF:
+            return .noData
+        case 0:
+            headerSeen = true
+            expectedPackets = Int(b[2])
+            intervalMinutes = max(1, Int(b[3]))
+            raw.removeAll(keepingCapacity: true)
+            return expectedPackets == 0 ? .noData : .waiting
+        case 1 where headerSeen:
+            daysAgo = Int(b[2])
+            raw.append(contentsOf: b[3..<15])
+            return .waiting
+        case _ where headerSeen:
+            raw.append(contentsOf: b[2..<15])
+            return Int(sub) >= expectedPackets - 1 ? finish() : .waiting
+        default:
+            return .waiting   // leftover frame from a previous response — ignore until OUR header
+        }
+    }
+
+    private func finish() -> Outcome {
+        let samples = raw.map(Int.init)
+        guard samples.contains(where: { $0 > 0 }) else { return .noData }
+        return .done(RingDailySeries(daysAgo: daysAgo, intervalMinutes: intervalMinutes, samples: samples))
     }
 }
 

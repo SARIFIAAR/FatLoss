@@ -793,8 +793,8 @@ struct BodyView: View {
                 HStack(spacing: 8) {
                     bandButton(qring.isMeasuring ? "Measuring…" : "Measure", "heart.text.square") { qring.oneKeyMeasure() }
                     bandButton("Sync now", "arrow.triangle.2.circlepath") { Task { await qring.syncHistory() } }
-                    // 100 s raw-PPG capture → rMSSD in the log panel (phase-4 scaffold; stay still)
-                    bandButton("True HRV", "waveform.path.ecg") { qring.measureRawPPG() }
+                    // "True HRV" (raw-PPG) button removed: the VY28C firmware doesn't support raw
+                    // streaming — HRV on this strap comes from the firmware's scheduled series.
                 }
                 Button {
                     store.resetToBandOnly()
