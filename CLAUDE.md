@@ -393,8 +393,18 @@ All four phases implemented and verified on the strap in one sprint (console-att
   (ring still streaming?) — the back-of-queue retry recovers it every time (cost ~15 s/sync); try a
   settle-delay or day-order flip later.
 
+**Phase-4 FINAL VERDICT (2026-10-25 morning): on the VY28C, HRV is firmware-computed — period.**
+Raw PPG = blocked (no feature flag, start rejected). RRI = ONE snapshot per completed one-key measure
+(measuringHandle streams bare NSNumber HR; zero `oneKey NOTIF` model notifications in the logs) — no
+per-second RRI series → per-measure rMSSD not computable on this hardware. The WHOOP-grade HRV
+baseline on this strap = the ring's own **scheduled HRV series** (raw ms, already synced natively-
+adjacent via cmd 57 family) + per-measure HRV/RRI snapshots. Phase 5 (validation vs Apple Watch HRV)
+now decides whether firmware HRV is good enough; raw-PPG-capable firmware goes on the Vivistar OEM
+ask list. The RRI-collection code stays (harmless; activates automatically if a future firmware
+streams models). `RingPPG` keeps its value as the analysis engine for any future raw source.
+
 **OPEN / NEXT (`docs/whoop-gap-plan.md`):**
-- Repoint the "True HRV" button at a long one-key RRI session (raw path dead on this firmware).
+- Remove/repoint the "True HRV" button (raw path dead on this firmware).
 - Migrate HRV 57 / stress 55 / steps 67 to native (same parser family as op21); fix the day1
   first-try timeout (settle delay between direct reads).
 - Background-sync field test: close the app, walk away + return, confirm restore sync + Firestore rows.
