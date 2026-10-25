@@ -189,6 +189,39 @@ blocked for Claude by the permission classifier — the user runs it.
   water/walk reminders,
   Shortcuts URL template, import from web app, JSON export, version/build footer.
 
+## ★ NEXT LAUNCH — START HERE (written 2026-10-25, supersedes the session blocks below)
+
+**State:** the HUMANS strap (VY28C — "QRing" is just the vendor name; say "strap") runs on OUR native
+protocol client (`Core/Wearable/RingProtocol|RingDirect|RingPPG.swift`). **WHOOP-plan phases 1–4 are
+done and device-verified** (`docs/whoop-gap-plan.md` = the roadmap; `docs/qring-sdk-teardown.md` §12 =
+the protocol cross-map). HR (op21, days 0–6), sleep (Big Data 0x27), HRV (57), stress (55) all read
+natively, first-try, zero failures; vendor `QCBandSDK` = fallback only; steps stay on `getCurrentSport`.
+Always-on BLE live (state restoration + auto-reconnect + bg sync window + Firestore push on flush).
+Latest build is on the CEO's iPhone; branch `vb9-integration` pushed to origin (tip `392eb67`+).
+
+**Settled — do NOT re-investigate:** raw PPG unsupported on this firmware (no feature flag, start
+rejects −1; one RRI snapshot per measure, no series) → HRV on this strap = the firmware's scheduled
+HRV series. 1-min HR interval doesn't persist (firmware reverts to 5 m; bridge re-asserts each
+connect — effective floor 5 m). BLE rename impossible from the phone. All three = Vivistar OEM asks.
+Protocol gotchas live in the session blocks below (leftover-frame header guard, 1.2 s settle after
+today's op21 read, willRestoreState-before-poweredOn hang).
+
+**Next steps (in order; backlog = `BACKLOG.md` + `docs/backlog-board.html`, cards DEV-02/03/04):**
+1. **Phase-1 exit watch** — ~20 clean syncs over normal use (check the Body-tab log panel / console)
+   + the **background field test**: app closed, leave + return with the strap, confirm a restore sync
+   ran and `users/{uid}/days` rows updated in Firestore.
+2. **Phase 5 — Apple Watch validation week** (READY): CEO wears strap + Watch ~7 days → per-day
+   comparison (HR envelope, resting HR, sleep, HRV trend) → tune `BodyMetrics` → Readiness index.
+3. **Phase 6 — Vivistar OEM asks** with the production order (broadcast name "HUMANS", 1-min
+   persistence, raw-PPG firmware, branding).
+4. CEO-gated housekeeping: TestFlight decision for this stretch; delete/move the stray
+   `docs/teardown/burjeel-health-teardown.md` (untracked, belongs elsewhere).
+
+**Debug recipe:** build/install per the block at the end of this section; stream logs with
+`xcrun devicectl device process launch --console --terminate-existing --device 00008150-000C1D96010B401C
+com.MyFatLossCoach.app` (NSLog `[QRing]` lines land on the Mac — far better than the on-screen panel;
+phone must be unlocked).
+
 ## Where things stand (2026-10-23) — QRing / VY28C ring integration (active work)
 
 **Pivot:** VB9 is PARKED (kept, not deleted). The active HUMANS wearable is now the **QRing VY28C**

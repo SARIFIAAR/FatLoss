@@ -6,6 +6,20 @@
 
 ## Backlog
 
+## IN-REVIEW — HUMANS strap native protocol client (WHOOP plan phases 1–4) — reg 🟢 — BUILT + DEVICE-VERIFIED 2026-10-25
+**Story:** As a HUMANS user, I want my strap's data (HR, sleep, HRV, stress) to arrive reliably and automatically so the Body scores are always current — WHOOP-grade, without the flaky vendor SDK.
+**Done:** validated the VY28C == Colmi R02 protocol byte-for-byte (`docs/qring-sdk-teardown.md` §12) and built a native BLE client (`Core/Wearable/RingProtocol|RingDirect|RingPPG.swift`): native reads for HR days 0–6 (op21), sleep (Big Data 0x27, all nights in one request), HRV (57), stress (55) — vendor SDK demoted to fallback that skips native-covered days. Always-on: CoreBluetooth state restoration (incl. the before-poweredOn race fix that froze the app overnight), auto-reconnect, background sync window; Firestore push on every flush. Verified on-device: full sync all-native, zero failures, ~27 s. Firmware verdicts recorded: 5-min HR floor effective (1-min set doesn't persist), raw PPG unsupported → HRV = the ring's firmware series. 25 offline protocol tests. Plan: `docs/whoop-gap-plan.md`. Pushed to origin (`vb9-integration`, 9 commits).
+**Next step:** CEO review → Phase-1 exit watch (~20 clean syncs via normal use) + background field test (leave phone, return, check Firestore rows) → bump version → TestFlight decision (CEO-gated).
+
+## READY — WHOOP plan Phase 5: Apple Watch validation week — reg 🟢
+**Story:** As HUMANS, we want the strap's numbers validated against a reference device so the Body scores are trustworthy before wider release.
+**Context:** `docs/whoop-gap-plan.md` Phase 5. Wear strap + Apple Watch together ~7 days; compare per-day HR envelope, resting HR, sleep duration/stages, HRV trend; tune `BodyMetrics` clamps/baselines where they diverge; then build the Readiness index on the validated HRV series.
+**Next step:** CEO starts wearing both; per-day comparison pulled from the container + HealthKit, divergences tuned.
+
+## NEXT — WHOOP plan Phase 6: Vivistar OEM asks (with the production order) — reg 🟢
+**Context:** `docs/whoop-gap-plan.md` Phase 6 — questions for Vivistar when ordering production units: custom broadcast name "HUMANS" (proven impossible from the phone — setUUID unimplemented on VY28C), 1-min HR-interval persistence (firmware reverts to 5 m), raw-PPG-capable firmware (featureList lacks the flag), packaging/branding. App already auto-connects to `HUMANS*` names.
+**Next step:** fold these into the supplier conversation when the production order is placed.
+
 ## IN-REVIEW — Biometric app-lock (Face ID) — reg 🟢 — BUILT 2026-10-15
 **Story:** As a HUMANS user, I want to lock the app behind Face ID so my health data is private on a shared/lost phone.
 **Done:** `Core/AppLock.swift` (LocalAuthentication, Face ID/Touch ID + passcode fallback, fail-open if no biometrics/passcode so the user can't be trapped out) + full-screen branded `LockView` overlay in `FatLossCoachApp` (covers splash/onboarding) + lock-on-background / unlock-on-active via scenePhase + "Privacy & Security" toggle in `ProfileView` (`PrivacySecurityCard`) + `NSFaceIDUsageDescription` in Info.plist. `-lockPreview 1` debug arg for QA. **Compile ✓ `** BUILD SUCCEEDED **`; sim-verified** (branded gate renders; real iOS auth sheet fires with passcode fallback — shots in `build/shots/e1-04-*`).
