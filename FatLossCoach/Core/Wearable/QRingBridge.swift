@@ -155,6 +155,7 @@ final class QRingBridge: NSObject {
         if let p = connecting { central.cancelPeripheralConnection(p) }
     }
     private var userRequestedDisconnect = false
+    var restoredPending: [CBPeripheral] = []   // stashed by willRestoreState until poweredOn
 
     func startLiveHR() {
         log("startLiveHR")
@@ -176,10 +177,14 @@ final class QRingBridge: NSObject {
     func oneKeyMeasure(auto: Bool = false) {
         log("oneKeyMeasure (OneKeyMeasureHeartRate)\(auto ? " [auto]" : "")")
         lastOneKey = nil; lastLiveHR = 0
+        oneKeyRRIs.removeAll()
         QCSDKManager.shareInstance().startToMeasuring(withOperateType: .oneKeyMeasureHeartRate,
             measuringHandle: { [weak self] live in
                 if let m = live as? QCRealOneKeyMeasureHeartRateModel {
                     self?.lastOneKey = m
+                    // True-HRV path for this strap (raw PPG unsupported): the live RRI updates ~1×/s
+                    // during the measure — accumulate the series, rMSSD computed at completion.
+                    if m.rri > 0 { self?.oneKeyRRIs.append(Double(m.rri)) }
                     if m.heartRateValue > 0 { self?.lastLiveHR = m.heartRateValue; self?.onMain { $0.ingestLiveHR(m.heartRateValue) } }
                 } else if let n = live as? NSNumber, n.intValue > 0 {
                     self?.lastLiveHR = n.intValue
@@ -190,6 +195,10 @@ final class QRingBridge: NSObject {
                 guard let self else { return }
                 let m = (result as? QCRealOneKeyMeasureHeartRateModel) ?? self.lastOneKey
                 self.log("oneKey done ok=\(ok) model=\(m != nil) hr=\(self.lastLiveHR) err=\((err as NSError?)?.code ?? 0)")
+                if let r = RingPPG.rmssd(fromRRIms: self.oneKeyRRIs) {
+                    self.log(String(format: "★ RRI rMSSD=%.0f ms (from %d intervals, %d samples)",
+                                    r.rmssd, r.usedIntervals, self.oneKeyRRIs.count))
+                }
                 // Everything (HR, HRV, stress, temp, BP) comes from the SINGLE one-key model — no second
                 // concurrent measurement (that collided → err=-1). If the model carries no temp, fire the
                 // temp measure SEQUENTIALLY (after one-key fully finished) so it never overlaps.
@@ -583,6 +592,8 @@ final class QRingBridge: NSObject {
         }
     }
 
+    private var oneKeyRRIs: [Double] = []   // live RRI stream of the current one-key measure (→ rMSSD)
+
     /// After each sync, take ONE silent one-key measurement (throttled ~15 min). This single reading gives
     /// HR (→ today's HR range + resting HR via observeHeartRate), HRV, stress, temp, and BP in one shot —
     /// avoiding the concurrent temp+HR measurements that collided (err=-1). Runs a couple seconds after the
@@ -727,6 +738,18 @@ final class QRingBridge: NSObject {
     /// the raw window to Documents/PPG/ for offline tuning. Not yet feeding Recovery (phase 4/5 gate:
     /// nightly scheduling + validation against a reference first). Wear the strap snug and stay still.
     func measureRawPPG() {
+        // First tap on-device failed INSTANTLY with err=-1 (start-cmd rejected). Known causes: a stale
+        // measuring session on the strap, or the raw mode needing a clean stop first. So: stop any
+        // lingering raw session, start, and retry once on -1. If it still -1s with the HeartRateRaw
+        // feature flag absent from the setTime featureList, raw PPG is unsupported on this firmware →
+        // the fallback path is RRI accumulation from one-key measures (model.rri updates every second).
+        log("raw PPG: stopping any stale session…")
+        QCSDKManager.shareInstance().stopToMeasuring(withOperateType: .heartRateRaw) { [weak self] _, _ in
+            self?.startRawPPG(retriesLeft: 1)
+        }
+    }
+
+    private func startRawPPG(retriesLeft: Int) {
         log("raw PPG capture — 100 s, hold still…")
         var green: [Double] = []
         let collect: (Any?) -> Void = { item in
@@ -741,11 +764,18 @@ final class QRingBridge: NSObject {
             completedHandle: { [weak self] ok, result, err in
                 guard let self else { return }
                 collect(result)
-                self.log("raw PPG done ok=\(ok) samples=\(green.count) (~\(Int(Double(green.count) / 25))s)")
+                let code = (err as NSError?)?.code ?? 0
+                self.log("raw PPG done ok=\(ok) samples=\(green.count) (~\(Int(Double(green.count) / 25))s) err=\(code)")
+                if !ok, code == -1, green.isEmpty, retriesLeft > 0 {
+                    self.log("raw PPG start rejected → retrying in 3 s")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                        self?.startRawPPG(retriesLeft: retriesLeft - 1)
+                    }
+                    return
+                }
                 self.onMain { $0.isMeasuring = false }
                 guard green.count >= 500 else {
-                    if !ok { self.log("raw PPG err=\((err as NSError?)?.code ?? 0)") }
-                    self.onMain { $0.ingestError("PPG capture too short — keep the strap snug and still, then retry.") }
+                    self.onMain { $0.ingestError("PPG capture failed (err \(code)) — check the features log line; if HeartRateRaw is absent this firmware can't stream raw PPG.") }
                     return
                 }
                 if let a = RingPPG.analyze(ppg: green, hz: 25) {
@@ -780,6 +810,20 @@ extension QRingBridge: CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         log("bluetooth state \(central.state.rawValue)")
         onMain { $0.btPower = central.state == .poweredOn ? "powered on" : "state \(central.state.rawValue)" }
+        // Adopt peripherals stashed by willRestoreState now that the stack is actually up.
+        if central.state == .poweredOn, !restoredPending.isEmpty {
+            let pending = restoredPending; restoredPending.removeAll()
+            for p in pending {
+                connecting = p
+                if p.state == .connected {
+                    log("adopting restored connection (\(p.name ?? "strap"))")
+                    centralManager(central, didConnect: p)
+                } else {
+                    log("reconnecting restored strap (\(p.name ?? "strap"))")
+                    central.connect(p, options: nil)
+                }
+            }
+        }
     }
 
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
@@ -833,8 +877,14 @@ extension QRingBridge: CBCentralManagerDelegate {
                 // FIRST: set the ring clock. A new/uninitialized ring has no valid data timeline until this
                 // is done, so every history read fails. (The official app does this on first setup.)
                 self.enqueue { [weak self] done in
-                    QCSDKCmdCreator.setTime(Date(), success: { _ in self?.log("ring time set ✓"); done() },
-                                            failed: { self?.log("setTime failed"); done() })
+                    QCSDKCmdCreator.setTime(Date(), success: { features in
+                        // Capability discovery (teardown §3): log the supported-feature flags ONCE so we
+                        // stop probing commands this firmware doesn't implement (value "1" = supported).
+                        let on = (features as? [String: Any] ?? [:])
+                            .filter { "\($0.value)" == "1" }.keys.sorted().joined(separator: ",")
+                        self?.log("ring time set ✓ features: \(on.isEmpty ? "(none reported)" : on)")
+                        done()
+                    }, failed: { self?.log("setTime failed"); done() })
                 }
                 // User profile — the step/calorie algorithm needs it; part of proper first-time init.
                 self.enqueue { [weak self] done in
@@ -904,18 +954,14 @@ extension QRingBridge: CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
         // Relaunched in the background for a strap event: re-adopt the restored peripherals so the
         // normal didConnect → syncHistory path (and its Firebase push) runs with the app closed.
+        // ⚠️ Do NOT touch the peripherals here: willRestoreState arrives BEFORE poweredOn, and
+        // QCSDKManager.add hangs silently in that window (the app sat frozen all night on this).
+        // Stash them; centralManagerDidUpdateState adopts them once the stack is up.
         let restored = (dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral]) ?? []
-        log("willRestoreState — \(restored.count) peripheral(s)")
+        log("willRestoreState — \(restored.count) peripheral(s), deferring to poweredOn")
         beginBackgroundWindow()
-        for p in restored {
-            peripherals[p.identifier.uuidString] = p
-            connecting = p
-            if p.state == .connected {
-                centralManager(central, didConnect: p)   // didConnect fired pre-relaunch; run the flow now
-            } else {
-                central.connect(p, options: nil)
-            }
-        }
+        restoredPending = restored
+        for p in restored { peripherals[p.identifier.uuidString] = p }
     }
 }
 #endif

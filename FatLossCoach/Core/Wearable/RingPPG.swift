@@ -54,6 +54,21 @@ enum RingPPG {
                         rrIntervals: rr, windowSeconds: Double(raw.count) / hz)
     }
 
+    /// rMSSD straight from a sampled RRI stream (the strap's one-key measure reports its live
+    /// beat-to-beat interval ~1×/s — firmware-computed from the same PPG sensor). The sampled series
+    /// under-counts beats, so this is an approximation; successive DISTINCT values are used.
+    /// This is the VY28C path to true HRV — the raw-PPG stream is not supported by its firmware.
+    static func rmssd(fromRRIms stream: [Double]) -> (rmssd: Double, usedIntervals: Int)? {
+        var rr: [Double] = []
+        for v in stream where v >= 300 && v <= 2000 {
+            if v != rr.last { rr.append(v) }         // collapse repeated samples of the same beat
+        }
+        guard rr.count >= 8 else { return nil }
+        var sumSq = 0.0
+        for i in 1..<rr.count { let d = rr[i] - rr[i - 1]; sumSq += d * d }
+        return ((sumSq / Double(rr.count - 1)).squareRoot(), rr.count)
+    }
+
     // MARK: internals
 
     private static func subtractMovingAverage(_ x: [Double], window: Int) -> [Double] {
