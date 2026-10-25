@@ -375,11 +375,31 @@ All four phases implemented and verified on the strap in one sprint (console-att
   button** on the Body-tab strap card. NOT yet feeding Recovery (needs nightly scheduling +
   validation). First real capture pending (tap the button, sit still).
 
+**Morning-after verification (2026-10-25 08:51) — settled answers:**
+- **Raw PPG = firmware-blocked on VY28C** (featureList: `app.manual, bloodOxygen, hrv, menstr,
+  newSleepProtocol, qrcode, sedentary.reminder, stress, temperature` — no raw flag; start always
+  rejects err=-1). **True-HRV path = the one-key RRI stream** (~1/s firmware beat intervals),
+  accumulated during every measure incl. the post-sync auto one → `★ RRI rMSSD` log line
+  (`RingPPG.rmssd(fromRRIms:)`). The "True HRV" button still points at the dead raw path — repoint
+  it at a long one-key RRI session or remove it.
+- **State-restoration RACE (critical fix, be542df): willRestoreState arrives BEFORE poweredOn and
+  `QCSDKManager.add` hangs silently in that window** — the app sat frozen a whole night on this.
+  Restored peripherals are now stashed and adopted on poweredOn. Verified: restore → adopt → full
+  sync at 08:51.
+- **Overnight results:** sleep 0x27 → 3 nights natively; op21 day0 valid=101 (near-complete 5-min
+  overnight coverage); battery 88→81% overnight (~7%). **1-min HR interval does NOT persist** —
+  firmware reverts to 5m (set is acknowledged but clamped/reset); bridge re-asserts each connect;
+  → Vivistar OEM question. **op21 day1 first attempt reliably times out right after the day0 read**
+  (ring still streaming?) — the back-of-queue retry recovers it every time (cost ~15 s/sync); try a
+  settle-delay or day-order flip later.
+
 **OPEN / NEXT (`docs/whoop-gap-plan.md`):**
-- Verify 1-min interval persistence on a later connect + battery trend; first real True-HRV capture.
-- Migrate HRV 57 / stress 55 / steps 67 to native (same parser family as op21).
-- Background-sync field test: close the app, walk away + return, confirm willRestoreState sync + Firestore rows.
-- Phase 5 validation week vs Apple Watch; Phase 6 Vivistar OEM asks with the production order.
+- Repoint the "True HRV" button at a long one-key RRI session (raw path dead on this firmware).
+- Migrate HRV 57 / stress 55 / steps 67 to native (same parser family as op21); fix the day1
+  first-try timeout (settle delay between direct reads).
+- Background-sync field test: close the app, walk away + return, confirm restore sync + Firestore rows.
+- Phase 5 validation week vs Apple Watch; Phase 6 Vivistar OEM asks (broadcast name, HR-interval
+  floor persistence, raw-PPG-capable firmware).
 - **Commit the branch** — this session's work sits uncommitted on top of b10ebb7. Get CEO OK, then commit.
 - Deferred until the client decision: raw-PPG pipeline (true rMSSD HRV + respiratory rate); Readiness/Rest index;
   background CoreBluetooth state-restoration; aggressive Firebase write-through; temp-series file-transfer (37/38).
