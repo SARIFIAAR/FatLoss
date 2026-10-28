@@ -17,7 +17,7 @@ final class Store {
             guard data != oldValue else { return }
             if !isApplyingRemote {
                 lastModified = Date()
-                if data.goals != oldValue.goals || data.program != oldValue.program || data.reminders != oldValue.reminders || data.intake != oldValue.intake || data.physicalAgePlan != oldValue.physicalAgePlan || data.consent != oldValue.consent {
+                if data.goals != oldValue.goals || data.program != oldValue.program || data.reminders != oldValue.reminders || data.intake != oldValue.intake || data.physicalAgePlan != oldValue.physicalAgePlan || data.consent != oldValue.consent || data.bodySource != oldValue.bodySource {
                     settingsModified = Date()
                 }
             }
@@ -625,15 +625,63 @@ final class Store {
         }
     }
 
+    // MARK: Sensor sources (HUMANS strap vs Apple Watch/Health)
+
+    /// Where a sensor write came from. `.both` = device-independent user truth (manual entry, URL-scheme
+    /// sync, legacy import) that belongs in both views.
+    enum HealthSource: String { case apple, strap, both }
+
+    /// The Body tab's selected source, resolved ("" = auto: strap once a band is paired).
+    var bodySource: HealthSource { data.resolvedBodySource == "apple" ? .apple : .strap }
+
+    /// The switcher only makes sense once a strap exists; Watch/Health data needs no pairing.
+    var hasBothSources: Bool { data.band != nil }
+
+    func setBodySource(_ s: HealthSource) {
+        guard s != .both, s != bodySource else { return }
+        data.bodySource = s.rawValue
+        data.rebuildActiveView()
+    }
+
+    /// Apply a mutation to the per-source health store(s) and keep the active view in lockstep.
+    func mutateHealth(_ source: HealthSource, on k: String, _ mutate: (inout HealthDay) -> Void) {
+        func apply(_ dict: inout [String: HealthDay]) {
+            var h = dict[k] ?? HealthDay(); mutate(&h); dict[k] = h
+        }
+        if source != .strap { apply(&data.healthApple) }
+        if source != .apple { apply(&data.healthStrap) }
+        data.health[k] = bodySource == .apple ? data.healthApple[k] : data.healthStrap[k]
+        noteFirstData()
+    }
+
+    /// Same, for the per-day workout lists (an emptied list removes the day's key, as before).
+    func mutateWorkouts(_ source: HealthSource, on k: String, _ mutate: (inout [WorkoutEntry]) -> Void) {
+        func apply(_ dict: inout [String: [WorkoutEntry]]) {
+            var list = dict[k] ?? []
+            mutate(&list)
+            if list.isEmpty { dict.removeValue(forKey: k) } else { dict[k] = list }
+        }
+        if source != .strap { apply(&data.workoutsApple) }
+        if source != .apple { apply(&data.workoutsStrap) }
+        let active = bodySource == .apple ? data.workoutsApple[k] : data.workoutsStrap[k]
+        if let active { data.workouts[k] = active } else { data.workouts.removeValue(forKey: k) }
+    }
+
     // MARK: Recovery / readiness
 
     var recoveryToday: RecoveryDay { data.recovery[today] ?? RecoveryDay() }
 
-    func updateRecovery(on day: String? = nil, _ mutate: (inout RecoveryDay) -> Void) {
+    func updateRecovery(on day: String? = nil, source: HealthSource = .both, _ mutate: (inout RecoveryDay) -> Void) {
         let k = day ?? today
-        var r = data.recovery[k] ?? RecoveryDay()
-        mutate(&r)
-        if r.isEmpty { data.recovery.removeValue(forKey: k) } else { data.recovery[k] = r; noteFirstData() }
+        func apply(_ dict: inout [String: RecoveryDay]) {
+            var r = dict[k] ?? RecoveryDay()
+            mutate(&r)
+            if r.isEmpty { dict.removeValue(forKey: k) } else { dict[k] = r }
+        }
+        if source != .strap { apply(&data.recoveryApple) }
+        if source != .apple { apply(&data.recoveryStrap) }
+        let active = bodySource == .apple ? data.recoveryApple[k] : data.recoveryStrap[k]
+        if let active { data.recovery[k] = active; noteFirstData() } else { data.recovery.removeValue(forKey: k) }
     }
 
     /// Merge normalised wearable-API data (Whoop / Oura) into recovery days + workouts. Feeds the
@@ -653,23 +701,24 @@ final class Store {
         }
         for w in workouts {
             let id = "\(vendor)-\(w.date)-\(Int((w.minutes ?? 0).rounded()))-\(w.name ?? "")"
-            var list = data.workouts[w.date] ?? []
-            guard !list.contains(where: { $0.id == id }) else { continue }
-            list.append(WorkoutEntry(id: id, date: w.date, name: w.name ?? "Workout",
-                                     start: DateKey.date(w.date) ?? Date(),
-                                     minutes: w.minutes ?? 0, kcal: w.kcal, avgHR: w.avgHR))
-            data.workouts[w.date] = list
+            mutateWorkouts(.both, on: w.date) { list in
+                guard !list.contains(where: { $0.id == id }) else { return }
+                list.append(WorkoutEntry(id: id, date: w.date, name: w.name ?? "Workout",
+                                         start: DateKey.date(w.date) ?? Date(),
+                                         minutes: w.minutes ?? 0, kcal: w.kcal, avgHR: w.avgHR))
+            }
         }
         showToast("\(vendor.capitalized) synced ✓")
     }
 
     /// Save a workout recorded by the in-app tracker (phone GPS + ring HR). Same WorkoutEntry shape
-    /// as the HealthKit import, so zones feed Strain and the Physical Age levers unchanged.
+    /// as the HealthKit import, so zones feed Strain and the Physical Age levers unchanged. Strap-sourced:
+    /// it would otherwise be wiped from the Apple view by the next HealthKit setWorkouts replace.
     func logWorkout(_ e: WorkoutEntry) {
-        var list = data.workouts[e.date] ?? []
-        list.removeAll { $0.id == e.id }
-        list.append(e)
-        data.workouts[e.date] = list
+        mutateWorkouts(.strap, on: e.date) { list in
+            list.removeAll { $0.id == e.id }
+            list.append(e)
+        }
     }
 
     func setMood(_ m: Int) {
@@ -912,26 +961,24 @@ final class Store {
                    activeKcal: Double? = nil, basalKcal: Double? = nil,
                    bodyFatPct: Double? = nil, leanMassKg: Double? = nil, vo2Max: Double? = nil,
                    glucoseMgDl: Double? = nil, bpSystolic: Double? = nil, bpDiastolic: Double? = nil,
-                   hrrBpm: Double? = nil, on day: String? = nil) {
-        let k = day ?? today
-        var h = data.health[k] ?? HealthDay()
-        if let steps { h.steps = steps }
-        if let restingHR { h.restingHR = restingHR }
-        if let activeKcal {
-            // Final backstop for the ring's small-calorie unit (the 39400-kcal bug): no human burns
-            // >10,000 kcal/day, so any such value is raw small-calories → ÷1000. Catches every path.
-            h.activeKcal = activeKcal > 10000 ? activeKcal / 1000 : activeKcal
+                   hrrBpm: Double? = nil, source: HealthSource = .both, on day: String? = nil) {
+        mutateHealth(source, on: day ?? today) { h in
+            if let steps { h.steps = steps }
+            if let restingHR { h.restingHR = restingHR }
+            if let activeKcal {
+                // Final backstop for the ring's small-calorie unit (the 39400-kcal bug): no human burns
+                // >10,000 kcal/day, so any such value is raw small-calories → ÷1000. Catches every path.
+                h.activeKcal = activeKcal > 10000 ? activeKcal / 1000 : activeKcal
+            }
+            if let basalKcal { h.basalKcal = basalKcal }
+            if let bodyFatPct { h.bodyFatPct = bodyFatPct }
+            if let leanMassKg { h.leanMassKg = leanMassKg }
+            if let vo2Max { h.vo2Max = vo2Max }
+            if let glucoseMgDl { h.glucoseMgDl = glucoseMgDl }
+            if let bpSystolic { h.bpSystolic = bpSystolic }
+            if let bpDiastolic { h.bpDiastolic = bpDiastolic }
+            if let hrrBpm { h.hrrBpm = hrrBpm }
         }
-        if let basalKcal { h.basalKcal = basalKcal }
-        if let bodyFatPct { h.bodyFatPct = bodyFatPct }
-        if let leanMassKg { h.leanMassKg = leanMassKg }
-        if let vo2Max { h.vo2Max = vo2Max }
-        if let glucoseMgDl { h.glucoseMgDl = glucoseMgDl }
-        if let bpSystolic { h.bpSystolic = bpSystolic }
-        if let bpDiastolic { h.bpDiastolic = bpDiastolic }
-        if let hrrBpm { h.hrrBpm = hrrBpm }
-        data.health[k] = h
-        noteFirstData()
     }
 
     /// Apple Health hydration fills a day only if the user hasn't logged more water manually.
@@ -1285,11 +1332,12 @@ final class Store {
     func observeHeartRate(_ bpm: Int, on day: String? = nil) {
         guard bpm >= 30, bpm <= 220 else { return }
         let k = day ?? today
-        var h = data.health[k] ?? HealthDay()
-        h.hrMinDay = min(h.hrMinDay ?? 9_999, Double(bpm))
-        h.hrMaxDay = max(h.hrMaxDay ?? 0, Double(bpm))
-        data.health[k] = h
-        updateRecovery(on: k) { r in
+        // Only the strap's live-HR stream feeds this; the Watch never exposes one to a 3rd-party app.
+        mutateHealth(.strap, on: k) { h in
+            h.hrMinDay = min(h.hrMinDay ?? 9_999, Double(bpm))
+            h.hrMaxDay = max(h.hrMaxDay ?? 0, Double(bpm))
+        }
+        updateRecovery(on: k, source: .strap) { r in
             r.rhr = min(r.rhr ?? 9_999, Double(bpm))
         }
     }

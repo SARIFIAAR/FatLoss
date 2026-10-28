@@ -572,6 +572,18 @@ struct AppData: Codable, Hashable {
     var exerciseDone: [String: Set<Int>] = [:]              // was "ex-YYYY-MM-DD-Mon"
     var meals: [String: [MealEntry]] = [:]                  // date -> meals eaten
     var workouts: [String: [WorkoutEntry]] = [:]            // date -> Apple Health workouts
+    // Per-source sensor stores (Apple Watch/Health vs the HUMANS strap). `recovery`/`health`/`workouts`
+    // above remain the ACTIVE view every reader (BodyMetrics, views, CloudMirror, widget) uses; these hold
+    // each device's own series so the Body tab can switch sources without the two overwriting each other.
+    // All writes route through Store's source-aware mutators, which keep the active view == selected store.
+    var healthApple: [String: HealthDay] = [:]
+    var healthStrap: [String: HealthDay] = [:]
+    var recoveryApple: [String: RecoveryDay] = [:]
+    var recoveryStrap: [String: RecoveryDay] = [:]
+    var workoutsApple: [String: [WorkoutEntry]] = [:]
+    var workoutsStrap: [String: [WorkoutEntry]] = [:]
+    /// Body-tab data source: "strap" | "apple" | "" (auto = strap once a band is paired, else apple).
+    var bodySource: String = ""
     var bodyComp: [BodyCompEntry] = []                      // InBody / manual body-composition readings
     var ecg: [String: [ECGResult]] = [:]                    // date -> VB9 ECG recordings + AI analysis
     var band: BandInfo? = nil                               // last-known VB9 wristband (status card)
@@ -629,6 +641,26 @@ struct AppData: Codable, Hashable {
         exerciseDone = c.value(.exerciseDone, default: [:])
         meals        = c.value(.meals,        default: [:])
         workouts     = c.value(.workouts,     default: [:])
+        healthApple   = c.value(.healthApple,   default: [:])
+        healthStrap   = c.value(.healthStrap,   default: [:])
+        recoveryApple = c.value(.recoveryApple, default: [:])
+        recoveryStrap = c.value(.recoveryStrap, default: [:])
+        workoutsApple = c.value(.workoutsApple, default: [:])
+        workoutsStrap = c.value(.workoutsStrap, default: [:])
+        bodySource    = c.value(.bodySource,    default: "")
+        // Migrate pre-fork data (runs on EVERY load path — disk and the CloudSync blob): seed both source
+        // stores from the legacy mixed dicts once so history survives the split; each device's next sync
+        // then overwrites its own store with clean single-source data (strap re-syncs 7 days, HealthKit
+        // backfills 30).
+        if healthApple.isEmpty, healthStrap.isEmpty, !health.isEmpty {
+            healthApple = health; healthStrap = health
+        }
+        if recoveryApple.isEmpty, recoveryStrap.isEmpty, !recovery.isEmpty {
+            recoveryApple = recovery; recoveryStrap = recovery
+        }
+        if workoutsApple.isEmpty, workoutsStrap.isEmpty, !workouts.isEmpty {
+            workoutsApple = workouts; workoutsStrap = workouts
+        }
         bodyComp     = c.value(.bodyComp,     default: [])
         ecg          = c.value(.ecg,          default: [:])
         band         = c.value(.band,         default: nil)
@@ -661,12 +693,30 @@ struct AppData: Codable, Hashable {
         // An unreadable stamp must never make a copy look newest — default to the epoch, not now.
         updatedAt    = c.value(.updatedAt,    default: Date(timeIntervalSince1970: 0))
         settingsUpdatedAt = c.value(.settingsUpdatedAt, default: Date(timeIntervalSince1970: 0))
+        // Every decoded copy is internally consistent: the active view mirrors the selected source store
+        // (at migration the stores were just seeded from the legacy dicts, so this is a no-op then).
+        if !healthApple.isEmpty || !healthStrap.isEmpty || !recoveryApple.isEmpty || !recoveryStrap.isEmpty {
+            rebuildActiveView()
+        }
     }
 
     var isEmpty: Bool {
         weightLogs.isEmpty && waistLogs.isEmpty && recovery.isEmpty && overload.isEmpty
             && habits.isEmpty && supplements.isEmpty && water.isEmpty && health.isEmpty && meals.isEmpty
             && progressPhotos.isEmpty
+    }
+
+    /// The Body-tab source after resolving "" (auto): the strap once a band is paired, else Apple.
+    var resolvedBodySource: String { bodySource.isEmpty ? (band != nil ? "strap" : "apple") : bodySource }
+
+    /// Re-point the active `health`/`recovery`/`workouts` view at the selected source store. Called on
+    /// decode, on a source switch, and after a cloud merge so readers always see one clean source.
+    mutating func rebuildActiveView() {
+        if resolvedBodySource == "apple" {
+            health = healthApple; recovery = recoveryApple; workouts = workoutsApple
+        } else {
+            health = healthStrap; recovery = recoveryStrap; workouts = workoutsStrap
+        }
     }
 
     /// Union merge used by cloud sync. For scalar conflicts the newer snapshot wins.
@@ -683,15 +733,33 @@ struct AppData: Codable, Hashable {
         }
         out.weightLogs = mergeLogs(out.weightLogs, older.weightLogs)
         out.waistLogs = mergeLogs(out.waistLogs, older.waistLogs)
-        out.recovery.merge(older.recovery) { newer, _ in newer }
-        out.health.merge(older.health) { newer, old in
-            var h = newer
-            h.steps = max(newer.steps, old.steps)
-            h.activeKcal = [newer.activeKcal, old.activeKcal].compactMap { $0 }.max()
-            h.basalKcal = [newer.basalKcal, old.basalKcal].compactMap { $0 }.max()
-            h.restingHR = newer.restingHR ?? old.restingHR
-            return h
+        func mergeHealth(_ a: inout [String: HealthDay], _ b: [String: HealthDay]) {
+            a.merge(b) { newer, old in
+                var h = newer
+                h.steps = max(newer.steps, old.steps)
+                h.activeKcal = [newer.activeKcal, old.activeKcal].compactMap { $0 }.max()
+                h.basalKcal = [newer.basalKcal, old.basalKcal].compactMap { $0 }.max()
+                h.restingHR = newer.restingHR ?? old.restingHR
+                return h
+            }
         }
+        func mergeWorkouts(_ a: inout [String: [WorkoutEntry]], _ b: [String: [WorkoutEntry]]) {
+            a.merge(b) { newer, old in
+                var byID: [String: WorkoutEntry] = [:]
+                for w in old { byID[w.id] = w }
+                for w in newer { byID[w.id] = w }
+                return byID.values.sorted { $0.start < $1.start }
+            }
+        }
+        out.recovery.merge(older.recovery) { newer, _ in newer }
+        mergeHealth(&out.health, older.health)
+        // Per-source stores merge with the same rules as their active counterparts.
+        mergeHealth(&out.healthApple, older.healthApple)
+        mergeHealth(&out.healthStrap, older.healthStrap)
+        out.recoveryApple.merge(older.recoveryApple) { newer, _ in newer }
+        out.recoveryStrap.merge(older.recoveryStrap) { newer, _ in newer }
+        mergeWorkouts(&out.workoutsApple, older.workoutsApple)
+        mergeWorkouts(&out.workoutsStrap, older.workoutsStrap)
         out.water.merge(older.water) { newer, old in max(newer, old) }
         out.habits.merge(older.habits) { $0.union($1) }
         out.supplements.merge(older.supplements) { $0.union($1) }
@@ -740,12 +808,7 @@ struct AppData: Codable, Hashable {
             for m in newer { byID[m.id] = m }
             return byID.values.sorted { $0.time < $1.time }
         }
-        out.workouts.merge(older.workouts) { newer, old in
-            var byID: [String: WorkoutEntry] = [:]
-            for w in old { byID[w.id] = w }
-            for w in newer { byID[w.id] = w }
-            return byID.values.sorted { $0.start < $1.start }
-        }
+        mergeWorkouts(&out.workouts, older.workouts)
         var byID: [String: BodyCompEntry] = [:]
         for e in older.bodyComp { byID[e.id] = e }
         for e in out.bodyComp { byID[e.id] = e }
@@ -808,6 +871,7 @@ struct AppData: Codable, Hashable {
         out.goals = settingsSource.goals
         out.reminders = settingsSource.reminders
         out.program = settingsSource.program
+        out.bodySource = settingsSource.bodySource
         out.intake = settingsSource.intake ?? older.intake ?? out.intake
         // Programme safety net: the further-along phase wins, and at the same phase a started
         // programme beats a not-started one (never silently move someone backwards or un-start them).
@@ -817,6 +881,11 @@ struct AppData: Codable, Hashable {
         }
         out.updatedAt = max(updatedAt, other.updatedAt)
         out.settingsUpdatedAt = max(settingsUpdatedAt, other.settingsUpdatedAt)
+        // A merge of two internally-consistent copies must stay consistent: re-point the active view at
+        // the winning source store (the actives of two copies could be showing different sources).
+        if !out.healthApple.isEmpty || !out.healthStrap.isEmpty || !out.recoveryApple.isEmpty || !out.recoveryStrap.isEmpty {
+            out.rebuildActiveView()
+        }
         return out
     }
 }

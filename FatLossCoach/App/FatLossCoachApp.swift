@@ -90,9 +90,15 @@ struct FatLossCoachApp: App {
                 // (HR range / HRV / SpO₂ frozen at connect-time values). Re-sync on every foreground;
                 // the bridge's overlap guard makes this safe to call repeatedly.
                 if qring.connected != nil { Task { await qring.syncHistory() } }
-                if health.hasConnected {
-                    Task { await health.sync(store: store, days: 7); reminders.schedulePlan(); reminders.notifyHealthAlertsIfNeeded() }
-                } else {
+                // Full 30-day window (was 7); gate = "permission sheet answered", not "last sync
+                // succeeded" — a failed sync must not permanently disable auto-sync.
+                Task {
+                    if await health.shouldAutoSync() {
+                        await health.sync(store: store)
+                        reminders.notifyHealthAlertsIfNeeded()
+                    } else {
+                        NSLog("[Health] auto-sync skipped — Health permissions not requested yet")
+                    }
                     reminders.schedulePlan()
                 }
             default:

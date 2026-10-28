@@ -122,8 +122,9 @@ final class WorkoutSession: NSObject {
         store.logWorkout(entry)
 
         var vo2: Double?
-        if let est = estimatedVO2Max(), store.data.health[key]?.vo2Max == nil {
-            store.setHealth(vo2Max: est, on: key)             // a Watch value always wins
+        // Strap-sourced estimate: on the Apple view the Watch's real cardio-fitness value is the one shown.
+        if let est = estimatedVO2Max(), store.data.healthStrap[key]?.vo2Max == nil {
+            store.setHealth(vo2Max: est, source: .strap, on: key)
             vo2 = est
         }
         store.showToast("Workout saved ✓")

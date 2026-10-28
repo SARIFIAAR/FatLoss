@@ -39,10 +39,16 @@ final class QRingManager {
         if store.data.band?.model == "VB9" { store.data.band = nil }
         // Sanitize persisted small-calorie values from the pre-fix builds (the 39400-kcal bug): any
         // day whose activeKcal is physiologically impossible was written raw by the ring → ÷1000.
-        for (k, var h) in store.data.health where (h.activeKcal ?? 0) > 10000 {
-            h.activeKcal = (h.activeKcal ?? 0) / 1000.0
-            store.data.health[k] = h
+        // Runs over the active view AND both per-source stores so no copy keeps a corrupt value.
+        func sanitize(_ dict: inout [String: HealthDay]) {
+            for (k, var h) in dict where (h.activeKcal ?? 0) > 10000 {
+                h.activeKcal = (h.activeKcal ?? 0) / 1000.0
+                dict[k] = h
+            }
         }
+        sanitize(&store.data.health)
+        sanitize(&store.data.healthApple)
+        sanitize(&store.data.healthStrap)
     }
 
     private var bridgeBox: AnyObject?
@@ -165,7 +171,7 @@ final class QRingManager {
     /// HRV prefers the RRI-derived value when available.
     func applyOneKey(hr: Int?, hrvMs: Int?, rriMs: Int?, stress: Int?, tempC: Double?, sbp: Int?, dbp: Int?, silent: Bool = false) {
         isMeasuring = false
-        store?.updateRecovery { rec in
+        store?.updateRecovery(source: .strap) { rec in
             if let v = hrvMs, v > 0 { rec.hrv = Double(v) }
             if let v = stress, v > 0 { rec.stressMeasured = Double(v) }
             if let v = tempC, v > 0 { rec.tempC = v }
@@ -174,7 +180,7 @@ final class QRingManager {
         // so the current day's resting HR + HR range populate over repeated measurements. The ring's
         // history command never returns the current day, so this is the only live source.
         if let hr { store?.observeHeartRate(hr) }
-        store?.setHealth(bpSystolic: sbp.map(Double.init), bpDiastolic: dbp.map(Double.init))
+        store?.setHealth(bpSystolic: sbp.map(Double.init), bpDiastolic: dbp.map(Double.init), source: .strap)
         if !silent { store?.showToast("Ring measurement saved ✓") }
     }
 
@@ -183,7 +189,7 @@ final class QRingManager {
     /// via a file-transfer protocol the iOS SDK doesn't expose), so we sample it on-demand each sync.
     func ingestTemperature(_ c: Double) {
         guard c > 0 else { return }
-        store?.updateRecovery { $0.tempC = c }
+        store?.updateRecovery(source: .strap) { $0.tempC = c }
     }
 
     // MARK: - Ingestion (called by QRingBridge, already on the main actor)

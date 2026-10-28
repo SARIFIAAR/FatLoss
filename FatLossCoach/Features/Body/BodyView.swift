@@ -50,6 +50,8 @@ struct BodyView: View {
             ScrollView {
                 VStack(spacing: 12) {
                     header
+                    // Which wrist feeds this dashboard — shown once a strap is paired (the Watch needs no pairing).
+                    if store.hasBothSources { sourceSwitcher }
                     calendarStrip
                     // Guidance first — what today's numbers mean for you.
                     coachCard
@@ -90,6 +92,10 @@ struct BodyView: View {
                 }
                 if let p = UserDefaults.standard.string(forKey: "bodyPillar") {
                     pillar = Pillar(rawValue: p)
+                }
+                // Debug: `-bodySource apple|strap` selects the data source on launch (screenshots).
+                if let s = UserDefaults.standard.string(forKey: "bodySource") {
+                    store.setBodySource(s == "apple" ? .apple : .strap)
                 }
                 // Debug: `-acceptTopRx N` accepts the top N Physical-Age prescriptions on launch
                 // (screenshot verification — this Mac's simulator has no tap gesture).
@@ -135,6 +141,32 @@ struct BodyView: View {
     private var dayLabel: String {
         let f = DateFormatter(); f.dateFormat = "EEE d MMM"
         return f.string(from: DateKey.daysAgo(dayOffset))
+    }
+
+    /// HUMANS strap vs Apple Watch: every score and card on this tab recomputes from the selected
+    /// device's own data (the two sources are stored separately and never pollute each other).
+    private var sourceSwitcher: some View {
+        HStack(spacing: 4) {
+            sourceButton("HUMANS", .strap)
+            sourceButton("APPLE WATCH", .apple)
+        }
+        .padding(4)
+        .background(W.card)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func sourceButton(_ label: String, _ s: Store.HealthSource) -> some View {
+        let selected = store.bodySource == s
+        return Button { store.setBodySource(s) } label: {
+            Text(label)
+                .font(W.label(11)).kerning(1.0)
+                .foregroundStyle(selected ? W.text : W.muted)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .background(selected ? W.card2 : .clear)
+                .clipShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
     }
 
     /// Seven-day strip: weekday letter, day number, recovery-zone dot. Selected day is boxed.

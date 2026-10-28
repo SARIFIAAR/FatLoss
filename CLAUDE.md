@@ -210,8 +210,9 @@ today's op21 read, willRestoreState-before-poweredOn hang).
 1. **Phase-1 exit watch** — ~20 clean syncs over normal use (check the Body-tab log panel / console)
    + the **background field test**: app closed, leave + return with the strap, confirm a restore sync
    ran and `users/{uid}/days` rows updated in Firestore.
-2. **Phase 5 — Apple Watch validation week** (READY): CEO wears strap + Watch ~7 days → per-day
-   comparison (HR envelope, resting HR, sleep, HRV trend) → tune `BodyMetrics` → Readiness index.
+2. **Phase 5 — Apple Watch validation week** (**RUNNING since 2026-10-28** — see the CLOSING STATE
+   block above: dual-source Body tab + Watch-filtered HealthKit shipped; first 3-day comparison done):
+   CEO wears strap + Watch ~7 days → per-day comparison → tune `BodyMetrics` → Readiness index.
 3. **Phase 6 — Vivistar OEM asks** with the production order (broadcast name "HUMANS", 1-min
    persistence, raw-PPG firmware, branding).
 4. CEO-gated housekeeping: TestFlight decision for this stretch; delete/move the stray
@@ -221,6 +222,84 @@ today's op21 read, willRestoreState-before-poweredOn hang).
 `xcrun devicectl device process launch --console --terminate-existing --device 00008150-000C1D96010B401C
 com.MyFatLossCoach.app` (NSLog `[QRing]` lines land on the Mac — far better than the on-screen panel;
 phone must be unlocked).
+
+## 2026-10-28 — CLOSING STATE (read this first next session)
+
+**Phase 5 (strap-vs-Watch validation week) is LIVE.** Apple Health permission was granted 2026-10-28 by
+the CEO via iOS **Settings → Privacy → Health** (not the in-app connect button); auto-sync now runs on
+every foreground (gate = `shouldAutoSync()`). The dual-source Body tab works on-device: HUMANS = Y28C
+strap native BLE; APPLE WATCH = Watch-device-filtered HealthKit (30-day window, all-day HR zones).
+**First genuine 3-day comparison (strap/Watch):** sleep duration agrees on normal nights (7.35/7.21);
+daily max HR matched (111/111); strap HRV reads 1.5–2× higher (different metric — judge by TREND);
+strap RHR ~7–12 lower (envelope floor vs Apple algo); **strap suspects = deep sleep 2–3× inflated
+(2.3–3.2h vs 0.8–1.0h), one 9.5h-vs-7.2h sleep night, active kcal 2–2.5× under Watch**; Watch caught a
+176-bpm spike the strap missed. Watch zone-1 minutes may be inflated by the 5-min gap-crediting cap —
+tighten if it looks generous.
+**Next:** (1) CEO wears both ~5 more nights → full P5 readout (per-metric correlation/bias → tune
+BodyMetrics, Readiness index; feeds the Vivistar OEM ask list: raw-PPG firmware if firmware HRV/sleep
+fail). Daily pull recipe: `devicectl device copy from --domain-type appDataContainer` →
+`fatloss-data.json`, compare `healthStrap/healthApple` + `recoveryStrap/recoveryApple` (beware
+migration-identical rows = residue, not agreement). (2) **Whole stretch is UNCOMMITTED on
+`vb9-integration`** (dual stores + switcher + Watch filter + HR zones + sync hardening) — commit/push
+is CEO-gated, not yet asked-for approved. (3) Ghost 2019/2020 rows in both stores — purge someday.
+Details in the three session blocks below.
+
+## 2026-10-26 session — dual-wearable Body tab (HUMANS strap ↔ Apple Watch switcher)
+
+**Built + sim-verified (uncommitted):** per-source sensor stores so the strap and the Watch can both be
+connected without overwriting each other, with a Body-tab switcher between two per-device dashboards.
+- **Model:** `AppData.healthApple/healthStrap`, `recoveryApple/recoveryStrap`, `workoutsApple/workoutsStrap`
+  + `bodySource` ("strap"|"apple"|""=auto→strap once a band is paired). The legacy `health`/`recovery`/
+  `workouts` dicts stay the ACTIVE VIEW every reader (BodyMetrics, views, CloudMirror, widget) uses —
+  `rebuildActiveView()` re-points them on decode, source switch, and after a cloud `merged()` (so zero
+  read-site changes). Decode-time migration seeds both stores from the legacy mixed dicts once;
+  per-source stores union-merge in `merged()` with the same rules as their active counterparts;
+  `bodySource` rides the settings stamp.
+- **Write routing:** `Store.HealthSource` (.apple/.strap/.both) + `mutateHealth`/`mutateWorkouts`/
+  source-aware `updateRecovery` keep active == selected store on every write. HealthKitManager → .apple;
+  strap paths (applyVB9History/one-key/live-HR/temperature/ECG mirror) → .strap; manual entry, URL scheme,
+  legacy import, Whoop/Oura link → .both. In-app workout tracker + its VO₂ estimate → .strap — this also
+  FIXES the pre-existing bug where a HealthKit `setWorkouts` replace wiped in-app ring workouts.
+- **UI:** `BodyView.sourceSwitcher` (HUMANS | APPLE WATCH, W-theme capsule row) shown once `data.band`
+  exists; debug arg `-bodySource apple|strap`. Switching recomputes every card from that device's data.
+- **Watch-device filter (CEO ask):** the Apple source is the WATCH's samples, not all of Apple Health —
+  wearable metrics (steps/energy/RHR/HRV/resp/SpO₂/temp/sleep/workouts/VO₂/HRR) query with
+  `HKQuery.predicateForObjects(withDeviceProperty: HKDevicePropertyKeyModel, allowedValues: ["Watch"])`
+  (in-memory `device?.model == "Watch"` filter for sleep/workout sample queries), falling back to
+  unfiltered Apple Health ONLY when a metric's window has zero Watch samples (no Watch paired / underived
+  types the system doesn't device-stamp). Non-wearable metrics (body comp, glucose, BP, dietary water)
+  stay unfiltered — no wrist device produces them.
+- **Verified:** sim build ✓; seeded divergent 35-day stores → HUMANS view (HRV 64/RHR 54/recovery 62%/
+  strain 5.1) vs APPLE WATCH view (HRV 44/RHR 62/recovery 54%/strain 14.0) from the same install;
+  selection persists across relaunch; on-disk JSON keeps both stores intact. Supports Phase 5 validation
+  week directly (the two series stay separate per day). NOTE: the sim UDID in the compile-check block
+  above is stale — current iPhone 17 Pro sim is `DFA49F29-5CF5-41B2-99E5-EE7EACA8A3FE`.
+- **2026-10-27 follow-ups (installed on the CEO's phone):** routine Apple Health sync window 7→30 days
+  (both `days: 7` call sites now use the 30-day default — the "7-day lock" the CEO hit on the Watch
+  view); NEW `allHeartRateSamples(days:)` — Watch-filtered raw HR samples → per-day all-day HR envelope
+  (`hrMinDay/hrMaxDay`) + zone minutes (`hrZoneMin`, same ≥50%-of-maxHR bucketing as the strap series,
+  sample covers gap-to-next capped 5 min) written `.apple`, so the Apple Watch view fills the HR-zones
+  card + all-day HR-range row on non-workout days too. First real strap-vs-Watch day (2026-10-26):
+  steps 8559/7943, kcal 301/278, HRV 60.3/59, SpO₂+temp agree — firmware HRV looks promising for P5.
+  Ghost 2019/2020 rows (old bad-timestamp bug) exist in both stores — harmless to scores, purge later.
+- **2026-10-27 evening — empty-Watch-dashboard root cause + sync hardening (installed):** the Apple
+  view was empty because **Apple Health was never connected on this install** — no `hk-last-sync` in
+  UserDefaults (wiped by an earlier delete/reinstall) → `hasConnected` false → foreground auto-sync
+  silently skipped forever. Fixes shipped: (1) every HealthKit metric now fails ALONE (`safe()` wrapper
+  + NSLog `[Health]` diagnostics; one error can no longer abort the whole sync — which is also how a
+  single mid-sync error used to prevent `lastSync` from ever stamping); (2) auto-sync gate =
+  `shouldAutoSync()` → probes `statusForAuthorizationRequest` on the v1 CORE read types
+  (steps/restingHR/HRV/sleep) — `.unnecessary` means the user answered the sheet, regardless of
+  types added later (probing the FULL readTypes set wrongly returns `.shouldRequest` after any update
+  that adds types). **CEO action still required: Profile → Apple Health → Connect (permission sheet
+  needs human taps).** ⚠️ CORRECTION to the 10-26 comparison above: those "Apple" values were
+  migration-frozen strap values, NOT Watch data — the real strap-vs-Watch dataset starts only after
+  Health is connected. Debug recipe that cracked it: `devicectl device copy from --domain-type
+  appDataContainer` for `fatloss-data.json` + `Library/Preferences/<bundle>.plist`, and console-attached
+  launch grepping `[Health]`.
+- **Open:** CloudSync blob now carries the per-source stores (payload roughly doubles — fine on Blaze,
+  worth a glance at doc size someday); pull `fatloss-data.json` off the phone via
+  `devicectl device copy from --domain-type appDataContainer` (works on the dev build) for P5 analysis.
 
 ## Where things stand (2026-10-23) — QRing / VY28C ring integration (active work)
 

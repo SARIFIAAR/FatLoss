@@ -929,8 +929,8 @@ extension Store {
         (1...days).map { n in BodyMetrics.trimp(data.workouts[DateKey.key(DateKey.daysAgo(n))] ?? []) }
     }
 
-    func setWorkouts(_ list: [WorkoutEntry], on day: String) {
-        if list.isEmpty { data.workouts.removeValue(forKey: day) } else { data.workouts[day] = list }
+    func setWorkouts(_ list: [WorkoutEntry], source: HealthSource = .both, on day: String) {
+        mutateWorkouts(source, on: day) { $0 = list }
     }
 
     /// The full day-score bundle for any date.
